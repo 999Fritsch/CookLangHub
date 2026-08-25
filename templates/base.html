@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}CookLangHub{% endblock %}</title>
+    <link rel="stylesheet" href="/static/tokens.css">
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to the main content</a>
+    <header class="site-header">
+      <a class="brand" href="/">CookLangHub</a>
+    </header>
+    <main id="main">
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="site-footer">
+      <p>CookLangHub {{ version }} &middot; AGPL-3.0-or-later</p>
+    </footer>
+  </body>
+</html>

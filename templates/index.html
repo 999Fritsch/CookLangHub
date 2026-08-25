@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Recipes &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<h1>CookLangHub</h1>
+
+<p class="lead">
+  A place to write Recipes, keep them together in Cookbooks, and cook them
+  with friends and family.
+</p>
+
+<section aria-labelledby="status-heading">
+  <h2 id="status-heading">Installation</h2>
+  <dl class="facts">
+    <dt>Forgejo</dt>
+    <dd><a href="{{ forgejo_url }}">{{ forgejo_url }}</a></dd>
+    <dt>Health</dt>
+    <dd><a href="/health">/health</a></dd>
+  </dl>
+</section>
+
+<section aria-labelledby="next-heading">
+  <h2 id="next-heading">Next</h2>
+  <p>
+    Sign-in, Recipes, and Cookbooks arrive in the tickets that follow this
+    walking skeleton.
+  </p>
+</section>
+{% endblock %}

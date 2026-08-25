@@ -1,0 +1,59 @@
+# The supported MVP deployment: the application plus the Forgejo LTS release
+# that it was tested against. `docker compose up` starts both from empty state.
+
+services:
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:15
+    restart: unless-stopped
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      # Skip the graphical install wizard. The administrator configures the
+      # integration with the bootstrap command instead.
+      FORGEJO__security__INSTALL_LOCK: "true"
+      FORGEJO__database__DB_TYPE: sqlite3
+      FORGEJO__database__PATH: /data/gitea/forgejo.db
+      FORGEJO__server__DOMAIN: "${FORGEJO_DOMAIN:-localhost}"
+      FORGEJO__server__ROOT_URL: "${FORGEJO_ROOT_URL:-http://localhost:3000/}"
+      FORGEJO__server__HTTP_PORT: "3000"
+      # Commit emails stay private by default in the bundled deployment.
+      FORGEJO__service__DEFAULT_KEEP_EMAIL_PRIVATE: "true"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__openid__ENABLE_OPENID_SIGNIN: "false"
+    volumes:
+      - forgejo-data:/data
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/api/v1/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      forgejo:
+        condition: service_healthy
+    environment:
+      # Inside the compose network the app reaches Forgejo by service name.
+      COOKLANGHUB_FORGEJO_URL: http://forgejo:3000
+      # A browser reaches it at the published address instead. Change this
+      # together with FORGEJO_ROOT_URL behind a reverse proxy.
+      COOKLANGHUB_FORGEJO_PUBLIC_URL: "${FORGEJO_ROOT_URL:-http://localhost:3000/}"
+      # A shared instance needs its own key. Set this in a .env file before
+      # anybody else uses the installation.
+      COOKLANGHUB_SESSION_SECRET: "${COOKLANGHUB_SESSION_SECRET:-development-secret-change-before-you-share-this-instance}"
+      COOKLANGHUB_LOG_FORMAT: "${COOKLANGHUB_LOG_FORMAT:-json}"
+    volumes:
+      - app-data:/data
+    ports:
+      - "8080:8080"
+
+volumes:
+  forgejo-data:
+  app-data:

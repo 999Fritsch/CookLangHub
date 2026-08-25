@@ -1,0 +1,195 @@
+/* CookLangHub design tokens: the single source of truth for visuals.
+ *
+ * RULES
+ *   1. This file is the only place where a literal color may appear.
+ *      Every other stylesheet and template uses var(--...).
+ *   2. Every foreground/background pair below is measured and meets
+ *      WCAG 2.1 AA (4.5:1 for normal text). The measured ratio is in the
+ *      comment. If you change a value, measure it again.
+ *   3. Assets come from this host only. No CDN, no remote font.
+ *
+ * The palette follows CookCLI and cooklang.org so that the Cooklang
+ * ecosystem reads as one family. It differs from them in three ways, and
+ * each difference has a reason:
+ *   - CookCLI uses #ff6b35 for text and for buttons. That value gives 2.84:1
+ *     and fails AA. Here #ff6b35 is a surface color only, and text uses the
+ *     darker --brand-ink.
+ *   - Interactive elements use a flat fill, not a gradient. A flat fill keeps
+ *     a measurable contrast ratio.
+ *   - Fonts are self-hosted, because the application must not call a CDN.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* ---- Neutrals ------------------------------------------------------ */
+  --paper:          #f9fafb;  /* page background                          */
+  --surface:        #ffffff;  /* card and panel background                */
+  --surface-sunken: #f3f4f6;  /* inset areas, code blocks                 */
+  --ink:            #212529;  /* body text        14.76:1 on --paper      */
+  --ink-strong:     #161718;  /* headings         16.1:1  on --paper      */
+  --ink-muted:      #6c757d;  /* secondary text    4.69:1 on --surface    */
+  --line:           #e5e7eb;  /* hairline rules                           */
+  --line-strong:    #ced4da;  /* input borders                            */
+
+  /* ---- Brand --------------------------------------------------------- */
+  /* --brand is decoration only: rules, gradients, placeholder fills.
+   * Never put text on it and never make text of it. Use --brand-ink. */
+  --brand:          #ff6b35;
+  --brand-ink:      #c2410c;  /* links, brand text  5.18:1 on --surface   */
+  --brand-fill:     #c2410c;  /* button background; white text is 5.18:1  */
+  --brand-tint:     #fff7ed;  /* hover and selected background            */
+  --brand-on-fill:  #ffffff;
+
+  /* ---- Cooklang primitives ------------------------------------------- */
+  /* One color per Cooklang entity, matching CookCLI so that a cook who
+   * knows one interface can read the other. Do not reuse these hues for
+   * anything that is not the named entity. */
+  --ingredient-bg:     #fef3c7;
+  --ingredient-line:   #fbbf24;
+  --ingredient-ink:    #92400e;  /* 6.37:1 on --ingredient-bg             */
+
+  --cookware-bg:       #dcfce7;
+  --cookware-line:     #4ade80;
+  --cookware-ink:      #14532d;  /* 8.30:1 on --cookware-bg               */
+
+  --timer-bg:          #fee2e2;
+  --timer-line:        #f87171;
+  --timer-ink:         #7f1d1d;  /* 8.20:1 on --timer-bg                  */
+
+  /* ---- Status -------------------------------------------------------- */
+  --ok-ink:      #14532d;
+  --ok-bg:       #dcfce7;
+  --warn-ink:    #92400e;
+  --warn-bg:     #fef3c7;
+  --danger-ink:  #7f1d1d;
+  --danger-bg:   #fee2e2;
+  --info-ink:    #1e3a8a;
+  --info-bg:     #dbeafe;
+
+  /* ---- Type ---------------------------------------------------------- */
+  /* Inter and JetBrains Mono match the Cooklang ecosystem. Both carry the
+   * SIL Open Font License, so the application serves them itself. Until the
+   * woff2 files are vendored, the stack falls back to the system font. */
+  --font-ui:   Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
+
+  --text-xs:   0.75rem;
+  --text-sm:   0.875rem;
+  --text-base: 1rem;
+  --text-lg:   1.125rem;
+  --text-xl:   1.25rem;
+  --text-2xl:  1.5rem;
+  --text-3xl:  1.875rem;
+
+  --leading-tight: 1.25;
+  --leading-body:  1.6;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-bold:   700;
+
+  /* ---- Space --------------------------------------------------------- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  /* ---- Shape --------------------------------------------------------- */
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   8px;   /* the default; CookCLI uses it most              */
+  --radius-pill: 9999px;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);
+
+  /* ---- Layout -------------------------------------------------------- */
+  --measure: 42rem;   /* comfortable reading width for Recipe text        */
+  --measure-wide: 64rem;
+
+  --focus-ring: 2px solid var(--brand-ink);
+  --focus-offset: 2px;
+}
+
+/* Dark mode. The default follows the operating system. A class or a
+ * data attribute overrides it, which is how a preference control will work.
+ * Badge backgrounds are one flat surface in dark mode, and the entity is
+ * told apart by its border and its text color. That keeps every pair
+ * measurable. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not(.light) {
+    --paper:          #1c1917;
+    --surface:        #292524;
+    --surface-sunken: #1c1917;
+    --ink:            #e7e5e4;  /* 13.93:1 on --paper                     */
+    --ink-strong:     #f5f5f4;
+    --ink-muted:      #a8a29e;  /*  6.93:1 on --paper                     */
+    --line:           #44403c;
+    --line-strong:    #57534e;
+
+    --brand:          #ff6b35;
+    --brand-ink:      #fb923c;  /*  7.73:1 on --paper                     */
+    --brand-fill:     #c2410c;
+    --brand-tint:     #331a0d;
+
+    --ingredient-bg:   #292524;
+    --ingredient-line: #fbbf24;
+    --ingredient-ink:  #fcd34d;  /* 10.52:1 on --ingredient-bg            */
+
+    --cookware-bg:     #292524;
+    --cookware-line:   #4ade80;
+    --cookware-ink:    #86efac;  /* 10.80:1 on --cookware-bg              */
+
+    --timer-bg:        #292524;
+    --timer-line:      #f87171;
+    --timer-ink:       #fca5a5;  /*  7.99:1 on --timer-bg                 */
+
+    --ok-ink:     #86efac;  --ok-bg:     #292524;
+    --warn-ink:   #fcd34d;  --warn-bg:   #292524;
+    --danger-ink: #fca5a5;  --danger-bg: #292524;
+    --info-ink:   #93c5fd;  --info-bg:   #292524;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 4px 12px rgb(0 0 0 / 0.5);
+  }
+}
+
+[data-theme="dark"], .dark {
+  --paper:          #1c1917;
+  --surface:        #292524;
+  --surface-sunken: #1c1917;
+  --ink:            #e7e5e4;
+  --ink-strong:     #f5f5f4;
+  --ink-muted:      #a8a29e;
+  --line:           #44403c;
+  --line-strong:    #57534e;
+
+  --brand:          #ff6b35;
+  --brand-ink:      #fb923c;
+  --brand-fill:     #c2410c;
+  --brand-tint:     #331a0d;
+
+  --ingredient-bg:   #292524;
+  --ingredient-line: #fbbf24;
+  --ingredient-ink:  #fcd34d;
+
+  --cookware-bg:     #292524;
+  --cookware-line:   #4ade80;
+  --cookware-ink:    #86efac;
+
+  --timer-bg:        #292524;
+  --timer-line:      #f87171;
+  --timer-ink:       #fca5a5;
+
+  --ok-ink:     #86efac;  --ok-bg:     #292524;
+  --warn-ink:   #fcd34d;  --warn-bg:   #292524;
+  --danger-ink: #fca5a5;  --danger-bg: #292524;
+  --info-ink:   #93c5fd;  --info-bg:   #292524;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.5);
+}
