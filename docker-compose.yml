@@ -40,6 +40,9 @@ services:
       forgejo:
         condition: service_healthy
     environment:
+      # Where a browser reaches this application. Forgejo sends a person
+      # back to it after a sign-in, so it must be the published address.
+      COOKLANGHUB_PUBLIC_URL: "${COOKLANGHUB_PUBLIC_URL:-http://localhost:8080}"
       # Inside the compose network the app reaches Forgejo by service name.
       COOKLANGHUB_FORGEJO_URL: http://forgejo:3000
       # A browser reaches it at the published address instead. Change this
@@ -49,6 +52,10 @@ services:
       # anybody else uses the installation.
       COOKLANGHUB_SESSION_SECRET: "${COOKLANGHUB_SESSION_SECRET:-development-secret-change-before-you-share-this-instance}"
       COOKLANGHUB_LOG_FORMAT: "${COOKLANGHUB_LOG_FORMAT:-json}"
+      # The session cookie carries Secure by default. Turn it off only for a
+      # plain-HTTP deployment on a name that is not localhost, where a
+      # browser would otherwise drop the cookie.
+      COOKLANGHUB_COOKIE_SECURE: "${COOKLANGHUB_COOKIE_SECURE:-true}"
     volumes:
       - app-data:/data
     ports:

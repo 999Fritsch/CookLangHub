@@ -11,12 +11,27 @@
     <a class="skip-link" href="#main">Skip to the main content</a>
     <header class="site-header">
       <a class="brand" href="/">CookLangHub</a>
+      <nav class="site-nav" aria-label="Account">
+        {% if layout.signed_in %}
+        <span class="account">
+          {% if !layout.user_avatar.is_empty() %}
+          <img class="avatar" src="{{ layout.user_avatar }}" alt="" width="24" height="24">
+          {% endif %}
+          <span class="account-name">{{ layout.user_name }}</span>
+        </span>
+        <form class="signout-form" method="post" action="/auth/sign-out">
+          <button class="button" type="submit">Sign out</button>
+        </form>
+        {% else %}
+        <a class="button button--primary" href="/auth/sign-in">Sign in</a>
+        {% endif %}
+      </nav>
     </header>
     <main id="main">
       {% block content %}{% endblock %}
     </main>
     <footer class="site-footer">
-      <p>CookLangHub {{ version }} &middot; AGPL-3.0-or-later</p>
+      <p>CookLangHub {{ layout.version }} &middot; AGPL-3.0-or-later</p>
     </footer>
   </body>
 </html>

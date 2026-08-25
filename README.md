@@ -37,6 +37,37 @@ nobody needs to know a Git command to use it.
 The stack starts from empty state. It needs no manual database step and no
 install wizard.
 
+## Prepare sign-in
+
+Forgejo owns the accounts. Do these steps once, after the first start.
+
+1. Make the first Forgejo account. Registration is off by default, so the
+   administrator creates it:
+
+   ```sh
+   docker compose exec -u git forgejo forgejo admin user create      --username YOURNAME --email you@example.com --admin
+   ```
+
+2. Make an access token for that account:
+
+   ```sh
+   docker compose exec -u git forgejo forgejo admin user      generate-access-token --username YOURNAME --scopes write:user --raw
+   ```
+
+3. Register CookLangHub with Forgejo:
+
+   ```sh
+   docker compose exec app cooklanghub bootstrap --forgejo-admin-token TOKEN
+   ```
+
+4. Open <http://localhost:8080> and select **Sign in**.
+
+Step 3 is repeatable. Running it again reuses the same OAuth application and
+issues a new client secret, so Forgejo never collects duplicates.
+
+Add more people with `forgejo admin user create`, or turn registration on in
+Forgejo.
+
 ## Health
 
 `GET /health` reports each component separately, so an administrator can tell
@@ -72,11 +103,23 @@ Environment variables, all with the `COOKLANGHUB_` prefix:
 | --- | --- | --- |
 | `BIND` | `0.0.0.0:8080` | Address of the HTTP server |
 | `DATABASE_URL` | `sqlite://data/cooklanghub.db?mode=rwc` | Operational state |
+| `PUBLIC_URL` | `http://localhost:8080` | Where a browser reaches this application |
 | `FORGEJO_URL` | `http://localhost:3000` | Base URL that the app uses for the Forgejo API |
 | `FORGEJO_PUBLIC_URL` | same as `FORGEJO_URL` | Base URL that a browser uses for Forgejo |
-| `SESSION_SECRET` | none, required | Key that signs session cookies |
+| `SESSION_SECRET` | none, required | Signs session cookies and encrypts stored credentials |
+| `COOKIE_SECURE` | `true` | Whether the session cookie carries `Secure` |
 | `LOG_FORMAT` | `json` | `json` or `pretty` |
 | `LOG` | `info,cooklanghub=debug` | Log filter |
+
+## Sign-in
+
+Forgejo is the identity provider. The browser receives only a CookLangHub
+session cookie, which carries `HttpOnly`, `Secure`, and `SameSite=Lax`. The
+Forgejo access token stays on the server and is encrypted with a key derived
+from `COOKLANGHUB_SESSION_SECRET`.
+
+Changing the session secret invalidates every stored credential. That signs
+everybody out, which is the correct result of a rotated key.
 
 ## Design
 
