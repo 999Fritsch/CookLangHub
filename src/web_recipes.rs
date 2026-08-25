@@ -19,6 +19,9 @@ use crate::secret::Secret;
 use crate::session::{self, COOKIE_NAME};
 use crate::web::{AppState, Layout, MaybeUser};
 
+/// Shown when the stored file is not text that the application can read.
+const NOT_TEXT_MESSAGE: &str = "This Recipe is not UTF-8 text. Each character that could not be read appears below as a replacement mark. Open the Recipe in Forgejo to see the exact content.";
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/recipes/new", get(new_form).post(create))
@@ -198,8 +201,21 @@ async fn show(
         }
     };
 
+    // A Recipe written through this application is always UTF-8 text. Git
+    // accepts any bytes though, so a direct push can put something else
+    // there. Say so plainly instead of showing replacement characters that
+    // look like a fault in the Recipe itself.
+    let valid_text = std::str::from_utf8(&bytes).is_ok();
     let source = String::from_utf8_lossy(&bytes).to_string();
+
+    let mut errors = Vec::new();
+    if !valid_text {
+        tracing::info!(%owner, %slug, "the Recipe file is not UTF-8 text");
+        errors.push(NOT_TEXT_MESSAGE.to_string());
+    }
+
     let parsed = recipe::parse(&source);
+    errors.extend(parsed.errors.iter().map(|d| d.message.clone()));
 
     render(ShowTemplate {
         layout: Layout::new(current.as_ref()),
@@ -208,7 +224,7 @@ async fn show(
         source,
         forgejo_url: state.forgejo.web_url(&repository.full_name),
         warnings: parsed.warnings.iter().map(|d| d.message.clone()).collect(),
-        errors: parsed.errors.iter().map(|d| d.message.clone()).collect(),
+        errors,
     })
 }
 

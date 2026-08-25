@@ -376,3 +376,92 @@ async fn signing_in_is_required_before_creating() {
         Some("/auth/sign-in")
     );
 }
+
+#[tokio::test]
+async fn umlauts_survive_the_whole_round_trip() {
+    // The first Recipes this project was tested with are German. A lost
+    // umlaut turns `Äpfel` into a replacement mark, and the person cannot
+    // tell whether their Recipe or the application is at fault.
+    let (forgejo, app, session) = ready().await;
+    let token = forgejo.access_token("sam");
+
+    let source = "@Äpfel{2} schälen. In eine #Schüssel{} geben und mit @Rapsöl{1%TL} pürieren. Straße, Grüße, Müsli.";
+
+    let response =
+        support::create_recipe(&app, &session, "Frischer Obstbrei", source, false).await;
+    assert_eq!(response.status(), 303);
+
+    // What Forgejo stores must carry the same letters that were written.
+    let stored = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/repos/sam/frischer-obstbrei/raw/recipe.cook",
+            forgejo.base_url
+        ))
+        .header("Authorization", format!("token {}", token.expose()))
+        .send()
+        .await
+        .expect("cannot read the Recipe file")
+        .bytes()
+        .await
+        .expect("cannot read the body");
+
+    let stored = String::from_utf8(stored.to_vec()).expect("the stored file must be UTF-8");
+
+    for word in [
+        "Äpfel", "schälen", "Schüssel", "Rapsöl", "pürieren", "Straße", "Grüße", "Müsli",
+    ] {
+        assert!(stored.contains(word), "`{word}` did not survive storage");
+    }
+    assert!(
+        !stored.contains('\u{fffd}'),
+        "a replacement mark reached the stored Recipe"
+    );
+
+    // And the page must carry them too.
+    let page = support::client()
+        .get(app.url("/recipes/sam/frischer-obstbrei"))
+        .header("cookie", format!("{COOKIE_NAME}={session}"))
+        .send()
+        .await
+        .expect("cannot reach the Recipe page")
+        .text()
+        .await
+        .expect("cannot read the body");
+
+    for word in ["Äpfel", "Schüssel", "Rapsöl"] {
+        assert!(page.contains(word), "`{word}` did not survive the page");
+    }
+    assert!(
+        !page.contains('\u{fffd}'),
+        "a replacement mark reached the Recipe page"
+    );
+}
+
+#[tokio::test]
+async fn a_title_with_umlauts_keeps_its_letters_and_gets_an_ascii_slug() {
+    let (forgejo, app, session) = ready().await;
+    let token = forgejo.access_token("sam");
+
+    let response =
+        support::create_recipe(&app, &session, "Pfannekuchen für Gäste", "", false).await;
+    assert_eq!(response.status(), 303);
+
+    // The slug is technical and stays ASCII. The title keeps its letters.
+    let repo = support::forgejo_api(&forgejo, &token, "/repos/sam/pfannekuchen-fuer-gaeste").await;
+    assert_eq!(repo["name"], "pfannekuchen-fuer-gaeste");
+
+    let body = support::client()
+        .get(app.url("/"))
+        .header("cookie", format!("{COOKIE_NAME}={session}"))
+        .send()
+        .await
+        .expect("cannot reach the index page")
+        .text()
+        .await
+        .expect("cannot read the body");
+
+    assert!(
+        body.contains("Pfannekuchen für Gäste"),
+        "the list must show the title with its own letters"
+    );
+}
