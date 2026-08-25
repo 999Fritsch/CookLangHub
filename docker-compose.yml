@@ -18,6 +18,7 @@ services:
       FORGEJO__server__HTTP_PORT: "3000"
       # Commit emails stay private by default in the bundled deployment.
       FORGEJO__service__DEFAULT_KEEP_EMAIL_PRIVATE: "true"
+      FORGEJO__service__NO_REPLY_ADDRESS: "${FORGEJO_NOREPLY_DOMAIN:-noreply.localhost}"
       FORGEJO__service__DISABLE_REGISTRATION: "true"
       FORGEJO__openid__ENABLE_OPENID_SIGNIN: "false"
     volumes:
@@ -48,6 +49,9 @@ services:
       # A browser reaches it at the published address instead. Change this
       # together with FORGEJO_ROOT_URL behind a reverse proxy.
       COOKLANGHUB_FORGEJO_PUBLIC_URL: "${FORGEJO_ROOT_URL:-http://localhost:3000/}"
+      # Must match service.NO_REPLY_ADDRESS in Forgejo. A person who hides
+      # their address gets an address at this domain in Recipe History.
+      COOKLANGHUB_FORGEJO_NOREPLY_DOMAIN: "${FORGEJO_NOREPLY_DOMAIN:-noreply.localhost}"
       # A shared instance needs its own key. Set this in a .env file before
       # anybody else uses the installation.
       COOKLANGHUB_SESSION_SECRET: "${COOKLANGHUB_SESSION_SECRET:-development-secret-change-before-you-share-this-instance}"

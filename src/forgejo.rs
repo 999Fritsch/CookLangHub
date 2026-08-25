@@ -41,6 +41,11 @@ pub struct ForgejoUser {
     pub full_name: String,
     #[serde(default)]
     pub avatar_url: String,
+    /// The address Forgejo gives for this person. It is a no-reply address
+    /// when they keep their address private, and the application uses it
+    /// exactly as given so that the privacy setting is obeyed.
+    #[serde(default)]
+    pub email: String,
 }
 
 impl ForgejoUser {
@@ -67,6 +72,44 @@ pub struct OAuthApplication {
     pub client_secret: String,
     #[serde(default)]
     pub redirect_uris: Vec<String>,
+}
+
+/// The account settings of the signed-in person.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct UserSettings {
+    /// Whether this person keeps their address out of public view.
+    #[serde(default)]
+    pub hide_email: bool,
+}
+
+/// A Forgejo repository.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Repository {
+    pub name: String,
+    pub full_name: String,
+    pub html_url: String,
+    pub clone_url: String,
+    #[serde(default)]
+    pub default_branch: String,
+    #[serde(default)]
+    pub private: bool,
+    #[serde(default)]
+    pub empty: bool,
+    pub owner: RepositoryOwner,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RepositoryOwner {
+    pub login: String,
+}
+
+/// Why a repository could not be created.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreateRepositoryOutcome {
+    /// A repository with that name already belongs to this person.
+    NameTaken,
+    /// Something else went wrong.
+    Other,
 }
 
 /// The answer of the token endpoint.
@@ -122,6 +165,27 @@ impl ForgejoClient {
     /// Where a browser reaches Forgejo. Every link uses this value.
     pub fn public_url(&self) -> &str {
         &self.public_url
+    }
+
+    /// The address that the Git adapter pushes to.
+    ///
+    /// This is built from `api_url` and never from the `clone_url` that
+    /// Forgejo reports. Forgejo builds that field from its own ROOT_URL,
+    /// which names the address a browser uses. Inside the bundled stack
+    /// that address does not reach Forgejo from this process at all, so
+    /// trusting it would make every push fail.
+    pub fn git_url(&self, full_name: &str) -> String {
+        format!("{}/{}.git", self.api_url, full_name.trim_matches('/'))
+    }
+
+    /// The address a person follows for **Open in Forgejo**.
+    ///
+    /// Built from `public_url` for the same reason as [`Self::git_url`]:
+    /// the `html_url` that Forgejo reports comes from its own ROOT_URL,
+    /// which is a configured value and need not match the address that
+    /// this browser actually used.
+    pub fn web_url(&self, full_name: &str) -> String {
+        format!("{}/{}", self.public_url, full_name.trim_matches('/'))
     }
 
     /// Read the version of the Forgejo instance.
@@ -199,6 +263,193 @@ impl ForgejoClient {
                 self.http
                     .get(format!("{}/api/v1/user", self.api_url))
                     .bearer_auth(access_token.expose()),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Create a repository that belongs to the token holder.
+    ///
+    /// The repository starts empty. The Git adapter puts the first Version
+    /// in it, so that the commit carries the identity of the person.
+    pub async fn create_repository(
+        &self,
+        token: &Secret<String>,
+        name: &str,
+        private: bool,
+        default_branch: &str,
+    ) -> Result<Repository, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .post(format!("{}/api/v1/user/repos", self.api_url))
+                    .bearer_auth(token.expose())
+                    .json(&serde_json::json!({
+                        "name": name,
+                        "private": private,
+                        "auto_init": false,
+                        "default_branch": default_branch,
+                    })),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Replace the topics of a repository.
+    ///
+    /// Topics are the opt-in marker: a repository without them does not
+    /// appear in this application.
+    pub async fn set_topics(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        topics: &[&str],
+    ) -> Result<(), ForgejoError> {
+        self.send(
+            self.http
+                .put(format!(
+                    "{}/api/v1/repos/{owner}/{repository}/topics",
+                    self.api_url
+                ))
+                .bearer_auth(token.expose())
+                .json(&serde_json::json!({ "topics": topics })),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Read one repository.
+    pub async fn repository(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<Repository, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .get(format!("{}/api/v1/repos/{owner}/{repository}", self.api_url))
+                    .bearer_auth(token.expose()),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Whether a repository name is already used by this person.
+    pub async fn repository_exists(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<bool, ForgejoError> {
+        match self.repository(token, owner, repository).await {
+            Ok(_) => Ok(true),
+            Err(ForgejoError::Status { status: 404, .. }) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Delete a repository. Used by tests and by a failed creation that
+    /// needs to leave nothing behind.
+    pub async fn delete_repository(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<(), ForgejoError> {
+        self.send(
+            self.http
+                .delete(format!("{}/api/v1/repos/{owner}/{repository}", self.api_url))
+                .bearer_auth(token.expose()),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Find the Recipe repositories of one person.
+    ///
+    /// The topic is the opt-in marker, so a repository without it never
+    /// appears here. Forgejo applies the permissions of the token, so a
+    /// private Recipe reaches only somebody who may see it.
+    pub async fn search_repositories_by_topic(
+        &self,
+        token: &Secret<String>,
+        topic: &str,
+        owner_id: i64,
+        limit: u32,
+    ) -> Result<Vec<Repository>, ForgejoError> {
+        #[derive(Deserialize)]
+        struct SearchResults {
+            data: Vec<Repository>,
+        }
+
+        let response = self
+            .send(
+                self.http
+                    .get(format!("{}/api/v1/repos/search", self.api_url))
+                    .bearer_auth(token.expose())
+                    .query(&[
+                        ("q", topic),
+                        ("topic", "true"),
+                        ("uid", &owner_id.to_string()),
+                        ("exclusive", "true"),
+                        ("sort", "updated"),
+                        ("order", "desc"),
+                        ("limit", &limit.to_string()),
+                    ]),
+            )
+            .await?;
+
+        let results: SearchResults = read_json(response).await?;
+        Ok(results.data)
+    }
+
+    /// Read one file from a repository at its published state.
+    pub async fn raw_file(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        reference: &str,
+        path: &str,
+    ) -> Result<Vec<u8>, ForgejoError> {
+        let mut request = self.http.get(format!(
+            "{}/api/v1/repos/{owner}/{repository}/raw/{path}",
+            self.api_url
+        ));
+        request = request.query(&[("ref", reference)]);
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        let response = self.send(request).await?;
+
+        response
+            .bytes()
+            .await
+            .map(|b| b.to_vec())
+            .map_err(|error| ForgejoError::Body(error.to_string()))
+    }
+
+    /// Read the account settings of the token holder.
+    ///
+    /// `/api/v1/user` gives the real address to the person it belongs to,
+    /// whatever their privacy setting says. This endpoint is what tells the
+    /// application whether that address may be written into History.
+    pub async fn user_settings(
+        &self,
+        token: &Secret<String>,
+    ) -> Result<UserSettings, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .get(format!("{}/api/v1/user/settings", self.api_url))
+                    .bearer_auth(token.expose()),
             )
             .await?;
 
@@ -391,12 +642,37 @@ mod tests {
     }
 
     #[test]
+    fn the_git_address_comes_from_the_api_url() {
+        // Forgejo reports a clone_url built from its ROOT_URL, which is the
+        // address a browser uses. This process may not be able to reach
+        // that address at all.
+        let client =
+            ForgejoClient::with_urls("http://forgejo:3000", "http://localhost:3000").unwrap();
+
+        assert_eq!(
+            client.git_url("sam/chili"),
+            "http://forgejo:3000/sam/chili.git"
+        );
+        assert!(!client.git_url("sam/chili").contains("localhost"));
+    }
+
+    #[test]
+    fn the_open_in_forgejo_address_comes_from_the_public_url() {
+        let client =
+            ForgejoClient::with_urls("http://forgejo:3000", "http://localhost:3000").unwrap();
+
+        assert_eq!(client.web_url("sam/chili"), "http://localhost:3000/sam/chili");
+        assert!(!client.web_url("sam/chili").contains("forgejo:3000"));
+    }
+
+    #[test]
     fn display_name_falls_back_to_the_login() {
         let user = ForgejoUser {
             id: 1,
             login: "sam".to_string(),
             full_name: "  ".to_string(),
             avatar_url: String::new(),
+            email: "sam@example.test".to_string(),
         };
         assert_eq!(user.display_name(), "sam");
     }

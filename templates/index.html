@@ -11,11 +11,31 @@
 </p>
 
 {% if layout.signed_in %}
-<section aria-labelledby="welcome-heading">
-  <h2 id="welcome-heading">Welcome back, {{ layout.user_name }}</h2>
-  <p>
-    Recipes and Cookbooks arrive in the tickets that follow this one.
+<section aria-labelledby="mine-heading">
+  <div class="section-header">
+    <h2 id="mine-heading">My Recipes</h2>
+    <a class="button button--primary" href="/recipes/new">New Recipe</a>
+  </div>
+
+  {% if recipes.is_empty() %}
+  <p class="empty">
+    You have no Recipes yet. Select <strong>New Recipe</strong> to write your
+    first one.
   </p>
+  {% else %}
+  <ul class="cards">
+    {% for recipe in recipes %}
+    <li class="card card--recipe">
+      <h3 class="card-title">
+        <a href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}">{{ recipe.title }}</a>
+      </h3>
+      <p class="card-meta">
+        Owned by {{ recipe.owner }}{% if recipe.private %} &middot; Private{% endif %}
+      </p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
 </section>
 {% else %}
 <section aria-labelledby="signin-heading">

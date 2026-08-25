@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}New Recipe &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<h1>New Recipe</h1>
+
+{% if !errors.is_empty() %}
+<div class="notice notice--error" role="alert">
+  <h2>This Recipe cannot be created yet</h2>
+  <ul>
+    {% for error in errors %}
+    <li>{{ error }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<form method="post" action="/recipes/new" class="stack">
+  <div class="field">
+    <label for="title">Title</label>
+    <input id="title" name="title" type="text" value="{{ title }}" required
+           autocomplete="off" autofocus>
+    <p class="hint">The title is stored in the Recipe itself.</p>
+  </div>
+
+  <div class="field">
+    <label for="source">Recipe</label>
+    <textarea id="source" name="source" rows="18" spellcheck="false"
+              placeholder="Chop the @onion{1} and fry it in a #pan{} for ~{5%minutes}.">{{ source }}</textarea>
+    <p class="hint">
+      Write in Cooklang. Mark an ingredient with <code>@</code>, cookware with
+      <code>#</code>, and a time with <code>~</code>. A title on its own is
+      enough to start.
+    </p>
+  </div>
+
+  <fieldset class="field">
+    <legend>Who can see this Recipe</legend>
+    <label class="choice">
+      <input type="radio" name="visibility" value="public" {% if !private %}checked{% endif %}>
+      <span><strong>Public</strong> — anybody can read it.</span>
+    </label>
+    <label class="choice">
+      <input type="radio" name="visibility" value="private" {% if private %}checked{% endif %}>
+      <span><strong>Private</strong> — only you and people you share it with.</span>
+    </label>
+  </fieldset>
+
+  <div class="actions">
+    <button class="button button--primary" type="submit">Create Recipe</button>
+    <a class="button" href="/">Cancel</a>
+  </div>
+</form>
+{% endblock %}

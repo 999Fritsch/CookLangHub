@@ -96,7 +96,7 @@ impl Forgejo {
             "--username",
             login,
             "--scopes",
-            "write:user",
+            "all",
             "--raw",
         ]);
         Secret::new(raw.trim().to_string())
@@ -236,11 +236,13 @@ pub async fn start_app_with_public_forgejo_url(
         AppState {
             pool: pool.clone(),
             forgejo: forgejo.clone(),
+            git: std::sync::Arc::new(cooklanghub::git::SystemGit),
             cipher: cipher.clone(),
             // The test drives plain HTTP on a loopback address, and the
             // harness reads the Set-Cookie header directly, so the attribute
             // is asserted rather than relied on.
             cookie_secure: true,
+            forgejo_noreply_domain: cooklanghub::create_recipe::DEFAULT_NOREPLY_DOMAIN.to_string(),
             installation_id,
         },
         static_dir,
@@ -282,8 +284,10 @@ pub async fn restart(app: &TestApp) -> TestApp {
         AppState {
             pool: pool.clone(),
             forgejo: app.forgejo.clone(),
+            git: std::sync::Arc::new(cooklanghub::git::SystemGit),
             cipher: app.cipher.clone(),
             cookie_secure: true,
+            forgejo_noreply_domain: cooklanghub::create_recipe::DEFAULT_NOREPLY_DOMAIN.to_string(),
             installation_id,
         },
         static_dir,
@@ -518,4 +522,65 @@ fn hidden_field(html: &str, name: &str) -> Option<String> {
     let value_end = tag[value_at..].find('"')? + value_at;
 
     Some(tag[value_at..value_end].to_string())
+}
+
+/// Post the create-Recipe form as the holder of a session cookie.
+pub async fn create_recipe(
+    app: &TestApp,
+    session: &str,
+    title: &str,
+    source: &str,
+    private: bool,
+) -> reqwest::Response {
+    let visibility = if private { "private" } else { "public" };
+
+    client()
+        .post(app.url("/recipes/new"))
+        .header("cookie", format!("{}={session}", cooklanghub::session::COOKIE_NAME))
+        .form(&[
+            ("title", title),
+            ("source", source),
+            ("visibility", visibility),
+        ])
+        .send()
+        .await
+        .expect("cannot post the create form")
+}
+
+/// Ask Forgejo directly, for a test that checks what actually landed there.
+///
+/// Forgejo answers 409 for a short moment after the first push, while it
+/// finishes recording the new state of the repository. That is a property
+/// of Forgejo and not of this application, so the helper waits it out
+/// rather than making every test carry the retry.
+pub async fn forgejo_api(
+    forgejo: &Forgejo,
+    token: &Secret<String>,
+    path: &str,
+) -> serde_json::Value {
+    let client = reqwest::Client::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let mut last = String::new();
+
+    while std::time::Instant::now() < deadline {
+        let response = client
+            .get(format!("{}/api/v1{path}", forgejo.base_url))
+            .header("Authorization", format!("token {}", token.expose()))
+            .send()
+            .await
+            .expect("cannot reach the Forgejo API");
+
+        let status = response.status();
+        if status.is_success() {
+            return response.json().await.expect("the answer is not JSON");
+        }
+
+        last = format!("{status}");
+        if status.as_u16() != 409 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+
+    panic!("GET {path} answered {last}");
 }

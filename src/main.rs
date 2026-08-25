@@ -139,8 +139,10 @@ async fn serve() -> anyhow::Result<()> {
     let state = AppState {
         pool,
         forgejo,
+        git: std::sync::Arc::new(cooklanghub::git::SystemGit),
         cipher,
         cookie_secure: config.cookie_secure,
+        forgejo_noreply_domain: config.forgejo_noreply_domain.clone(),
         installation_id,
     };
 

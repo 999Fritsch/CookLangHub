@@ -106,6 +106,7 @@ Environment variables, all with the `COOKLANGHUB_` prefix:
 | `PUBLIC_URL` | `http://localhost:8080` | Where a browser reaches this application |
 | `FORGEJO_URL` | `http://localhost:3000` | Base URL that the app uses for the Forgejo API |
 | `FORGEJO_PUBLIC_URL` | same as `FORGEJO_URL` | Base URL that a browser uses for Forgejo |
+| `FORGEJO_NOREPLY_DOMAIN` | `noreply.localhost` | Address domain for a person who hides their email |
 | `SESSION_SECRET` | none, required | Signs session cookies and encrypts stored credentials |
 | `COOKIE_SECURE` | `true` | Whether the session cookie carries `Secure` |
 | `LOG_FORMAT` | `json` | `json` or `pretty` |
@@ -120,6 +121,30 @@ from `COOKLANGHUB_SESSION_SECRET`.
 
 Changing the session secret invalidates every stored credential. That signs
 everybody out, which is the correct result of a rotated key.
+
+## Recipes
+
+A Recipe is one Forgejo repository with the topics `cooklang` and `recipe`.
+It holds one `recipe.cook` file, and `main` is the published Recipe. The
+title comes from the Cooklang metadata, so the application stores no second
+copy of it.
+
+Cooklang parsing uses `cooklang-rs` with all canonical extensions. The
+converter knows the bundled English units and the German names in
+`units/german.toml`. Without those names a timer such as `~{8%Min.}` would
+be an error, and an error stops creation.
+
+A Version carries the Forgejo identity of the person who made it, as author
+and as committer. A person who hides their address gets the Forgejo no-reply
+address, because History is readable by anybody who can read the Recipe.
+
+## Addresses
+
+Forgejo reports `clone_url` and `html_url` built from its own `ROOT_URL`.
+The application does not use either. It builds a Git address from
+`FORGEJO_URL`, which is how this process reaches Forgejo, and a browser
+address from `FORGEJO_PUBLIC_URL`. In the bundled stack these differ, and
+using the reported value would break every push.
 
 ## Design
 

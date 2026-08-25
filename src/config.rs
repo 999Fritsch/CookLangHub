@@ -35,6 +35,9 @@ pub struct Config {
     /// `forgejo_url` whenever the application and the browser sit on
     /// different networks, which is the normal case for the bundled stack.
     pub forgejo_public_url: String,
+    /// The domain Forgejo uses when a person hides their address. It must
+    /// match `service.NO_REPLY_ADDRESS` in the Forgejo configuration.
+    pub forgejo_noreply_domain: String,
     /// Key used to sign session cookies and to encrypt stored credentials.
     pub session_secret: Secret<String>,
     /// Whether the session cookie carries the `Secure` attribute. It stays
@@ -67,6 +70,10 @@ impl Config {
         // A single-host installation needs no second URL, so the public URL
         // falls back to the API URL.
         let forgejo_public_url = var_or("FORGEJO_PUBLIC_URL", &forgejo_url)?;
+        let forgejo_noreply_domain = var_or(
+            "FORGEJO_NOREPLY_DOMAIN",
+            crate::create_recipe::DEFAULT_NOREPLY_DOMAIN,
+        )?;
         let session_secret = Secret::new(required("SESSION_SECRET")?);
         let cookie_secure = flag("COOKIE_SECURE", true)?;
 
@@ -87,6 +94,7 @@ impl Config {
             database_url,
             forgejo_url: trim(forgejo_url),
             forgejo_public_url: trim(forgejo_public_url),
+            forgejo_noreply_domain,
             session_secret,
             cookie_secure,
             log_format,
@@ -154,6 +162,7 @@ mod tests {
             database_url: "sqlite://:memory:".to_string(),
             forgejo_url: "http://forgejo:3000".to_string(),
             forgejo_public_url: "http://localhost:3000".to_string(),
+            forgejo_noreply_domain: "noreply.localhost".to_string(),
             session_secret: Secret::new("super-secret-key".to_string()),
             cookie_secure: true,
             log_format: LogFormat::Json,

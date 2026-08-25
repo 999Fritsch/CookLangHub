@@ -7,13 +7,17 @@
 pub mod auth;
 pub mod bootstrap;
 pub mod config;
+pub mod create_recipe;
 pub mod crypto;
 pub mod db;
 pub mod forgejo;
+pub mod git;
 pub mod health;
+pub mod recipe;
 pub mod secret;
 pub mod session;
 pub mod telemetry;
 pub mod web;
+pub mod web_recipes;
 
 pub use config::Config;

@@ -1,0 +1,28 @@
+# German unit names for the Cooklang converter.
+#
+# Why this file exists: the parser treats an unknown timer unit as an error,
+# and an error stops the friendly interface from publishing. The bundled
+# units are English, so a German Recipe with `~{8%Min.}` could not be
+# created. Every name here was taken from a real Recipe collection, not
+# invented.
+#
+# `[extend.units]` adds names to units that already exist, so the ratios and
+# the conversions of the bundled file stay in charge.
+
+[extend.units]
+# Time. These are the ones that block creation, because a timer must carry a
+# unit that the converter knows.
+second = { names = ["Sekunde", "Sekunden"], aliases = ["Sek", "Sek."] }
+minute = { names = ["Minute", "Minuten"], aliases = ["Min", "Min."] }
+hour = { names = ["Stunde", "Stunden"], aliases = ["Std", "Std."] }
+day = { names = ["Tag", "Tage"], aliases = ["Tg", "Tg."] }
+
+# Volume.
+liter = { names = ["Liter"], aliases = ["Ltr", "Ltr."] }
+teaspoon = { names = ["Teelöffel"], aliases = ["TL", "Tl", "TL."] }
+tablespoon = { names = ["Esslöffel"], aliases = ["EL", "El", "EL."] }
+cup = { names = ["Tasse", "Tassen"] }
+
+# Mass.
+gram = { names = ["Gramm"] }
+kilogram = { aliases = ["Kilo"] }

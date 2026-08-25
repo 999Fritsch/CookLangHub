@@ -169,6 +169,7 @@ mod tests {
             login: "sam".to_string(),
             full_name: "Sam Cook".to_string(),
             avatar_url: "http://forgejo:3000/avatars/7".to_string(),
+            email: "sam@example.test".to_string(),
         };
         (pool, cipher, user)
     }

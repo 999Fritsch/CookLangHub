@@ -17,6 +17,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::crypto::Cipher;
 use crate::forgejo::ForgejoClient;
+use crate::git::GitAdapter;
 use crate::health;
 use crate::session::{self, COOKIE_NAME, CurrentUser};
 
@@ -25,9 +26,15 @@ use crate::session::{self, COOKIE_NAME, CurrentUser};
 pub struct AppState {
     pub pool: SqlitePool,
     pub forgejo: ForgejoClient,
+    /// Git owns Recipe content, and every content operation goes through
+    /// this boundary. It is a trait object so that a later ticket can
+    /// replace the implementation without touching the Recipe model.
+    pub git: Arc<dyn GitAdapter>,
     pub cipher: Cipher,
     /// Whether the session cookie carries the `Secure` attribute.
     pub cookie_secure: bool,
+    /// The domain Forgejo uses when a person hides their address.
+    pub forgejo_noreply_domain: String,
     pub installation_id: String,
 }
 
@@ -44,6 +51,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .route("/", get(index))
         .route("/health", get(health_endpoint))
         .merge(crate::auth::router())
+        .merge(crate::web_recipes::router())
         .nest_service("/static", ServeDir::new(static_dir))
         .layer(SetResponseHeaderLayer::overriding(
             header::CONTENT_SECURITY_POLICY,
@@ -115,17 +123,37 @@ impl Layout {
     }
 }
 
+/// One Recipe as a card on a list.
+#[derive(Debug, Clone)]
+pub struct RecipeCard {
+    pub owner: String,
+    pub slug: String,
+    pub title: String,
+    pub private: bool,
+}
+
 #[derive(Template)]
 #[template(path = "index.html")]
 struct IndexTemplate {
     layout: Layout,
     forgejo_url: String,
+    recipes: Vec<RecipeCard>,
 }
 
-async fn index(State(state): State<Arc<AppState>>, MaybeUser(user): MaybeUser) -> Response {
+async fn index(
+    State(state): State<Arc<AppState>>,
+    jar: axum_extra::extract::CookieJar,
+    MaybeUser(user): MaybeUser,
+) -> Response {
+    let recipes = match &user {
+        Some(_) => mine(&state, &jar).await,
+        None => Vec::new(),
+    };
+
     let template = IndexTemplate {
         layout: Layout::new(user.as_ref()),
         forgejo_url: state.forgejo.public_url().to_string(),
+        recipes,
     };
 
     match template.render() {
@@ -133,6 +161,43 @@ async fn index(State(state): State<Arc<AppState>>, MaybeUser(user): MaybeUser) -
         Err(error) => {
             tracing::error!(%error, "cannot render the index template");
             (StatusCode::INTERNAL_SERVER_ERROR, "template error").into_response()
+        }
+    }
+}
+
+/// The Recipes that belong to the signed-in person.
+///
+/// This is a short list to make a new Recipe findable. Browsing, sorting,
+/// and search arrive with the index in a later ticket.
+async fn mine(state: &AppState, jar: &axum_extra::extract::CookieJar) -> Vec<RecipeCard> {
+    let Some(cookie) = jar.get(COOKIE_NAME) else {
+        return Vec::new();
+    };
+    let Ok(Some(token)) = session::access_token(&state.pool, &state.cipher, cookie.value()).await
+    else {
+        return Vec::new();
+    };
+    let Ok(user) = state.forgejo.current_user(&token).await else {
+        return Vec::new();
+    };
+
+    match state
+        .forgejo
+        .search_repositories_by_topic(&token, "recipe", user.id, 30)
+        .await
+    {
+        Ok(repositories) => repositories
+            .into_iter()
+            .map(|repository| RecipeCard {
+                owner: repository.owner.login,
+                slug: repository.name.clone(),
+                title: repository.name,
+                private: repository.private,
+            })
+            .collect(),
+        Err(error) => {
+            tracing::warn!(%error, "cannot list the Recipes of this person");
+            Vec::new()
         }
     }
 }
