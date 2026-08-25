@@ -349,6 +349,12 @@ async fn a_new_recipe_appears_in_the_list_of_the_person() {
         body.contains("/recipes/sam/findable-dish"),
         "a Recipe must be findable after it is created"
     );
+
+    // The list shows the title a person wrote, not the technical slug.
+    assert!(
+        body.contains("Findable Dish"),
+        "the list must show the Cooklang title"
+    );
 }
 
 #[tokio::test]

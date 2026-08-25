@@ -253,6 +253,19 @@ mod tests {
     }
 
     #[test]
+    fn the_german_units_are_embedded_in_the_binary() {
+        // include_str! puts this file in the binary, so the container build
+        // has to copy the folder that holds it. A missing COPY line breaks
+        // the image build while `cargo test` still passes, so assert that
+        // the content really arrived.
+        assert!(
+            GERMAN_UNITS.contains("[extend.units]"),
+            "the German units file is empty or missing"
+        );
+        assert!(GERMAN_UNITS.contains("Min."));
+    }
+
+    #[test]
     fn german_timer_units_do_not_stop_a_recipe() {
         // A real German collection writes `Min.`, not `minutes`. The bundled
         // units are English, and an unknown timer unit is an error, so

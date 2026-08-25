@@ -181,25 +181,63 @@ async fn mine(state: &AppState, jar: &axum_extra::extract::CookieJar) -> Vec<Rec
         return Vec::new();
     };
 
-    match state
+    let repositories = match state
         .forgejo
         .search_repositories_by_topic(&token, "recipe", user.id, 30)
         .await
     {
-        Ok(repositories) => repositories
-            .into_iter()
-            .map(|repository| RecipeCard {
-                owner: repository.owner.login,
-                slug: repository.name.clone(),
-                title: repository.name,
-                private: repository.private,
-            })
-            .collect(),
+        Ok(repositories) => repositories,
         Err(error) => {
             tracing::warn!(%error, "cannot list the Recipes of this person");
-            Vec::new()
+            return Vec::new();
         }
-    }
+    };
+
+    // The title a person sees comes from the Cooklang metadata, never from
+    // the repository name. The name is a technical slug, and a Recipe that
+    // is renamed keeps it.
+    //
+    // Reading each Recipe costs one request. That is the honest cost of
+    // having no index yet, and it is why a later ticket builds one.
+    let titles = futures::future::join_all(repositories.iter().map(|repository| {
+        let forgejo = state.forgejo.clone();
+        let token = token.clone();
+        let owner = repository.owner.login.clone();
+        let name = repository.name.clone();
+        let branch = if repository.default_branch.is_empty() {
+            crate::create_recipe::MAIN_BRANCH.to_string()
+        } else {
+            repository.default_branch.clone()
+        };
+
+        async move {
+            let bytes = forgejo
+                .raw_file(
+                    Some(&token),
+                    &owner,
+                    &name,
+                    &branch,
+                    crate::recipe::RECIPE_FILE,
+                )
+                .await
+                .ok()?;
+            crate::recipe::parse(&String::from_utf8_lossy(&bytes)).title
+        }
+    }))
+    .await;
+
+    repositories
+        .into_iter()
+        .zip(titles)
+        .map(|(repository, title)| RecipeCard {
+            owner: repository.owner.login,
+            // A Recipe with no readable title falls back to its slug rather
+            // than showing nothing.
+            title: title.unwrap_or_else(|| repository.name.clone()),
+            slug: repository.name,
+            private: repository.private,
+        })
+        .collect()
 }
 
 /// Report the health of each component.

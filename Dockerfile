@@ -15,6 +15,8 @@ RUN mkdir src \
 COPY src ./src
 COPY templates ./templates
 COPY migrations ./migrations
+# The parser embeds this with include_str!, so the build needs it.
+COPY units ./units
 
 # Touch the sources so cargo rebuilds them after the cached dependency layer.
 RUN touch src/main.rs src/lib.rs && cargo build --release

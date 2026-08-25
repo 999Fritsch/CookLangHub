@@ -124,7 +124,9 @@
   :root:not([data-theme="light"]):not(.light) {
     --paper:          #1c1917;
     --surface:        #292524;
-    --surface-sunken: #1c1917;
+    /* Sunken sits below the page, the way surface sits above it. Making
+       this equal to --paper leaves an inset block invisible. */
+    --surface-sunken: #12100f;
     --ink:            #e7e5e4;  /* 13.93:1 on --paper                     */
     --ink-strong:     #f5f5f4;
     --ink-muted:      #a8a29e;  /*  6.93:1 on --paper                     */
@@ -161,7 +163,7 @@
 [data-theme="dark"], .dark {
   --paper:          #1c1917;
   --surface:        #292524;
-  --surface-sunken: #1c1917;
+  --surface-sunken: #12100f;
   --ink:            #e7e5e4;
   --ink-strong:     #f5f5f4;
   --ink-muted:      #a8a29e;
