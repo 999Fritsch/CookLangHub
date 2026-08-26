@@ -9,6 +9,12 @@
 //! cannot make a Variation of it, because Forgejo refuses both, and a private
 //! Variation stays out of the list of somebody who may not read it.
 //!
+//! The page also says what the source Recipe holds that this Recipe does
+//! not. That answer comes from the two Histories that Forgejo already keeps,
+//! and it is read again on every request. Nothing is applied until a person
+//! presses **Update from original**, and a change that Git cannot join
+//! leaves both Recipes exactly as they were.
+//!
 //! Every action on this page is a form that posts. The page needs no script.
 
 use std::sync::Arc;
@@ -19,14 +25,15 @@ use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum_extra::extract::CookieJar;
 use serde::Deserialize;
 
 use crate::forgejo::Repository;
+use crate::git::Identity;
 use crate::recipe::{self, RECIPE_FILE};
 use crate::secret::Secret;
-use crate::variation::{self, SourceRecipe, VariationError};
+use crate::variation::{self, Published, SourceRecipe, Updated, Upstream, VariationError};
 use crate::web::{AppState, Layout, MaybeUser, RecipeCard};
 use crate::web_recipes::{RecipeArea, areas};
 
@@ -54,16 +61,51 @@ const UNREACHABLE_MESSAGE: &str =
 /// Shown when the list of Variations is empty.
 const NO_VARIATIONS_MESSAGE: &str = "Nobody has made a Variation of this Recipe yet.";
 
+/// Shown when this Recipe holds every Version of the source Recipe.
+const CURRENT_MESSAGE: &str =
+    "This Recipe holds every Version of the source Recipe. There is nothing to bring.";
+
+/// Shown when the two Histories are too far apart to compare on this page.
+const UNKNOWN_MESSAGE: &str = "CookLangHub cannot say if the source Recipe has newer Versions. Open the Recipe in Forgejo to see what it holds.";
+
+/// Shown when an update had nothing to bring.
+const NOTHING_MESSAGE: &str = "The source Recipe has no Version that this Recipe does not hold. CookLangHub made no new Version.";
+
+/// Shown when Git cannot put the two sides together.
+const CONFLICT_MESSAGE: &str = "CookLangHub cannot join the changes of the source Recipe with the changes of this Recipe. This Recipe did not change, and the source Recipe did not change.";
+
+/// Shown when the person may read this Recipe but may not change it.
+const NO_WRITE_MESSAGE: &str =
+    "You can read this Recipe, but you cannot change it. Ask the owner to make you an Editor.";
+
+/// Shown when this Recipe was made from no other Recipe.
+const NOT_A_VARIATION_MESSAGE: &str =
+    "This Recipe is not a Variation, so there is no source Recipe to update it from.";
+
+/// Shown when Forgejo names a source Recipe that this person cannot read.
+const NO_SOURCE_MESSAGE: &str = "The source Recipe is not available. It is private now, or it is gone. This Recipe holds everything that it held before.";
+
+/// Shown when Forgejo or Git does not answer while an update runs.
+const UPDATE_UNREACHABLE_MESSAGE: &str =
+    "CookLangHub cannot update this Recipe at the moment. Nothing changed. Try again.";
+
 /// Where the Variations area of a Recipe lives.
 pub fn area_href(owner: &str, slug: &str) -> String {
     format!("/recipes/{owner}/{slug}/variations")
 }
 
+/// Where **Update from original** posts to.
+fn update_href(owner: &str, slug: &str) -> String {
+    format!("/recipes/{owner}/{slug}/variations/update")
+}
+
 pub fn router() -> Router<Arc<AppState>> {
-    Router::new().route(
-        "/recipes/{owner}/{slug}/variations",
-        get(variations).post(create),
-    )
+    Router::new()
+        .route(
+            "/recipes/{owner}/{slug}/variations",
+            get(variations).post(create),
+        )
+        .route("/recipes/{owner}/{slug}/variations/update", post(update))
 }
 
 // ---------------------------------------------------------------------
@@ -179,6 +221,39 @@ struct StartVersion {
     moment: String,
 }
 
+/// The card that says what the source Recipe holds that this one does not.
+///
+/// The card is on the page only while Forgejo names a source Recipe that
+/// this person can read. Every field is read again on every request, and
+/// none of it is stored.
+struct UpdateCard {
+    /// Where **Update from original** posts to.
+    action: String,
+    /// What the card says about the Versions of the source Recipe.
+    message: String,
+    /// Where the Changes page of the source Recipe compares the Version
+    /// that both Recipes hold with the newest one. History already draws
+    /// that comparison in cooking words, so this page links to it.
+    changes: Option<String>,
+    /// Whether the card offers **Update from original**. Forgejo decides.
+    can_update: bool,
+    /// Why the last update did not happen.
+    problem: Option<&'static str>,
+    /// Whether **Open in Forgejo** belongs in the card. It does when the
+    /// state is one that this interface cannot put right.
+    forgejo: bool,
+}
+
+impl UpdateCard {
+    /// Whether the card has anything for a person to press.
+    ///
+    /// A cook who only reads a Variation that holds every Version of its
+    /// source Recipe gets the sentence and no row of buttons at all.
+    fn has_actions(&self) -> bool {
+        self.can_update || self.changes.is_some() || self.forgejo
+    }
+}
+
 #[derive(Template)]
 #[template(path = "variations.html")]
 struct VariationsTemplate {
@@ -194,6 +269,9 @@ struct VariationsTemplate {
     /// Whether Forgejo names a source Recipe that this person cannot read.
     /// The page then says that the source is not available.
     source_unavailable: bool,
+    /// What the source Recipe holds that this Recipe does not, and what a
+    /// person can do about it.
+    update: Option<UpdateCard>,
     /// The Recipes that were made from this one. The card grid reads this
     /// field, so it carries the name the grid uses.
     recipes: Vec<RecipeCard>,
@@ -246,6 +324,7 @@ async fn variations(
         &slug,
         start,
         Vec::new(),
+        None,
     )
     .await
 }
@@ -303,6 +382,87 @@ fn other_copies(count: usize) -> Option<String> {
     }
 }
 
+/// Why an update did not happen, as the card says it.
+#[derive(Debug, Clone, Copy)]
+struct UpdateProblem {
+    message: &'static str,
+    /// Whether **Open in Forgejo** belongs beside it. A state that this
+    /// interface cannot put right needs it.
+    forgejo: bool,
+}
+
+/// What the card says when the source Recipe moved on.
+fn newer_message(count: usize) -> String {
+    if count == 1 {
+        "The source Recipe has one newer Version. CookLangHub changes this Recipe only when you ask for it.".to_string()
+    } else {
+        format!(
+            "The source Recipe has {count} newer Versions. CookLangHub changes this Recipe only when you ask for it."
+        )
+    }
+}
+
+/// Build the card about the source Recipe.
+///
+/// Forgejo answers both questions here: what the source Recipe holds that
+/// this Recipe does not, and whether this person may change this Recipe.
+/// Neither answer is stored.
+async fn update_card(
+    state: &AppState,
+    token: Option<&Secret<String>>,
+    subject: &Subject,
+    owner: &str,
+    slug: &str,
+    source: &SourceRecipe,
+    problem: Option<UpdateProblem>,
+) -> UpdateCard {
+    let here = Published {
+        owner,
+        slug,
+        branch: subject.repository.branch(),
+    };
+
+    let upstream =
+        variation::newer_in_source(&state.forgejo, token, here, source.published()).await;
+
+    // Forgejo decides who may change a Recipe. A person who may not still
+    // reads what the source Recipe holds, and is offered no action.
+    let can_update = match token {
+        Some(token) => state
+            .forgejo
+            .can_write(token, owner, slug)
+            .await
+            .unwrap_or(false),
+        None => false,
+    };
+
+    let (message, changes, unknown) = match upstream {
+        Upstream::Current => (CURRENT_MESSAGE.to_string(), None, false),
+        Upstream::Newer(newer) => (
+            newer_message(newer.count),
+            // History already compares two Versions in cooking words, and
+            // both of these live in the source Recipe.
+            Some(format!(
+                "{}/changes?from={}&to={}",
+                source.href(),
+                newer.common,
+                newer.version
+            )),
+            false,
+        ),
+        Upstream::Unknown => (UNKNOWN_MESSAGE.to_string(), None, true),
+    };
+
+    UpdateCard {
+        action: update_href(owner, slug),
+        message,
+        changes,
+        can_update,
+        problem: problem.map(|problem| problem.message),
+        forgejo: unknown || problem.is_some_and(|problem| problem.forgejo),
+    }
+}
+
 /// Draw the page.
 #[allow(clippy::too_many_arguments)]
 async fn render(
@@ -315,11 +475,21 @@ async fn render(
     slug: &str,
     start: Option<StartVersion>,
     errors: Vec<String>,
+    problem: Option<UpdateProblem>,
 ) -> Response {
     let here = area_href(owner, slug);
 
     let came_from = variation::source_of(&state.forgejo, token, owner, slug).await;
     let made = variation::variations_of(&state.forgejo, token, owner, slug).await;
+
+    // The card belongs to a Recipe that came from another one this person
+    // can read. Forgejo names that Recipe, and nothing else does.
+    let update = match came_from.recipe() {
+        Some(source) => {
+            Some(update_card(state, token, subject, owner, slug, source, problem).await)
+        }
+        None => None,
+    };
 
     // The index holds the title and the few culinary facts that a card
     // shows. Forgejo named these Recipes, so the index only supplies the
@@ -349,6 +519,7 @@ async fn render(
         forgejo_url: subject.forgejo_url.clone(),
         source_unavailable: came_from.is_unavailable(),
         source: came_from.recipe().cloned(),
+        update,
         recipes,
         empty: NO_VARIATIONS_MESSAGE.to_string(),
         notice: other_copies(made.others),
@@ -493,10 +664,199 @@ async fn refuse(
         slug,
         None,
         vec![message.to_string()],
+        None,
     )
     .await;
 
     (status, body).into_response()
+}
+
+// ---------------------------------------------------------------------
+// Update from original
+// ---------------------------------------------------------------------
+
+/// Bring what the source Recipe holds into this Variation.
+///
+/// This runs only because a person pressed the button. Nothing on this page
+/// and nothing behind it applies a change of the source Recipe by itself.
+async fn update(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    jar: CookieJar,
+    MaybeUser(current): MaybeUser,
+    Path((owner, slug)): Path<(String, String)>,
+) -> Response {
+    let Some(actor) = crate::web_recipes::actor(&state, &jar).await else {
+        return Redirect::to("/auth/sign-in").into_response();
+    };
+
+    let Some(subject) = subject(&state, Some(&actor.token), &owner, &slug).await else {
+        return missing();
+    };
+
+    // Forgejo decides who may change a Recipe. The check happens here and
+    // not only on the page, because this request can arrive without the
+    // page.
+    if !state
+        .forgejo
+        .can_write(&actor.token, &owner, &slug)
+        .await
+        .unwrap_or(false)
+    {
+        tracing::info!(%owner, %slug, login = %actor.user.login, "a person who cannot change this Recipe asked for an update");
+        return refuse(
+            &state,
+            &headers,
+            current.as_ref(),
+            &actor.token,
+            &subject,
+            &owner,
+            &slug,
+            StatusCode::FORBIDDEN,
+            NO_WRITE_MESSAGE,
+        )
+        .await;
+    }
+
+    // Forgejo holds the relationship, so Forgejo says what the source
+    // Recipe is. This application keeps none of it.
+    let source = match variation::source_of(&state.forgejo, Some(&actor.token), &owner, &slug).await
+    {
+        variation::Source::Recipe(source) => source,
+        variation::Source::None => {
+            return refuse(
+                &state,
+                &headers,
+                current.as_ref(),
+                &actor.token,
+                &subject,
+                &owner,
+                &slug,
+                StatusCode::BAD_REQUEST,
+                NOT_A_VARIATION_MESSAGE,
+            )
+            .await;
+        }
+        variation::Source::Unavailable => {
+            return refuse(
+                &state,
+                &headers,
+                current.as_ref(),
+                &actor.token,
+                &subject,
+                &owner,
+                &slug,
+                StatusCode::CONFLICT,
+                NO_SOURCE_MESSAGE,
+            )
+            .await;
+        }
+    };
+
+    let identity = identity_of(&state, &actor).await;
+    let here = Published {
+        owner: &owner,
+        slug: &slug,
+        branch: subject.repository.branch(),
+    };
+
+    let done = variation::update_from_source(
+        &state.forgejo,
+        state.git.as_ref(),
+        &actor.token,
+        &identity,
+        here,
+        &source,
+    )
+    .await;
+
+    let (status, problem) = match done {
+        Ok(Updated::Version(version)) => {
+            tracing::info!(%owner, %slug, %version, "updated a Variation from its source Recipe");
+
+            // The Recipe holds something else now, so the index has to say
+            // what it holds. It is a Recipe in every list.
+            crate::index::refresh(
+                &state.pool,
+                &state.forgejo,
+                Some(&actor.token),
+                &owner,
+                &slug,
+            )
+            .await;
+
+            // History shows the new Version at the top, which is the
+            // clearest answer that the update happened.
+            return Redirect::to(&crate::web_history::area_href(&owner, &slug)).into_response();
+        }
+        Ok(Updated::Nothing) => (
+            StatusCode::OK,
+            UpdateProblem {
+                message: NOTHING_MESSAGE,
+                forgejo: false,
+            },
+        ),
+        // The state the interface cannot handle. Both Recipes are exactly
+        // as they were, and the person is told where to go on.
+        Err(VariationError::Conflict) => (
+            StatusCode::CONFLICT,
+            UpdateProblem {
+                message: CONFLICT_MESSAGE,
+                forgejo: true,
+            },
+        ),
+        Err(error) => {
+            tracing::warn!(%error, %owner, %slug, "cannot update this Recipe from its source Recipe");
+            (
+                StatusCode::OK,
+                UpdateProblem {
+                    message: UPDATE_UNREACHABLE_MESSAGE,
+                    forgejo: false,
+                },
+            )
+        }
+    };
+
+    let body = render(
+        &state,
+        &headers,
+        current.as_ref(),
+        Some(&actor.token),
+        &subject,
+        &owner,
+        &slug,
+        None,
+        Vec::new(),
+        Some(problem),
+    )
+    .await;
+
+    (status, body).into_response()
+}
+
+/// Who carries the new Version that an update makes.
+///
+/// The address obeys the privacy setting of that person in Forgejo. A
+/// question that Forgejo does not answer counts as "hide", because an
+/// address that is published by accident cannot be taken back.
+async fn identity_of(state: &AppState, actor: &crate::web_recipes::Actor) -> Identity {
+    let hide_email = match state.forgejo.user_settings(&actor.token).await {
+        Ok(settings) => settings.hide_email,
+        Err(error) => {
+            tracing::warn!(%error, "cannot read the privacy setting; using the no-reply address");
+            true
+        }
+    };
+
+    Identity {
+        name: actor.user.display_name().to_string(),
+        email: crate::create_recipe::commit_email(
+            &actor.user.login,
+            &actor.user.email,
+            hide_email,
+            &state.forgejo_noreply_domain,
+        ),
+    }
 }
 
 fn respond<T: Template>(template: T) -> Response {
@@ -567,6 +927,25 @@ mod tests {
             "/recipes/sam/chili/variations",
             "the address of the area must stay under the Recipe"
         );
+        assert_eq!(
+            update_href("sam", "chili"),
+            "/recipes/sam/chili/variations/update",
+            "the action must stay under the area it belongs to"
+        );
+    }
+
+    #[test]
+    fn the_card_counts_the_newer_versions_of_the_source_recipe() {
+        assert!(newer_message(1).contains("one newer Version"));
+        assert!(newer_message(4).contains("4 newer Versions"));
+
+        // The whole point of the card: nothing happens on its own.
+        for count in [1, 4] {
+            assert!(
+                newer_message(count).contains("only when you ask for it"),
+                "the card must say that nothing is applied by itself"
+            );
+        }
     }
 
     #[test]
@@ -588,6 +967,8 @@ mod tests {
 
         let one = other_copies(1).expect("one copy has a message");
         let many = other_copies(4).expect("four copies have a message");
+        let newer_one = newer_message(1);
+        let newer_many = newer_message(4);
 
         for message in [
             ALREADY_THERE_MESSAGE,
@@ -595,8 +976,18 @@ mod tests {
             NO_NAME_MESSAGE,
             UNREACHABLE_MESSAGE,
             NO_VARIATIONS_MESSAGE,
+            CURRENT_MESSAGE,
+            UNKNOWN_MESSAGE,
+            NOTHING_MESSAGE,
+            CONFLICT_MESSAGE,
+            NO_WRITE_MESSAGE,
+            NOT_A_VARIATION_MESSAGE,
+            NO_SOURCE_MESSAGE,
+            UPDATE_UNREACHABLE_MESSAGE,
             one.as_str(),
             many.as_str(),
+            newer_one.as_str(),
+            newer_many.as_str(),
         ] {
             let lower = message.to_lowercase();
             assert!(
