@@ -37,7 +37,10 @@ async fn the_preferences_page_offers_both_choices_and_needs_no_script() {
     assert_eq!(status, 200, "a visitor with no account can set these too");
     assert!(body.contains("Preferences"));
     assert!(body.contains("/preferences/theme"), "the palette choice");
-    assert!(body.contains("/preferences/facts"), "the fact colour choice");
+    assert!(
+        body.contains("/preferences/facts"),
+        "the fact colour choice"
+    );
 
     // The page shows the choice with the pills themselves, so a person can
     // see what they are picking before they pick it.
