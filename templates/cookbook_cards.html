@@ -1,0 +1,57 @@
+{#
+  A grid of Cookbook cards, shared by every list of Cookbooks.
+
+  The card is `browse_cards.html` with a book on it instead of a plate. It
+  keeps the CookCLI card component, including the class name `recipe-card`,
+  which is theirs and carries the coloured line across the top and the dark
+  rule that goes with it.
+
+  A card carries cooking information only: what the Cookbook is about and who
+  owns it. Nothing on it comes from Git.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% if let Some(message) = notice %}
+<div class="bg-white rounded-2xl shadow-lg p-4 mb-6 text-gray-700" role="status">
+  {{ message }}
+  <a class="text-blue-600 hover:text-blue-800 hover:underline" href="{{ forgejo_url }}">Open in Forgejo</a>
+</div>
+{% endif %}
+
+{# An empty list with nothing to say is a blank card, so say nothing. #}
+{% if cookbooks.is_empty() %}
+{% if !empty.is_empty() %}
+<div class="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-600">
+  {{ empty }}
+</div>
+{% endif %}
+{% else %}
+<ul class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 list-none p-0 m-0">
+  {% for cookbook in cookbooks %}
+  <li>
+    <a href="/cookbooks/{{ cookbook.owner }}/{{ cookbook.slug }}"
+       class="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all hover:scale-105 recipe-card flex flex-col h-full">
+      <div class="p-6">
+        <div class="flex items-center justify-center w-16 h-16 bg-gradient-to-br from-orange-400 to-pink-500 rounded-full mb-4">
+          <span class="text-2xl" aria-hidden="true">📖</span>
+        </div>
+
+        <h3 class="font-bold text-lg mb-2 text-gray-800">{{ cookbook.title }}</h3>
+
+        {% if cookbook.private %}
+        <div class="flex flex-wrap gap-2 mb-3">
+          <span class="metadata-pill metadata-custom"><span aria-hidden="true">🔒</span> Private</span>
+        </div>
+        {% endif %}
+
+        {% if !cookbook.summary.is_empty() %}
+        <p class="text-sm text-gray-600 mt-1 mb-0">{{ cookbook.summary }}</p>
+        {% endif %}
+
+        <p class="text-sm text-gray-600 mt-3 mb-0">Owned by {{ cookbook.owner }}</p>
+      </div>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}

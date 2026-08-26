@@ -1,0 +1,67 @@
+{#
+  One Cookbook: the description, and the Recipes.
+
+  Nothing else belongs on this page. There are no sections, no manual order,
+  and no settings: a Cookbook is a name, some words, and a list of Recipes.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">{{ title }}</h1>
+  <div class="flex flex-wrap items-center gap-2 self-start">
+    <a class="nav-pill" href="/cookbooks">All Cookbooks</a>
+    <a class="nav-pill" href="{{ forgejo_url }}">Open in Forgejo</a>
+  </div>
+</div>
+
+<div class="flex flex-wrap gap-2 mb-6">
+  <span class="metadata-pill metadata-servings"><span aria-hidden="true">👤</span> Owned by {{ owner }}</span>
+  {% if private %}
+  <span class="metadata-pill metadata-custom"><span aria-hidden="true">🔒</span> Private</span>
+  {% endif %}
+</div>
+
+{% if !problems.is_empty() %}
+<div class="bg-white rounded-2xl shadow-lg p-4 mb-6 text-gray-700" role="status">
+  <h2 class="font-bold mb-2">CookLangHub cannot show all of this Cookbook</h2>
+  <ul class="list-disc pl-5 space-y-1 mb-2">
+    {% for problem in problems %}
+    <li>{{ problem }}</li>
+    {% endfor %}
+  </ul>
+  <a class="text-blue-600 hover:text-blue-800 hover:underline" href="{{ forgejo_url }}">Open in Forgejo</a>
+</div>
+{% endif %}
+
+<section class="bg-white rounded-2xl shadow-lg p-6 mb-8" aria-labelledby="about-heading">
+  <h2 id="about-heading" class="text-lg font-bold mb-3 text-orange-600"><span aria-hidden="true">📖</span> About</h2>
+  {% if has_description %}
+  {# The description is written by a person, so the application makes the
+     HTML safe before it reaches here. See `cookbook::render`. #}
+  <div class="markdown-body text-gray-700">{{ description|safe }}</div>
+  {% else %}
+  <p class="text-gray-600 m-0">This Cookbook has no description yet.</p>
+  {% endif %}
+</section>
+
+<section class="bg-white rounded-2xl shadow-lg p-6" aria-labelledby="recipes-heading">
+  <h2 id="recipes-heading" class="text-lg font-bold mb-3 text-orange-600"><span aria-hidden="true">🍽️</span> Recipes</h2>
+  {% if recipes.is_empty() %}
+  <p class="text-gray-600 m-0">This Cookbook has no Recipes yet.</p>
+  {% else %}
+  <ul class="space-y-2 list-none p-0 m-0">
+    {% for recipe in recipes %}
+    <li class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl px-3 py-2">
+      <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}">{{ recipe.title }}</a>
+      <span class="text-sm text-gray-600">Owned by {{ recipe.owner }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endblock %}

@@ -151,16 +151,18 @@ async fn serve() -> anyhow::Result<()> {
         );
     }
 
-    // The Recipe index is a cache, and a restart is when it can be behind:
-    // anything that changed while this process was stopped arrived nowhere.
-    // The sweep reads Forgejo and Git, writes to neither, and runs beside
-    // the server so that a slow Forgejo never delays the first page.
+    // The Recipe index and the Cookbook index are caches, and a restart is
+    // when they can be behind: anything that changed while this process was
+    // stopped arrived nowhere. The sweeps read Forgejo and Git, write to
+    // neither, and run beside the server so that a slow Forgejo never delays
+    // the first page.
     {
         let pool = pool.clone();
         let cipher = cipher.clone();
         let forgejo = forgejo.clone();
         tokio::spawn(async move {
             cooklanghub::index::reconcile(&pool, &cipher, &forgejo).await;
+            cooklanghub::cookbook::reconcile(&pool, &cipher, &forgejo).await;
         });
     }
 

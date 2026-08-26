@@ -1336,6 +1336,31 @@ impl ForgejoClient {
 
         Ok(())
     }
+
+    /// List the repositories that the token holder made a Favorite.
+    ///
+    /// A Favorite is a Forgejo star, and Forgejo holds the list. The
+    /// application keeps no copy, so a star that a person adds in Forgejo
+    /// counts here at once.
+    ///
+    /// `page` counts from 1, the way Forgejo counts.
+    pub async fn starred_repositories(
+        &self,
+        token: &Secret<String>,
+        page: u32,
+        limit: u32,
+    ) -> Result<Vec<Repository>, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .get(format!("{}/api/v1/user/starred", self.api_url))
+                    .query(&[("page", page.to_string()), ("limit", limit.to_string())])
+                    .bearer_auth(token.expose()),
+            )
+            .await?;
+
+        read_json(response).await
+    }
 }
 
 async fn read_json<T: serde::de::DeserializeOwned>(

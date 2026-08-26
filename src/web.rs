@@ -59,6 +59,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::theme::router())
         .merge(crate::preferences::router())
         .merge(crate::web_browse::router())
+        .merge(crate::web_cookbooks::router())
         .merge(crate::web_discussions::router())
         .merge(crate::web_edit::router())
         .merge(crate::web_sharing::router())
@@ -224,6 +225,7 @@ impl Layout {
             "explore" => path == "/explore" || path.starts_with("/explore/"),
             "new" => path == "/recipes/new",
             "recipes" => path == "/" || (path.starts_with("/recipes/") && path != "/recipes/new"),
+            "cookbooks" => path == "/cookbooks" || path.starts_with("/cookbooks/"),
             _ => false,
         }
     }
@@ -435,6 +437,16 @@ mod tests {
         assert!(at("/recipes/sam/chili").area_is("recipes"));
         assert!(at("/recipes/sam/chili/sharing").area_is("recipes"));
         assert!(at("/explore").area_is("explore"));
+
+        // Cookbooks is its own area, and the Cookbooks of Explore stay
+        // inside Explore.
+        assert!(at("/cookbooks").area_is("cookbooks"));
+        assert!(at("/cookbooks/sam/sunday").area_is("cookbooks"));
+        assert!(at("/cookbooks/new").area_is("cookbooks"));
+        assert!(!at("/cookbooks").area_is("recipes"));
+        assert!(!at("/").area_is("cookbooks"));
+        assert!(at("/explore/cookbooks").area_is("explore"));
+        assert!(!at("/explore/cookbooks").area_is("cookbooks"));
 
         // New Recipe is its own place, not a Recipe.
         assert!(at("/recipes/new").area_is("new"));

@@ -266,6 +266,11 @@ impl TestApp {
     pub async fn reconcile(&self) -> cooklanghub::index::Report {
         cooklanghub::index::reconcile(&self.pool, &self.cipher, &self.forgejo).await
     }
+
+    /// Read Forgejo again and make the Cookbook index match.
+    pub async fn reconcile_cookbooks(&self) -> cooklanghub::cookbook::Report {
+        cooklanghub::cookbook::reconcile(&self.pool, &self.cipher, &self.forgejo).await
+    }
 }
 
 /// The webhook secret that the tests use.
@@ -625,6 +630,55 @@ pub async fn create_recipe(
         .text("visibility", visibility.to_string());
 
     post_form(app, session, "/recipes/new", form).await
+}
+
+/// Post the create-Cookbook form as the holder of a session cookie.
+///
+/// The form carries no file, so a browser sends it as ordinary form data
+/// and so does this.
+pub async fn create_cookbook(
+    app: &TestApp,
+    session: &str,
+    title: &str,
+    description: &str,
+    private: bool,
+) -> reqwest::Response {
+    let visibility = if private { "private" } else { "public" };
+
+    post_fields(
+        app,
+        session,
+        "/cookbooks/new",
+        &[
+            ("title", title),
+            ("description", description),
+            ("visibility", visibility),
+            ("action", "create"),
+        ],
+    )
+    .await
+}
+
+/// Post an ordinary form as the holder of a session cookie.
+///
+/// A test that needs a field left out, or a different button, builds the
+/// fields itself and posts them with this.
+pub async fn post_fields(
+    app: &TestApp,
+    session: &str,
+    path: &str,
+    fields: &[(&str, &str)],
+) -> reqwest::Response {
+    client()
+        .post(app.url(path))
+        .header(
+            "cookie",
+            format!("{}={session}", cooklanghub::session::COOKIE_NAME),
+        )
+        .form(fields)
+        .send()
+        .await
+        .expect("cannot post the form")
 }
 
 /// Post a multipart form as the holder of a session cookie.

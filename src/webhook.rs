@@ -305,7 +305,12 @@ async fn receive(State(state): State<Arc<AppState>>, headers: HeaderMap, body: B
     StatusCode::ACCEPTED.into_response()
 }
 
-/// Bring the index up to date with what the message named.
+/// Bring the indexes up to date with what the message named.
+///
+/// One message can only be about one repository, and the topics of that
+/// repository say whether it is a Recipe, a Cookbook, or neither. Both
+/// indexes are therefore asked, and each one keeps or drops the row by the
+/// marker it looks for.
 async fn apply(state: &AppState, event: &str, action: &str, repository: &MessageRepository) {
     let owner = repository.owner.login.as_str();
     let slug = repository.name.as_str();
@@ -315,19 +320,28 @@ async fn apply(state: &AppState, event: &str, action: &str, repository: &Message
             Ok(removed) => tracing::info!(%owner, %slug, removed, "a Recipe was removed"),
             Err(error) => tracing::warn!(%error, %owner, %slug, "cannot remove a Recipe"),
         }
+        match crate::cookbook::forget_repository(&state.pool, repository.id).await {
+            Ok(removed) => tracing::info!(%owner, %slug, removed, "a Cookbook was removed"),
+            Err(error) => tracing::warn!(%error, %owner, %slug, "cannot remove a Cookbook"),
+        }
         return;
     }
 
-    // Reading a private Recipe needs the credential of somebody who may see
-    // it. The owner is the one person who always may, so use their session
-    // when they have one. Without it, only a public Recipe can be read, and
-    // the reconciliation covers the rest.
+    // Reading a private Recipe or Cookbook needs the credential of somebody
+    // who may see it. The owner is the one person who always may, so use
+    // their session when they have one. Without it, only a public one can be
+    // read, and the reconciliation covers the rest.
     let token = owner_credential(&state.pool, &state.cipher, owner).await;
 
-    let outcome =
+    let recipe =
         crate::index::refresh(&state.pool, &state.forgejo, token.as_ref(), owner, slug).await;
+    let cookbook =
+        crate::cookbook::refresh(&state.pool, &state.forgejo, token.as_ref(), owner, slug).await;
 
-    tracing::info!(%event, %action, %owner, %slug, ?outcome, "the Recipe index followed Forgejo");
+    tracing::info!(
+        %event, %action, %owner, %slug, ?recipe, ?cookbook,
+        "the indexes followed Forgejo"
+    );
 }
 
 /// The credential of the person who owns a repository, when they have one.

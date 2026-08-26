@@ -210,7 +210,10 @@ const RECORD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 ///
 /// This never fails the creation. The Version is already pushed and is
 /// authoritative in Git; a slow Forgejo only means the page needs a refresh.
-async fn wait_until_recorded(
+///
+/// A Cookbook is created the same way and meets the same delay, so the wait
+/// is shared rather than written twice.
+pub(crate) async fn wait_until_recorded(
     forgejo: &ForgejoClient,
     token: &Secret<String>,
     owner: &str,
