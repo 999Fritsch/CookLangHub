@@ -54,6 +54,10 @@ pub enum GitError {
     /// never reaches the message, for the same reason an argument does not.
     #[error("a file name in this Version is not allowed")]
     Name,
+    /// The draft moved on while the person wrote, so nothing was written.
+    /// What the draft held is left exactly as it was.
+    #[error("the draft changed somewhere else")]
+    Stale,
 }
 
 /// Who a Version belongs to.
@@ -122,6 +126,46 @@ pub struct ChangeCommit<'a> {
     pub delete: Vec<String>,
 }
 
+/// What a draft holds now.
+///
+/// A draft is one Version that nobody published. `base_version` is the
+/// published Version it was built on, which is the side a publication needs
+/// when the published Recipe moved while the person wrote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DraftState {
+    /// The draft Version.
+    pub version: String,
+    /// The published Version the draft was built on.
+    pub base_version: String,
+}
+
+/// A request to write a draft, replacing whatever the draft held before.
+///
+/// A draft is always exactly one Version on top of `base_version`, so a
+/// person who writes for an hour leaves one draft Version behind and not
+/// hundreds.
+#[derive(Debug)]
+pub struct SaveDraft<'a> {
+    /// Where to push, without any credential in it.
+    pub remote_url: &'a str,
+    pub token: &'a Secret<String>,
+    pub identity: &'a Identity,
+    /// The branch that carries the published Recipe. Only this branch
+    /// travels, because `base_version` is on it.
+    pub published_branch: &'a str,
+    /// The branch that carries the draft.
+    pub branch: &'a str,
+    pub message: &'a str,
+    /// The published Version the draft is built on.
+    pub base_version: &'a str,
+    /// The draft Version this writer started from. `None` says the person
+    /// has no draft yet, and then a draft that already exists refuses the
+    /// write.
+    pub expected: Option<&'a str>,
+    /// File name to content.
+    pub files: BTreeMap<String, Vec<u8>>,
+}
+
 #[async_trait]
 pub trait GitAdapter: Send + Sync + std::fmt::Debug {
     /// Create a repository with one commit and push it.
@@ -155,6 +199,38 @@ pub trait GitAdapter: Send + Sync + std::fmt::Debug {
     /// difference to the content adds no Version, and the identifier of
     /// the published Version comes back instead.
     async fn commit_change(&self, request: ChangeCommit<'_>) -> Result<String, GitError>;
+
+    /// Read what a draft holds, when there is one.
+    ///
+    /// Gives `None` when the person has no draft. Git holds the content, so
+    /// this asks Git and not the Forgejo API.
+    async fn draft_state(
+        &self,
+        remote_url: &str,
+        token: &Secret<String>,
+        branch: &str,
+    ) -> Result<Option<DraftState>, GitError>;
+
+    /// Write a draft, replacing what it held.
+    ///
+    /// The write happens only while the draft still holds
+    /// [`SaveDraft::expected`]. If a second tab or another device wrote
+    /// first, this gives [`GitError::Stale`] and the stored draft keeps
+    /// exactly what it had.
+    ///
+    /// Returns the identifier of the draft Version that the write made.
+    async fn save_draft(&self, request: SaveDraft<'_>) -> Result<String, GitError>;
+
+    /// Remove a branch that this application made for one person.
+    ///
+    /// A branch that is already gone is the state that was asked for, so
+    /// that is not a fault.
+    async fn remove_branch(
+        &self,
+        remote_url: &str,
+        token: &Secret<String>,
+        branch: &str,
+    ) -> Result<(), GitError>;
 }
 
 /// Runs the system Git executable in a temporary workspace.
@@ -489,6 +565,210 @@ impl GitAdapter for SystemGit {
         drop(workspace);
 
         Ok(sha)
+    }
+
+    async fn draft_state(
+        &self,
+        remote_url: &str,
+        token: &Secret<String>,
+        branch: &str,
+    ) -> Result<Option<DraftState>, GitError> {
+        let Some(version) = self.branch_head(remote_url, token, branch).await? else {
+            return Ok(None);
+        };
+
+        let workspace = tempfile::tempdir().map_err(GitError::Workspace)?;
+        let root = workspace.path();
+
+        // Two Versions are enough: the draft, and the published Version it
+        // was built on. The rest of the History never travels, so reading a
+        // draft costs the same on a Recipe that is years old.
+        self.run(root, token, &["init", "--quiet"]).await?;
+        self.run(
+            root,
+            token,
+            &["fetch", "--quiet", "--depth=2", remote_url, branch],
+        )
+        .await?;
+
+        let base_version = self
+            .run(root, token, &["rev-parse", "FETCH_HEAD^"])
+            .await?
+            .trim()
+            .to_string();
+
+        drop(workspace);
+
+        Ok(Some(DraftState {
+            version,
+            base_version,
+        }))
+    }
+
+    async fn save_draft(&self, request: SaveDraft<'_>) -> Result<String, GitError> {
+        // Ask what the draft holds before anything is built. A second tab
+        // is then refused for the price of one question, and the person
+        // gets the reason rather than a failed push.
+        let held = self
+            .branch_head(request.remote_url, request.token, request.branch)
+            .await?;
+        if held.as_deref() != request.expected {
+            return Err(GitError::Stale);
+        }
+
+        let workspace = tempfile::tempdir().map_err(GitError::Workspace)?;
+        let root = workspace.path();
+
+        // Git reads its per-user configuration from the home directory, and
+        // that directory must sit outside the work tree.
+        let home = root.join("home");
+        tokio::fs::create_dir_all(&home)
+            .await
+            .map_err(GitError::Workspace)?;
+        let repo = root.join("repo");
+
+        // Only the published branch travels. The draft itself is replaced
+        // whole, so nothing that it holds is needed here.
+        self.run_in(
+            &home,
+            root,
+            request.token,
+            &[
+                "clone",
+                "--quiet",
+                "--single-branch",
+                "--branch",
+                request.published_branch,
+                request.remote_url,
+                "repo",
+            ],
+        )
+        .await?;
+
+        self.run_in(
+            &home,
+            &repo,
+            request.token,
+            &[
+                "-c",
+                "advice.detachedHead=false",
+                "checkout",
+                "--quiet",
+                "--detach",
+                request.base_version,
+            ],
+        )
+        .await?;
+
+        write_files(&repo, &request.files).await?;
+
+        self.run_in(&home, &repo, request.token, &["add", "--all"])
+            .await?;
+
+        // A draft always answers with a Version, even when the person typed
+        // something and then took it out again. Without this, a save that
+        // lands back on the published text would give the writer nothing to
+        // send with the next one.
+        self.run_in(
+            &home,
+            &repo,
+            request.token,
+            &[
+                "-c",
+                &format!("user.name={}", request.identity.name),
+                "-c",
+                &format!("user.email={}", request.identity.email),
+                "commit",
+                "--quiet",
+                "--allow-empty",
+                "--message",
+                request.message,
+            ],
+        )
+        .await?;
+
+        let version = self.head(&repo, &home, request.token).await?;
+
+        // The lease is the guard that matters. Between the question above
+        // and this push a second tab can still write, and then Git refuses
+        // this push instead of letting it win.
+        //
+        // An empty expected value means the draft must not exist yet, which
+        // is what keeps two first saves from overwriting each other.
+        let lease = format!(
+            "--force-with-lease=refs/heads/{}:{}",
+            request.branch,
+            request.expected.unwrap_or_default()
+        );
+        let refspec = format!("{version}:refs/heads/{}", request.branch);
+
+        let pushed = self
+            .attempt(
+                &home,
+                &repo,
+                request.token,
+                &["push", "--quiet", &lease, request.remote_url, &refspec],
+            )
+            .await?;
+
+        if pushed.success {
+            drop(workspace);
+            return Ok(version);
+        }
+
+        // Git refuses a lease it cannot honour, and that is the answer this
+        // caller wants: somebody else wrote first.
+        if pushed.stderr.contains("stale info") || pushed.stderr.contains("[rejected]") {
+            return Err(GitError::Stale);
+        }
+
+        Err(GitError::Command {
+            command: "push".to_string(),
+            message: redact(&pushed.stderr, request.token),
+        })
+    }
+
+    async fn remove_branch(
+        &self,
+        remote_url: &str,
+        token: &Secret<String>,
+        branch: &str,
+    ) -> Result<(), GitError> {
+        let workspace = tempfile::tempdir().map_err(GitError::Workspace)?;
+        let root = workspace.path();
+
+        // A push needs a repository to run from, and nothing of the Recipe
+        // is read, so an empty one is enough.
+        self.run(root, token, &["init", "--quiet"]).await?;
+
+        let attempt = self
+            .attempt(
+                root,
+                root,
+                token,
+                &[
+                    "push",
+                    "--quiet",
+                    remote_url,
+                    "--delete",
+                    &format!("refs/heads/{branch}"),
+                ],
+            )
+            .await?;
+
+        if attempt.success {
+            return Ok(());
+        }
+
+        // A branch that is already gone is the state that was asked for.
+        if attempt.stderr.contains("remote ref does not exist") {
+            return Ok(());
+        }
+
+        Err(GitError::Command {
+            command: "push".to_string(),
+            message: redact(&attempt.stderr, token),
+        })
     }
 }
 
@@ -830,6 +1110,16 @@ mod tests {
             safe_path(root, "recipe.jpg").unwrap(),
             root.join("recipe.jpg")
         );
+    }
+
+    #[test]
+    fn a_refused_draft_write_names_no_git_word() {
+        // A person reads this one too, so it says what happened without
+        // naming a branch or a push.
+        let text = GitError::Stale.to_string();
+        for word in ["branch", "commit", "push", "merge", "rebase", "ref"] {
+            assert!(!text.contains(word), "`{word}` must not reach the person");
+        }
     }
 
     #[test]

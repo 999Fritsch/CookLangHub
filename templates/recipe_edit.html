@@ -10,6 +10,11 @@
   the preview arrives with the page. The bundled CodeMirror only makes the
   text area a highlighted editor and keeps the preview current while a
   person types.
+
+  A draft is the same story. The draft lives in Forgejo, so the text on this
+  page came from there and goes back there. Publish and Discard are forms,
+  so both work with scripts off. Only the saving while a person writes needs
+  the script, and losing it loses nothing that was already saved.
 #}
 {% extends "base.html" %}
 
@@ -39,8 +44,30 @@
   </div>
   {% endif %}
 
+  {#
+    The draft card. It is a form of its own, above the editor form, because
+    a form cannot hold another form. Discard is a change of state, so it is
+    a button and never a link.
+  #}
+  {% if let Some(notice) = draft_notice %}
+  <div class="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-xl p-4 mb-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <p class="text-gray-700 m-0">{{ notice }}</p>
+      <form method="post" action="/recipes/{{ owner }}/{{ slug }}/draft/discard">
+        <button type="submit"
+                class="px-4 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap">Discard draft</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
   <form method="post" action="/recipes/{{ owner }}/{{ slug }}/edit">
     <input type="hidden" name="base_version" value="{{ base_version }}">
+
+    {# The draft Version this page started from. The editor sends it back
+       with every save, and that is what lets a second tab be refused
+       instead of overwriting this one. #}
+    <input type="hidden" id="draft-version" name="draft_version" value="{{ draft_version }}">
 
     {#
       `min-w-0` on both columns is what keeps this inside a telephone
@@ -54,13 +81,26 @@
         <textarea id="recipe-source" name="source" rows="24" spellcheck="false"
                   data-label="Recipe source"
                   class="search-input w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-gray-900 font-mono text-sm focus:outline-hidden">{{ source }}</textarea>
-        <div id="recipe-editor" hidden data-preview-url="/recipes/preview"
+        <div id="recipe-editor" hidden
+             data-preview-url="/recipes/preview"
+             data-draft-url="/recipes/{{ owner }}/{{ slug }}/draft"
              class="border-2 border-gray-200 rounded-xl overflow-hidden"></div>
 
         <p class="text-sm text-gray-600 mt-2">
           Mark an ingredient with <code>@</code>, cookware with <code>#</code>, and a
           time with <code>~</code>. CookLangHub keeps your text as you wrote it.
         </p>
+
+        {# What the application did with the last save. The words come from
+           the server, so one wording serves the page and the answer. #}
+        <p id="draft-status" class="text-sm text-gray-600 mt-2" role="status"></p>
+
+        {# Shown when a save was refused. The person keeps their text, so
+           this says what happened and what they can do. #}
+        <div id="draft-problem" hidden role="alert"
+             class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mt-3">
+          <p id="draft-problem-text" class="m-0"></p>
+        </div>
       </div>
 
       {# The preview changes with every keystroke, so it is a region a

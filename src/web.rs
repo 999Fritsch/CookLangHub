@@ -61,6 +61,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::web_browse::router())
         .merge(crate::web_cookbooks::router())
         .merge(crate::web_discussions::router())
+        .merge(crate::draft::router())
         .merge(crate::web_edit::router())
         .merge(crate::web_history::router())
         .merge(crate::web_profile::router())

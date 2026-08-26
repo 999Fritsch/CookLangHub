@@ -12,6 +12,7 @@ pub mod cooking;
 pub mod create_recipe;
 pub mod crypto;
 pub mod db;
+pub mod draft;
 pub mod forgejo;
 pub mod git;
 pub mod health;

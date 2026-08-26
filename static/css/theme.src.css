@@ -177,6 +177,23 @@
             border-color: #1e3a8a;
         }
 
+        /* Not from CookCLI. The editor and the photo page both show a
+           refusal in a red panel, and CookCLI has no dark rule for one, so
+           it stayed a pale red block with dark red words on a dark page.
+           Written in their shape, from the same red ramp they use for a
+           timer. */
+        .dark .bg-red-50 {
+            background-color: #3f1a1a;
+        }
+
+        .dark .border-red-400 {
+            border-color: #b91c1c;
+        }
+
+        .dark .text-red-900 {
+            color: #fecaca;
+        }
+
         /* Dark mode hover states */
         .dark .hover\:bg-gradient-to-r:hover {
             background: #374151 !important;

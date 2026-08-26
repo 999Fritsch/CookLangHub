@@ -29,6 +29,14 @@
  *
  * The page works without this file. The plain text area carries the source,
  * and the preview arrives with the page.
+ *
+ * A fifth thing is not CookCLI's at all: the draft. CookCLI edits a file on
+ * the machine it runs on, and this application does not. The draft lives in
+ * Forgejo, so this file posts the text there while a person writes, and it
+ * writes nothing at all into the browser: no key-value store, no database
+ * in the page, nothing that survives the tab. A person can close the tab
+ * and carry on somewhere else, and that only works because the browser
+ * holds none of the work.
  */
 
 import { EditorState } from "@codemirror/state";
@@ -51,6 +59,15 @@ import { cooklang } from "./cooklang-mode.js";
 
 /* How long to wait after the last keystroke before the preview is asked for. */
 const PREVIEW_DELAY_MS = 350;
+
+/*
+ * How long to wait after the last keystroke before the draft is saved.
+ *
+ * Longer than the preview, because a save writes to Forgejo and a preview
+ * only renders text. A person who stops to think for a moment has their
+ * work saved; a person in the middle of a word does not pay for it.
+ */
+const DRAFT_DELAY_MS = 1500;
 
 /* One colour per Cooklang entity, the CookCLI mapping. */
 const LIGHT_HIGHLIGHT = HighlightStyle.define([
@@ -166,10 +183,184 @@ function makePreview(target, url) {
   };
 }
 
+/* How many times a save that did not arrive is tried again. */
+const DRAFT_ATTEMPTS = 5;
+
+/*
+ * Save the draft in Forgejo while the person writes.
+ *
+ * The draft Version travels both ways. The page opens on one, each answer
+ * carries the next, and the next save sends it back. When the stored draft
+ * no longer holds the one that was sent, the application refuses the save
+ * and says why, and this stops asking. It never replaces the text on the
+ * page, because that text is the work of the person looking at it.
+ *
+ * Nothing is written to the browser. The draft is in Forgejo, so a tab that
+ * closes takes nothing with it.
+ */
+function makeDraft(config) {
+  const { url, baseVersion, versionField, status, problem, problemText } =
+    config;
+
+  let timer = null;
+  let saving = false;
+  /* The newest text, whether or not it reached Forgejo. */
+  let latest = null;
+  /* The last text the application accepted. */
+  let saved = null;
+  /* A refusal ends the saving. Nothing after it may overwrite anybody. */
+  let stopped = false;
+  let failures = 0;
+
+  function say(words) {
+    if (status) status.textContent = words || "";
+  }
+
+  function refuse(words) {
+    stopped = true;
+    say("");
+    if (problemText) problemText.textContent = words || "";
+    if (problem) problem.hidden = false;
+  }
+
+  function version() {
+    return versionField ? versionField.value : "";
+  }
+
+  async function send(text) {
+    if (stopped) return;
+    saving = true;
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          source: text,
+          base_version: baseVersion,
+          draft_version: version(),
+        }).toString(),
+      });
+
+      const answer = await response.json().catch(() => null);
+      const words = answer && answer.message ? answer.message : "";
+
+      if (response.ok) {
+        failures = 0;
+        saved = text;
+        if (answer && answer.version && versionField) {
+          versionField.value = answer.version;
+        }
+        say(words);
+      } else if (response.status === 409) {
+        /* Somebody wrote first. The application refused this save, and so
+           does this: the text on the page stays exactly as it is. */
+        refuse(words);
+      } else {
+        say(words);
+        retry(text);
+      }
+    } catch (error) {
+      /* The answer never arrived. Nothing is known about what happened, so
+         the same text goes again. */
+      retry(text);
+    } finally {
+      saving = false;
+      /* A change that arrived while this one was in flight goes next. The
+         text that just went is not sent again here: a save that did not
+         arrive is tried again by `retry`, and only a set number of times,
+         so a Forgejo that is down cannot be asked forever. */
+      if (latest !== null && latest !== text && latest !== saved) {
+        schedule(latest);
+      }
+    }
+  }
+
+  function retry(text) {
+    failures += 1;
+    if (failures > DRAFT_ATTEMPTS) return;
+    window.setTimeout(() => {
+      /* Only while this is still the newest text. The person can write more
+         while this waits, and sending an older text after a newer one would
+         undo them. The check is made here and not above, because what is
+         newest can change during the wait. */
+      if (latest === text) schedule(text);
+    }, DRAFT_DELAY_MS);
+  }
+
+  function schedule(text) {
+    latest = text;
+    if (stopped || saving || text === saved) return;
+    if (timer !== null) window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      timer = null;
+      send(text);
+    }, DRAFT_DELAY_MS);
+  }
+
+  /* Save now rather than after the wait. A tab that is going away has no
+     time left to wait in. */
+  function flush() {
+    if (timer !== null) {
+      window.clearTimeout(timer);
+      timer = null;
+    }
+    if (stopped || saving || latest === null || latest === saved) return;
+    send(latest);
+  }
+
+  return { schedule, flush };
+}
+
 function start() {
   const host = document.getElementById("recipe-editor");
   const source = document.getElementById("recipe-source");
-  if (!host || !source) return;
+  if (!source) return;
+
+  const preview = document.getElementById("recipe-preview");
+  const previewUrl = host && host.getAttribute("data-preview-url");
+  const schedulePreview =
+    preview && previewUrl ? makePreview(preview, previewUrl) : null;
+
+  /*
+   * The draft. It is set up before CodeMirror and apart from it, so that a
+   * browser which keeps the plain text area still saves what a person
+   * writes.
+   */
+  const versionField = document.getElementById("draft-version");
+  const baseField = source.form
+    ? source.form.querySelector('input[name="base_version"]')
+    : null;
+  const draftUrl = host && host.getAttribute("data-draft-url");
+  const draft =
+    draftUrl && baseField && baseField.value
+      ? makeDraft({
+          url: draftUrl,
+          baseVersion: baseField.value,
+          versionField,
+          status: document.getElementById("draft-status"),
+          problem: document.getElementById("draft-problem"),
+          problemText: document.getElementById("draft-problem-text"),
+        })
+      : null;
+
+  /* One place that hears about a change, whatever made it. */
+  function changed(text) {
+    if (schedulePreview) schedulePreview(text);
+    if (draft) draft.schedule(text);
+  }
+
+  /* The plain text area on its own. CodeMirror writes the value rather than
+     typing into it, so it reports its own changes below. */
+  source.addEventListener("input", () => changed(source.value));
+
+  if (draft) {
+    /* A person who leaves the tab must not lose the last few seconds. */
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") draft.flush();
+    });
+  }
 
   /*
    * CodeMirror carries its own CSS and puts it on the page as it starts.
@@ -179,15 +370,10 @@ function start() {
    * that, so the editor is styled and the policy stays as it is.
    *
    * A browser that cannot make a shadow root keeps the plain text area,
-   * which works on its own.
+   * which works on its own and now saves on its own too.
    */
-  if (typeof host.attachShadow !== "function") return;
+  if (!host || typeof host.attachShadow !== "function") return;
   const room = host.shadowRoot || host.attachShadow({ mode: "open" });
-
-  const preview = document.getElementById("recipe-preview");
-  const previewUrl = host.getAttribute("data-preview-url");
-  const schedule =
-    preview && previewUrl ? makePreview(preview, previewUrl) : null;
 
   const dark = isDark();
 
@@ -217,7 +403,7 @@ function start() {
           const text = update.state.doc.toString();
           /* The form sends the text area, so it holds the true value. */
           source.value = text;
-          if (schedule) schedule(text);
+          changed(text);
         }),
       ],
     }),
