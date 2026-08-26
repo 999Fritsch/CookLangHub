@@ -24,6 +24,8 @@
       <select class="px-4 py-2 rounded-full border border-gray-300 bg-white text-gray-900" id="sort" name="sort">
         <option value="recent" {% if controls.sort.is("recent") %}selected{% endif %}>Most recent first</option>
         <option value="title" {% if controls.sort.is("title") %}selected{% endif %}>Title, A to Z</option>
+        {# Forgejo counts the Favorites and Forgejo puts them in order. #}
+        <option value="favorites" {% if controls.sort.is("favorites") %}selected{% endif %}>Most favorited first</option>
       </select>
     </div>
 

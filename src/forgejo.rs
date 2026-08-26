@@ -1501,6 +1501,195 @@ impl ForgejoClient {
 
         read_json(response).await
     }
+
+    /// Whether the token holder made this repository a Favorite.
+    ///
+    /// Forgejo answers 204 for a star that is there and 404 for one that is
+    /// not, so a 404 is an answer and not a fault.
+    pub async fn is_starred(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<bool, ForgejoError> {
+        let request = self
+            .http
+            .get(format!(
+                "{}/api/v1/user/starred/{owner}/{repository}",
+                self.api_url
+            ))
+            .bearer_auth(token.expose());
+
+        match self.send(request).await {
+            Ok(_) => Ok(true),
+            Err(ForgejoError::Status { status: 404, .. }) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Make this repository a Favorite of the token holder.
+    ///
+    /// Forgejo holds the star. A second call changes nothing, so the caller
+    /// never has to ask first.
+    pub async fn star_repository(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<(), ForgejoError> {
+        self.send(
+            self.http
+                .put(format!(
+                    "{}/api/v1/user/starred/{owner}/{repository}",
+                    self.api_url
+                ))
+                .bearer_auth(token.expose()),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Take this repository out of the Favorites of the token holder.
+    pub async fn unstar_repository(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<(), ForgejoError> {
+        self.send(
+            self.http
+                .delete(format!(
+                    "{}/api/v1/user/starred/{owner}/{repository}",
+                    self.api_url
+                ))
+                .bearer_auth(token.expose()),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Whether Forgejo notifies the token holder about this repository.
+    ///
+    /// Forgejo answers 404 when it holds no subscription, and it answers 200
+    /// with `subscribed` false when a person turned the subscription off.
+    /// Both mean the same thing here.
+    pub async fn is_watching(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<bool, ForgejoError> {
+        #[derive(Deserialize)]
+        struct Subscription {
+            #[serde(default)]
+            subscribed: bool,
+        }
+
+        let request = self
+            .http
+            .get(format!(
+                "{}/api/v1/repos/{owner}/{repository}/subscription",
+                self.api_url
+            ))
+            .bearer_auth(token.expose());
+
+        match self.send(request).await {
+            Ok(response) => {
+                let subscription: Subscription = read_json(response).await?;
+                Ok(subscription.subscribed)
+            }
+            Err(ForgejoError::Status { status: 404, .. }) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Ask Forgejo to notify the token holder about this repository.
+    pub async fn watch_repository(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<(), ForgejoError> {
+        self.send(
+            self.http
+                .put(format!(
+                    "{}/api/v1/repos/{owner}/{repository}/subscription",
+                    self.api_url
+                ))
+                .bearer_auth(token.expose()),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Ask Forgejo to stop the notifications about this repository.
+    pub async fn unwatch_repository(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<(), ForgejoError> {
+        self.send(
+            self.http
+                .delete(format!(
+                    "{}/api/v1/repos/{owner}/{repository}/subscription",
+                    self.api_url
+                ))
+                .bearer_auth(token.expose()),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Search repositories with the most Favorited first.
+    ///
+    /// This is [`Self::search_repositories`] with one difference: Forgejo
+    /// orders the answer by how many stars each repository has. Forgejo
+    /// counts the stars, so the application holds no count of its own and
+    /// cannot hold one that is out of date.
+    pub async fn search_repositories_by_stars(
+        &self,
+        token: Option<&Secret<String>>,
+        query: &RepositoryQuery<'_>,
+    ) -> Result<Vec<Repository>, ForgejoError> {
+        #[derive(Deserialize)]
+        struct SearchResults {
+            data: Vec<Repository>,
+        }
+
+        let mut parameters: Vec<(&str, String)> = vec![
+            ("q", query.topic.to_string()),
+            ("topic", "true".to_string()),
+            ("sort", "stars".to_string()),
+            ("order", "desc".to_string()),
+            ("page", query.page.to_string()),
+            ("limit", query.limit.to_string()),
+        ];
+
+        match query.ownership {
+            Ownership::Anybody => {}
+            Ownership::ReachableBy(id) => parameters.push(("uid", id.to_string())),
+            Ownership::OwnedBy(id) => {
+                parameters.push(("uid", id.to_string()));
+                parameters.push(("exclusive", "true".to_string()));
+            }
+        }
+
+        let mut request = self
+            .http
+            .get(format!("{}/api/v1/repos/search", self.api_url))
+            .query(&parameters);
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        let results: SearchResults = read_json(self.send(request).await?).await?;
+        Ok(results.data)
+    }
 }
 
 async fn read_json<T: serde::de::DeserializeOwned>(

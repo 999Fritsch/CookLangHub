@@ -1,4 +1,4 @@
-//! Finding Recipes: Mine, Shared with me, and Explore.
+//! Finding Recipes: Mine, Shared with me, Favorites, and Explore.
 //!
 //! Every list is built the same way. Forgejo says which Recipes this person
 //! may see, and the index says what each card shows. The order is never the
@@ -20,6 +20,7 @@ use axum::routing::{get, post};
 use axum_extra::extract::CookieJar;
 use serde::Deserialize;
 
+use crate::favorite;
 use crate::forgejo::Ownership;
 use crate::index;
 use crate::secret::Secret;
@@ -49,6 +50,8 @@ pub enum Area {
     Mine,
     /// The Recipes of somebody else that this person may work on.
     Shared,
+    /// The Recipes that this person made a Favorite.
+    Favorites,
     /// Every public Recipe.
     Explore,
 }
@@ -59,6 +62,7 @@ impl Area {
         match self {
             Area::Mine => "mine",
             Area::Shared => "shared",
+            Area::Favorites => "favorites",
             Area::Explore => "explore",
         }
     }
@@ -66,6 +70,7 @@ impl Area {
     fn parse(value: &str) -> Self {
         match value {
             "shared" => Area::Shared,
+            "favorites" => Area::Favorites,
             _ => Area::Mine,
         }
     }
@@ -79,6 +84,11 @@ pub enum Sort {
     Recent,
     /// The title decides, from A to Z.
     Title,
+    /// The Recipe that the most people made a Favorite comes first.
+    ///
+    /// Forgejo counts the Favorites and Forgejo puts them in order, so the
+    /// application holds no count of its own.
+    Favorites,
 }
 
 impl Sort {
@@ -86,6 +96,7 @@ impl Sort {
         match self {
             Sort::Recent => "recent",
             Sort::Title => "title",
+            Sort::Favorites => "favorites",
         }
     }
 
@@ -97,6 +108,7 @@ impl Sort {
     fn parse(value: &str) -> Self {
         match value {
             "title" => Sort::Title,
+            "favorites" => Sort::Favorites,
             _ => Sort::Recent,
         }
     }
@@ -168,22 +180,38 @@ pub async fn listing(
     area: Area,
     query: &BrowseQuery,
 ) -> Listing {
+    // A person who is not signed in owns nothing, shares nothing, and has
+    // no Favorites.
+    if viewer.is_none() && area != Area::Explore {
+        return Listing {
+            cards: Vec::new(),
+            notice: None,
+            empty: "Sign in to see your Recipes.".to_string(),
+        };
+    }
+
     let ownership = match (area, viewer) {
         (Area::Explore, _) => Ownership::Anybody,
         (Area::Mine, Some(user)) => Ownership::OwnedBy(user.forgejo_user_id),
         (Area::Shared, Some(user)) => Ownership::ReachableBy(user.forgejo_user_id),
-        // A person who is not signed in owns nothing and shares nothing.
-        (_, None) => {
-            return Listing {
-                cards: Vec::new(),
-                notice: None,
-                empty: "Sign in to see your Recipes.".to_string(),
-            };
-        }
+        _ => Ownership::Anybody,
     };
 
-    let (mut repositories, truncated) = match index::visible(&state.forgejo, token, ownership).await
-    {
+    // Forgejo answers all three questions. Which Recipes this person made a
+    // Favorite, which Recipes the most people made a Favorite, and which
+    // Recipes this credential may see at all.
+    let found = match area {
+        Area::Favorites => match token {
+            Some(token) => favorite::recipes(&state.forgejo, token).await,
+            None => Ok((Vec::new(), false)),
+        },
+        _ if query.sort() == Sort::Favorites => {
+            favorite::most_favorited(&state.forgejo, token, ownership).await
+        }
+        _ => index::visible(&state.forgejo, token, ownership).await,
+    };
+
+    let (mut repositories, truncated) = match found {
         Ok(found) => found,
         Err(error) => {
             tracing::warn!(%error, area = area.as_str(), "cannot ask Forgejo for the Recipes");
@@ -205,7 +233,9 @@ pub async fn listing(
             let login = viewer.map(|user| user.login.clone()).unwrap_or_default();
             repositories.retain(|repository| !repository.owner.login.eq_ignore_ascii_case(&login));
         }
-        Area::Mine => {}
+        // Forgejo already answered with exactly the Recipes that this
+        // person made a Favorite, and with exactly what they own.
+        Area::Mine | Area::Favorites => {}
     }
 
     // Forgejo answers with the newest change first, and the index gives the
@@ -265,21 +295,26 @@ fn empty_message(area: Area, words: &str) -> String {
     match area {
         Area::Mine => "You have no Recipes yet. Select New Recipe to write your first one.",
         Area::Shared => "Nobody shares a Recipe with you yet.",
+        Area::Favorites => "You have no Favorite Recipes yet.",
         Area::Explore => "This installation has no public Recipe yet.",
     }
     .to_string()
 }
 
-/// The two lists of the Recipes area, as links that keep the search.
+/// The three lists of the Recipes area, as links that keep the search.
 pub fn tabs(query: &BrowseQuery, area: Area) -> Vec<Tab> {
-    [(Area::Mine, "Mine"), (Area::Shared, "Shared with me")]
-        .into_iter()
-        .map(|(tab, name)| Tab {
-            name,
-            href: address("/", Some(tab), query),
-            active: tab == area,
-        })
-        .collect()
+    [
+        (Area::Mine, "Mine"),
+        (Area::Shared, "Shared with me"),
+        (Area::Favorites, "Favorites"),
+    ]
+    .into_iter()
+    .map(|(tab, name)| Tab {
+        name,
+        href: address("/", Some(tab), query),
+        active: tab == area,
+    })
+    .collect()
 }
 
 /// Build an address that keeps the search and the order.
@@ -480,6 +515,14 @@ mod tests {
     fn an_unknown_order_falls_back_to_recent() {
         assert_eq!(query("", "sideways", "").sort(), Sort::Recent);
         assert_eq!(query("", "title", "").sort(), Sort::Title);
+        assert_eq!(query("", "favorites", "").sort(), Sort::Favorites);
+    }
+
+    #[test]
+    fn an_unknown_list_falls_back_to_mine() {
+        assert_eq!(query("", "", "sideways").area(), Area::Mine);
+        assert_eq!(query("", "", "shared").area(), Area::Shared);
+        assert_eq!(query("", "", "favorites").area(), Area::Favorites);
     }
 
     #[test]
@@ -491,15 +534,29 @@ mod tests {
     fn a_tab_keeps_the_search_and_the_order() {
         let tabs = tabs(&query("chili sin carne", "title", "shared"), Area::Shared);
 
-        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs.len(), 3);
         assert!(tabs[1].active, "the shared list is the one being shown");
         assert!(!tabs[0].active);
+        assert!(!tabs[2].active);
 
         assert_eq!(tabs[0].href, "/?area=mine&q=chili%20sin%20carne&sort=title");
         assert_eq!(
             tabs[1].href,
             "/?area=shared&q=chili%20sin%20carne&sort=title"
         );
+        assert_eq!(tabs[2].name, "Favorites");
+        assert_eq!(
+            tabs[2].href,
+            "/?area=favorites&q=chili%20sin%20carne&sort=title"
+        );
+    }
+
+    #[test]
+    fn the_favorites_list_keeps_the_most_favorited_order() {
+        let tabs = tabs(&query("", "favorites", "favorites"), Area::Favorites);
+
+        assert!(tabs[2].active, "the Favorites list is the one being shown");
+        assert_eq!(tabs[2].href, "/?area=favorites&sort=favorites");
     }
 
     #[test]
@@ -519,6 +576,7 @@ mod tests {
     fn an_empty_list_says_why_it_is_empty() {
         assert!(empty_message(Area::Mine, "").contains("New Recipe"));
         assert!(empty_message(Area::Shared, "").contains("shares"));
+        assert!(empty_message(Area::Favorites, "").contains("Favorite"));
         assert!(empty_message(Area::Explore, "").contains("public"));
         // A search that found nothing is a different thing to say.
         assert!(empty_message(Area::Mine, "chili").contains("No Recipe title"));

@@ -240,6 +240,9 @@ struct ShowTemplate {
     source: String,
     forgejo_url: String,
     areas: Vec<RecipeArea>,
+    /// What Forgejo says this person did with this Recipe: Favorite, and
+    /// Notify me. Forgejo holds both, and this page only reads them.
+    marks: crate::favorite::Marks,
     warnings: Vec<String>,
     errors: Vec<String>,
     /// The Recipe as JSON, for Cook mode.
@@ -356,6 +359,11 @@ async fn show(
         .map(|parsed| render::render_with(parsed, &view, recipe::converter()))
         .unwrap_or_default();
 
+    // Ask Forgejo, on every view, whether this person made the Recipe a
+    // Favorite and whether they asked to be notified about it. Nothing is
+    // kept here, so neither answer can be out of date.
+    let marks = crate::favorite::marks(&state.forgejo, token.as_ref(), &owner, &slug).await;
+
     let areas = areas(&owner, &slug, &repository);
     let title = parsed.title.unwrap_or_else(|| repository.name.clone());
     let cooking_data = crate::cooking::json(&title, &cooked);
@@ -371,6 +379,7 @@ async fn show(
         source,
         forgejo_url: state.forgejo.web_url(&repository.full_name),
         areas,
+        marks,
         warnings,
         errors,
         cooking_data,
