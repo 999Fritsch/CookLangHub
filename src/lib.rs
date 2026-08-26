@@ -23,5 +23,6 @@ pub mod upload;
 pub mod web;
 pub mod web_discussions;
 pub mod web_recipes;
+pub mod web_sharing;
 
 pub use config::Config;

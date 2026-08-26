@@ -185,6 +185,27 @@ pub struct IssueComment {
     pub created_at: String,
 }
 
+/// What one person may do with one repository, as Forgejo answers it.
+///
+/// `permission` is the plain access mode that Forgejo keeps: `none`, `read`,
+/// `write`, `admin`, or `owner`. The application never keeps a copy of this
+/// answer. It asks Forgejo again each time it needs one.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RepositoryPermission {
+    #[serde(default)]
+    pub permission: String,
+    /// The name Forgejo shows for the same access mode.
+    #[serde(default)]
+    pub role_name: String,
+}
+
+impl RepositoryPermission {
+    /// Whether Forgejo gives this person read access and no more.
+    pub fn is_read_only(&self) -> bool {
+        matches!(self.permission.as_str(), "read" | "none" | "")
+    }
+}
+
 /// A client for one Forgejo instance.
 #[derive(Debug, Clone)]
 pub struct ForgejoClient {
@@ -810,6 +831,155 @@ impl ForgejoClient {
 
         Ok(response)
     }
+
+    /// Change whether a repository is private.
+    ///
+    /// Forgejo owns visibility. This call moves a Recipe between Public and
+    /// Private, and Forgejo then applies the new rule to the repository, to
+    /// its Git history, and to every later request.
+    pub async fn set_repository_private(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        private: bool,
+    ) -> Result<Repository, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .patch(format!(
+                        "{}/api/v1/repos/{owner}/{repository}",
+                        self.api_url
+                    ))
+                    .bearer_auth(token.expose())
+                    .json(&serde_json::json!({ "private": private })),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Read one user by name, as this token holder can see them.
+    ///
+    /// Forgejo answers 404 for a person whose profile it hides from the
+    /// asker. The application uses that answer as it is given, so the
+    /// profile visibility setting of Forgejo stays in force.
+    pub async fn user(
+        &self,
+        token: &Secret<String>,
+        login: &str,
+    ) -> Result<ForgejoUser, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .get(format!(
+                        "{}/api/v1/users/{}",
+                        self.api_url,
+                        urlencode(login)
+                    ))
+                    .bearer_auth(token.expose()),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// The people that Forgejo records on a repository.
+    ///
+    /// The answer carries no permission. Forgejo gives that one person at a
+    /// time through [`Self::repository_permission`].
+    pub async fn list_collaborators(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<Vec<ForgejoUser>, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .get(format!(
+                        "{}/api/v1/repos/{owner}/{repository}/collaborators",
+                        self.api_url
+                    ))
+                    .bearer_auth(token.expose()),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Ask Forgejo what one person may do with one repository.
+    pub async fn repository_permission(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        login: &str,
+    ) -> Result<RepositoryPermission, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .get(format!(
+                        "{}/api/v1/repos/{owner}/{repository}/collaborators/{}/permission",
+                        self.api_url,
+                        urlencode(login)
+                    ))
+                    .bearer_auth(token.expose()),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Give one person a permission on a repository.
+    ///
+    /// `permission` is a Forgejo access mode: `read`, `write`, or `admin`.
+    /// Forgejo refuses the call when the token holder cannot administer the
+    /// repository, so this is the check and not a second copy of it.
+    pub async fn add_collaborator(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        login: &str,
+        permission: &str,
+    ) -> Result<(), ForgejoError> {
+        self.send(
+            self.http
+                .put(format!(
+                    "{}/api/v1/repos/{owner}/{repository}/collaborators/{}",
+                    self.api_url,
+                    urlencode(login)
+                ))
+                .bearer_auth(token.expose())
+                .json(&serde_json::json!({ "permission": permission })),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Take the permission of one person away.
+    pub async fn remove_collaborator(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        login: &str,
+    ) -> Result<(), ForgejoError> {
+        self.send(
+            self.http
+                .delete(format!(
+                    "{}/api/v1/repos/{owner}/{repository}/collaborators/{}",
+                    self.api_url,
+                    urlencode(login)
+                ))
+                .bearer_auth(token.expose()),
+        )
+        .await?;
+
+        Ok(())
+    }
 }
 
 async fn read_json<T: serde::de::DeserializeOwned>(
@@ -1009,5 +1179,29 @@ mod tests {
         let closed: Issue =
             serde_json::from_str(r#"{"number":1,"title":"Done","state":"closed"}"#).unwrap();
         assert!(!closed.is_open());
+    }
+
+    #[test]
+    fn a_name_that_a_person_typed_stays_one_path_part() {
+        // A login arrives from a form, so it can hold characters that would
+        // otherwise make the request reach a different endpoint.
+        assert_eq!(urlencode("sam"), "sam");
+        assert_eq!(urlencode("sam.the-cook_1"), "sam.the-cook_1");
+        assert_eq!(urlencode("../../admin/users"), "..%2F..%2Fadmin%2Fusers");
+    }
+
+    #[test]
+    fn read_access_is_told_apart_from_more_than_read() {
+        let read = RepositoryPermission {
+            permission: "read".to_string(),
+            role_name: "read".to_string(),
+        };
+        let write = RepositoryPermission {
+            permission: "write".to_string(),
+            role_name: "write".to_string(),
+        };
+
+        assert!(read.is_read_only());
+        assert!(!write.is_read_only());
     }
 }
