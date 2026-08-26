@@ -267,6 +267,14 @@
             color: #34d399;
         }
 
+/* Not from CookCLI. The amount beside a piece of cookware carries
+           `text-green-700`, and their rules cover 600 only, so that amount
+           stayed a dark green on a dark page. Written in their shape, and
+           from the same palette as the rule above it. */
+        .dark .text-green-700 {
+            color: #34d399;
+        }
+
 .dark .shadow-lg, .dark .shadow-md, .dark .shadow-xl {
             box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
         }

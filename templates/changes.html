@@ -1,0 +1,109 @@
+{#
+  What is different between two Versions of a Recipe.
+
+  CookCLI has no screen like this, so the page is built from its parts: the
+  orange gradient title, the navigation pills, the white rounded cards, the
+  gradient rows, and the metadata pills that carry the mark.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+
+  Everything on this page comes from the parsed Recipe on each side, so the
+  words are cooking words: ingredients, cookware, and steps.
+#}
+{% extends "base.html" %}
+
+{% block title %}Changes &middot; {{ title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div>
+  <div class="mb-8">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
+        Changes
+      </h1>
+      <div class="flex flex-wrap items-center gap-2 self-start">
+        <a class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap"
+           href="/recipes/{{ owner }}/{{ slug }}/history">Back to History</a>
+        <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
+      </div>
+    </div>
+
+    <p class="text-gray-600">{{ title }}, owned by {{ owner }}</p>
+
+    <div class="flex flex-wrap items-center gap-2 mt-4">
+      <span class="metadata-pill metadata-servings">Earlier: {{ earlier.moment }}</span>
+      <span class="metadata-pill metadata-servings">Later: {{ later.moment }}</span>
+    </div>
+  </div>
+
+  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Recipe">
+    <a class="nav-pill" href="/recipes/{{ owner }}/{{ slug }}">Recipe</a>
+    {% for area in areas %}
+    {% if area.name == "History" %}
+    <span class="nav-pill active" aria-current="page">{{ area.name }}</span>
+    {% else %}
+    {% if let Some(href) = area.href %}
+    <a class="nav-pill" href="{{ href }}">{{ area.name }}</a>
+    {% else %}
+    <span class="nav-pill opacity-50" aria-disabled="true">{{ area.name }}</span>
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+  </nav>
+
+  {% if !errors.is_empty() %}
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-8" role="alert">
+    <h2 class="font-bold mb-2">This did not work</h2>
+    <ul class="list-disc pl-5 space-y-1">
+      {% for error in errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-2 text-gray-900">Two Versions</h2>
+    <ul class="space-y-2">
+      <li class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4">
+        <p class="font-medium text-gray-900">{{ earlier.description }}</p>
+        <p class="text-sm text-gray-600 mt-1">Earlier &middot; By {{ earlier.author }} on {{ earlier.moment }}</p>
+      </li>
+      <li class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4">
+        <p class="font-medium text-gray-900">{{ later.description }}</p>
+        <p class="text-sm text-gray-600 mt-1">Later &middot; By {{ later.author }} on {{ later.moment }}</p>
+      </li>
+    </ul>
+  </div>
+
+  {% if comparison.is_empty() %}
+  {% if errors.is_empty() %}
+  <div class="bg-white rounded-2xl shadow-lg p-6 text-center text-gray-600">
+    These two Versions hold the same Recipe.
+  </div>
+  {% endif %}
+  {% else %}
+  {% for group in comparison.groups %}
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">{{ group.name }}</h2>
+    <ul class="space-y-3">
+      {% for difference in group.differences %}
+      <li class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <span class="font-medium text-gray-900">{{ difference.subject }}</span>
+          <span class="metadata-pill {{ difference.pill }}">{{ difference.mark }}</span>
+        </div>
+        {% if let Some(was) = difference.was %}
+        <p class="text-sm text-gray-600 mt-1">Earlier: {{ was }}</p>
+        {% endif %}
+        {% if let Some(now) = difference.now %}
+        <p class="text-sm text-gray-600 mt-1">Now: {{ now }}</p>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}
