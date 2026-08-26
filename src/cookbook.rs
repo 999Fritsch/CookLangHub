@@ -37,7 +37,28 @@
 //! One thing follows that a person must know. The reference is in the
 //! Cookbook, so anybody who can read the Cookbook in Forgejo can read the
 //! address of every Recipe in it, including a private one. These pages never
-//! show it, and Forgejo is the authority for what Forgejo shows.
+//! show it, and Forgejo is the authority for what Forgejo shows. This is why
+//! the application says so before a private Recipe goes into a Cookbook that
+//! other people can reach.
+//!
+//! # Access
+//!
+//! A Cookbook and a Recipe are two repositories. Forgejo keeps the
+//! permissions of each one apart, so access to a Cookbook is never access to
+//! a Recipe in it, and this application adds nothing that joins the two.
+//! What it does instead is show the mismatch before it happens and offer a
+//! Forgejo grant for it. Every answer comes from Forgejo, one question at a
+//! time, through [`reach`].
+//!
+//! Two states are not the same thing and they are not shown as the same
+//! thing. A Recipe that a person cannot read is [`UNAVAILABLE_MESSAGE`], and
+//! a person who cannot read a Recipe is a line on the screen that shares.
+//!
+//! Private and deleted stay one message. Forgejo answers 404 for both, and
+//! it answers 404 to the Owner of the Cookbook as well, because the Owner of
+//! a Cookbook is nobody in particular to the Recipe. Telling the two apart
+//! would need a fact that nobody here has, so the message names both causes
+//! and the person is offered Forgejo.
 //!
 //! # The index
 //!
@@ -780,6 +801,11 @@ pub struct Held {
     pub owner: String,
     pub slug: String,
     pub title: String,
+    /// Whether Forgejo says that only named people can read the Recipe.
+    ///
+    /// This is false for a Recipe that is not available, because a Recipe
+    /// that this person cannot open says nothing about itself at all.
+    pub private: bool,
     /// Whether the Cookbook moves to each new Version of this Recipe.
     pub following: bool,
     /// Why the Recipe is not available, when it is not.
@@ -799,9 +825,19 @@ impl Held {
             owner: String::new(),
             slug: String::new(),
             title: String::new(),
+            private: false,
             following: false,
             problem: message.to_string(),
             warning: String::new(),
+        }
+    }
+
+    /// The Recipe, as one line for a person who can already read it.
+    fn named(&self) -> Named {
+        Named {
+            owner: self.owner.clone(),
+            slug: self.slug.clone(),
+            title: self.title.clone(),
         }
     }
 }
@@ -877,6 +913,7 @@ pub async fn held_recipes(
                     owner: repository.owner.login.clone(),
                     slug: repository.name.clone(),
                     title,
+                    private: repository.private,
                     following: reference.holding() == Holding::Following,
                     problem: String::new(),
                     warning: still_follows(forgejo, token, &repository, reference).await,
@@ -929,6 +966,387 @@ async fn still_follows(
             String::new()
         }
     }
+}
+
+// ------------------------------------------------- who can read what
+//
+// A Cookbook and a Recipe are two repositories, and Forgejo keeps the
+// permissions of each one apart. Access to a Cookbook is therefore never
+// access to the Recipes in it, and this application adds nothing that would
+// join the two. What it does instead is show the mismatch before it happens
+// and offer a Forgejo grant for it.
+//
+// Every answer below comes from Forgejo, one question at a time. Nothing is
+// worked out from a list that this application holds.
+
+/// The Forgejo access mode that a Reader gets.
+///
+/// Reader is Forgejo Read, the same word that the Sharing area of a Recipe
+/// hands out. A grant made here is an ordinary Forgejo permission and it is
+/// visible, and removable, in Forgejo.
+pub const READER_ACCESS: &str = "read";
+
+/// The Forgejo access mode of a person who can do nothing with a repository.
+const NO_ACCESS: &str = "none";
+
+/// What Forgejo says about one person and one Recipe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// Forgejo says that this person can read the Recipe.
+    Open,
+    /// Forgejo says that this person cannot read the Recipe.
+    Shut,
+    /// Forgejo did not answer. Nothing is known, so nothing is decided.
+    ///
+    /// Forgejo answers only a person who can administer the Recipe. A
+    /// Cookbook that holds the private Recipe of somebody else therefore
+    /// reaches this state, and the person is told so and sent to Forgejo.
+    Silent,
+}
+
+/// Ask Forgejo what one person may do with one Recipe.
+///
+/// This is the permission decision and Forgejo makes it. The application
+/// keeps no list of who can read what, and it works nothing out from the
+/// index.
+pub async fn reach(
+    forgejo: &ForgejoClient,
+    token: &Secret<String>,
+    owner: &str,
+    slug: &str,
+    login: &str,
+) -> Reach {
+    match forgejo
+        .repository_permission(token, owner, slug, login)
+        .await
+    {
+        Ok(permission) if permission.permission.trim() == NO_ACCESS => Reach::Shut,
+        Ok(_) => Reach::Open,
+        Err(error) => {
+            tracing::info!(%error, %owner, %slug, %login, "Forgejo did not say what this person can do");
+            Reach::Silent
+        }
+    }
+}
+
+/// One Recipe or one Cookbook, as a line that a person reads.
+///
+/// Only somebody who can already read the thing sees one of these. Forgejo
+/// showed them the title and the owner first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Named {
+    pub owner: String,
+    pub slug: String,
+    pub title: String,
+}
+
+/// One person who can reach a Cookbook.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sharer {
+    pub login: String,
+    pub name: String,
+}
+
+/// The Recipes of a Cookbook that one person cannot read.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RecipeGap {
+    /// Forgejo says that this person cannot read these Recipes.
+    pub shut: Vec<Named>,
+    /// Forgejo did not answer about these Recipes.
+    pub silent: Vec<Named>,
+}
+
+/// The people of a Cookbook who cannot read one Recipe.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PersonGap {
+    /// Forgejo says that these people cannot read the Recipe.
+    pub shut: Vec<Sharer>,
+    /// Forgejo did not answer about these people.
+    pub silent: Vec<Sharer>,
+}
+
+impl RecipeGap {
+    /// Whether there is nothing to tell the person.
+    pub fn is_empty(&self) -> bool {
+        self.shut.is_empty() && self.silent.is_empty()
+    }
+
+    /// Every Recipe of the report, so that one grant covers all of them.
+    pub fn each(&self) -> Vec<Named> {
+        let mut all = self.shut.clone();
+        all.extend(self.silent.iter().cloned());
+        all
+    }
+}
+
+impl PersonGap {
+    /// Whether there is nothing to tell the person.
+    pub fn is_empty(&self) -> bool {
+        self.shut.is_empty() && self.silent.is_empty()
+    }
+
+    /// Every person of the report, so that one grant covers all of them.
+    pub fn each(&self) -> Vec<Sharer> {
+        let mut all = self.shut.clone();
+        all.extend(self.silent.iter().cloned());
+        all
+    }
+}
+
+/// Which Recipes of a Cookbook one person cannot read.
+///
+/// A public Recipe is out of reach of nobody, so Forgejo is asked about a
+/// private Recipe only. A Recipe that this person owns is out of reach of
+/// them least of all, and Forgejo names the owner of each one, so those are
+/// not asked about either.
+///
+/// `recipes` holds what the person who asks can read, and a Recipe that they
+/// cannot read themselves is not in it: this report says nothing that
+/// Forgejo did not show them first.
+pub async fn recipes_out_of_reach(
+    forgejo: &ForgejoClient,
+    token: &Secret<String>,
+    recipes: &[Held],
+    login: &str,
+) -> RecipeGap {
+    let asked: Vec<&Held> = recipes
+        .iter()
+        .filter(|recipe| {
+            recipe.available && recipe.private && !recipe.owner.eq_ignore_ascii_case(login)
+        })
+        .collect();
+
+    let mut questions = Vec::with_capacity(asked.len());
+    for recipe in &asked {
+        questions.push(reach(forgejo, token, &recipe.owner, &recipe.slug, login));
+    }
+
+    let answers: Vec<Reach> = futures::stream::iter(questions)
+        .buffered(READ_CONCURRENCY)
+        .collect()
+        .await;
+
+    let mut gap = RecipeGap::default();
+    for (recipe, answer) in asked.into_iter().zip(answers) {
+        match answer {
+            Reach::Open => {}
+            Reach::Shut => gap.shut.push(recipe.named()),
+            Reach::Silent => gap.silent.push(recipe.named()),
+        }
+    }
+    gap
+}
+
+/// Which people of a Cookbook cannot read one Recipe.
+///
+/// A public Recipe gives an empty report, because Forgejo lets every user
+/// read one. The owner of the Recipe gives none either: Forgejo names them,
+/// and a Recipe is never out of reach of the person it belongs to.
+///
+/// For everybody else Forgejo answers one person at a time, and the answer
+/// is used exactly as it is given.
+pub async fn people_out_of_reach(
+    forgejo: &ForgejoClient,
+    token: &Secret<String>,
+    recipe: &Repository,
+    people: &[Sharer],
+) -> PersonGap {
+    if !recipe.private {
+        return PersonGap::default();
+    }
+
+    let owner = &recipe.owner.login;
+    let slug = &recipe.name;
+
+    let asked: Vec<&Sharer> = people
+        .iter()
+        .filter(|person| !person.login.eq_ignore_ascii_case(owner))
+        .collect();
+
+    let mut questions = Vec::with_capacity(asked.len());
+    for person in &asked {
+        questions.push(reach(forgejo, token, owner, slug, &person.login));
+    }
+
+    let answers: Vec<Reach> = futures::stream::iter(questions)
+        .buffered(READ_CONCURRENCY)
+        .collect()
+        .await;
+
+    let mut gap = PersonGap::default();
+    for (person, answer) in asked.into_iter().zip(answers) {
+        match answer {
+            Reach::Open => {}
+            Reach::Shut => gap.shut.push(person.clone()),
+            Reach::Silent => gap.silent.push(person.clone()),
+        }
+    }
+    gap
+}
+
+/// Give one person Reader access to some Recipes.
+///
+/// Each grant is one ordinary Forgejo collaborator permission. Forgejo makes
+/// it, Forgejo holds it, and Forgejo can take it away again. This
+/// application records none of it.
+///
+/// A Recipe that Forgejo refuses is named, and it holds no other Recipe
+/// back. The answer is one message for each refusal.
+pub async fn grant_reader(
+    forgejo: &ForgejoClient,
+    token: &Secret<String>,
+    login: &str,
+    recipes: &[Named],
+) -> Vec<String> {
+    let mut refusals = Vec::new();
+
+    for recipe in recipes {
+        match forgejo
+            .add_collaborator(token, &recipe.owner, &recipe.slug, login, READER_ACCESS)
+            .await
+        {
+            Ok(()) => {
+                tracing::info!(
+                    owner = %recipe.owner,
+                    slug = %recipe.slug,
+                    %login,
+                    "a person can read a Recipe of a Cookbook"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(%error, owner = %recipe.owner, slug = %recipe.slug, %login, "Forgejo gave no access to a Recipe");
+                refusals.push(format!(
+                    "Forgejo did not give {login} access to {}. Open that Recipe in Forgejo to give access there.",
+                    recipe.title
+                ));
+            }
+        }
+    }
+
+    refusals
+}
+
+/// Give some people Reader access to one Recipe.
+///
+/// This is the same grant as [`grant_reader`], from the other side: one
+/// Recipe and many people. Forgejo makes each one.
+pub async fn grant_readers(
+    forgejo: &ForgejoClient,
+    token: &Secret<String>,
+    recipe: &Named,
+    people: &[Sharer],
+) -> Vec<String> {
+    let mut refusals = Vec::new();
+
+    for person in people {
+        match forgejo
+            .add_collaborator(
+                token,
+                &recipe.owner,
+                &recipe.slug,
+                &person.login,
+                READER_ACCESS,
+            )
+            .await
+        {
+            Ok(()) => {
+                tracing::info!(
+                    owner = %recipe.owner,
+                    slug = %recipe.slug,
+                    login = %person.login,
+                    "a person can read a Recipe of a Cookbook"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(%error, owner = %recipe.owner, slug = %recipe.slug, login = %person.login, "Forgejo gave no access to a Recipe");
+                refusals.push(format!(
+                    "Forgejo did not give {} access to {}. Open that Recipe in Forgejo to give access there.",
+                    person.login, recipe.title
+                ));
+            }
+        }
+    }
+
+    refusals
+}
+
+/// The public Cookbooks that hold one Recipe.
+///
+/// A Recipe that stops being public makes each of these partly unavailable.
+/// The Cookbook stays readable and the entry stays visible, and the Recipe
+/// behind it becomes one that most people cannot open.
+///
+/// Git holds the answer, so each Cookbook is read again here. The index
+/// supplies the title only.
+pub async fn public_cookbooks_with(
+    pool: &SqlitePool,
+    forgejo: &ForgejoClient,
+    token: &Secret<String>,
+    owner: &str,
+    slug: &str,
+) -> Vec<Named> {
+    let found = match visible(forgejo, Some(token), Ownership::Anybody).await {
+        Ok((found, _)) => found,
+        Err(error) => {
+            tracing::warn!(%error, "cannot ask Forgejo for the public Cookbooks");
+            return Vec::new();
+        }
+    };
+
+    let public: Vec<Repository> = found
+        .into_iter()
+        .filter(|repository| !repository.private)
+        .collect();
+
+    let mut reads = Vec::with_capacity(public.len());
+    for repository in &public {
+        reads.push(async move {
+            let bytes = forgejo
+                .raw_file(
+                    Some(token),
+                    &repository.owner.login,
+                    &repository.name,
+                    repository.branch(),
+                    MODULES_FILE,
+                )
+                .await
+                .ok()?;
+
+            read_references(&bytes)
+                .iter()
+                .any(|reference| {
+                    recipe_named_by(forgejo, &reference.url).is_some_and(|(named, name)| {
+                        named.eq_ignore_ascii_case(owner) && name.eq_ignore_ascii_case(slug)
+                    })
+                })
+                .then_some(repository)
+        });
+    }
+
+    let answers: Vec<Option<&Repository>> = futures::stream::iter(reads)
+        .buffered(READ_CONCURRENCY)
+        .collect()
+        .await;
+
+    let holders: Vec<Repository> = answers.into_iter().flatten().cloned().collect();
+    let entries = entries(pool, forgejo, Some(token), &holders).await;
+
+    let mut named: Vec<Named> = entries
+        .into_iter()
+        .map(|entry| Named {
+            owner: entry.owner,
+            slug: entry.slug,
+            title: entry.title,
+        })
+        .collect();
+
+    named.sort_by(|one, two| {
+        one.title
+            .to_lowercase()
+            .cmp(&two.title.to_lowercase())
+            .then_with(|| one.owner.to_lowercase().cmp(&two.owner.to_lowercase()))
+    });
+    named
 }
 
 // ------------------------------------------- adding and removing a Recipe
@@ -2448,6 +2866,9 @@ mod tests {
             assert!(hidden.owner.is_empty());
             assert!(hidden.slug.is_empty());
             assert!(hidden.path.is_empty());
+            // Whether only named people can read it is a fact about the
+            // Recipe as well, so it stays out too.
+            assert!(!hidden.private);
             assert_eq!(hidden.problem, message);
         }
     }
@@ -2534,6 +2955,175 @@ mod tests {
 
         assert_eq!(quiet[0].problem, UNAVAILABLE_MESSAGE);
         assert_eq!(told[0].problem, NO_VERSION_MESSAGE);
+    }
+
+    // --------------------------------------------------- who can read what
+
+    /// One Recipe of a Cookbook that this person can read.
+    fn readable(owner: &str, slug: &str, title: &str, private: bool) -> Held {
+        Held {
+            available: true,
+            path: slug.to_string(),
+            owner: owner.to_string(),
+            slug: slug.to_string(),
+            title: title.to_string(),
+            private,
+            following: false,
+            problem: String::new(),
+            warning: String::new(),
+        }
+    }
+
+    /// One Recipe, as Forgejo reports it.
+    fn a_recipe(owner: &str, name: &str, private: bool) -> Repository {
+        let mut found = repository(1, owner, name, &["cooklang", "recipe"]);
+        found.private = private;
+        found
+    }
+
+    fn sharer(login: &str) -> Sharer {
+        Sharer {
+            login: login.to_string(),
+            name: login.to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_forgejo_that_does_not_answer_decides_nothing() {
+        // The client points at a host that does not exist, so Forgejo says
+        // nothing at all. Nothing may be read into that silence.
+        let answer = reach(
+            &client(),
+            &Secret::new("t".to_string()),
+            "sam",
+            "chili",
+            "robin",
+        )
+        .await;
+
+        assert_eq!(answer, Reach::Silent);
+    }
+
+    #[tokio::test]
+    async fn a_public_recipe_is_out_of_reach_of_nobody() {
+        // Forgejo lets every user read a public Recipe, so it is never a
+        // mismatch and Forgejo is not asked about it. The client here cannot
+        // answer, so an empty report proves that no question was sent.
+        let recipes = vec![readable("sam", "chili", "Chili", false)];
+
+        let gap =
+            recipes_out_of_reach(&client(), &Secret::new("t".to_string()), &recipes, "robin").await;
+
+        assert!(gap.is_empty(), "got: {gap:?}");
+
+        let people = people_out_of_reach(
+            &client(),
+            &Secret::new("t".to_string()),
+            &a_recipe("sam", "chili", false),
+            &[sharer("robin")],
+        )
+        .await;
+
+        assert!(people.is_empty(), "got: {people:?}");
+    }
+
+    #[tokio::test]
+    async fn a_private_recipe_that_forgejo_says_nothing_about_is_reported_as_that() {
+        // Silence is its own state. It is never read as `can read` and it is
+        // never read as `cannot read`.
+        let recipes = vec![readable("sam", "secret", "Secret Sauce", true)];
+
+        let gap =
+            recipes_out_of_reach(&client(), &Secret::new("t".to_string()), &recipes, "robin").await;
+
+        assert!(gap.shut.is_empty());
+        assert_eq!(gap.silent.len(), 1);
+        assert_eq!(gap.silent[0].title, "Secret Sauce");
+        assert!(!gap.is_empty());
+        assert_eq!(gap.each().len(), 1);
+
+        let people = people_out_of_reach(
+            &client(),
+            &Secret::new("t".to_string()),
+            &a_recipe("sam", "secret", true),
+            &[sharer("robin")],
+        )
+        .await;
+
+        assert!(people.shut.is_empty());
+        assert_eq!(people.silent, vec![sharer("robin")]);
+        assert_eq!(people.each().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_recipe_is_never_out_of_reach_of_the_person_who_owns_it() {
+        // Forgejo names the owner of each Recipe, so this needs no question
+        // at all. The client here cannot answer, so an empty report proves
+        // that no question was sent.
+        let recipes = vec![readable("robin", "secret", "Secret Sauce", true)];
+
+        let gap =
+            recipes_out_of_reach(&client(), &Secret::new("t".to_string()), &recipes, "robin").await;
+
+        assert!(gap.is_empty(), "got: {gap:?}");
+
+        let people = people_out_of_reach(
+            &client(),
+            &Secret::new("t".to_string()),
+            &a_recipe("robin", "secret", true),
+            &[sharer("robin")],
+        )
+        .await;
+
+        assert!(people.is_empty(), "got: {people:?}");
+    }
+
+    #[tokio::test]
+    async fn a_recipe_that_this_person_cannot_read_is_never_named_to_them() {
+        // A Recipe that is not available carries no owner and no name, so it
+        // cannot become a line that says what it is. It stays out of the
+        // report altogether.
+        let recipes = vec![Held::hidden(UNAVAILABLE_MESSAGE)];
+
+        let gap =
+            recipes_out_of_reach(&client(), &Secret::new("t".to_string()), &recipes, "robin").await;
+
+        assert!(gap.is_empty(), "got: {gap:?}");
+    }
+
+    #[tokio::test]
+    async fn a_grant_that_forgejo_refuses_is_named_and_offers_forgejo() {
+        let refusals = grant_reader(
+            &client(),
+            &Secret::new("t".to_string()),
+            "robin",
+            &[Named {
+                owner: "sam".to_string(),
+                slug: "secret".to_string(),
+                title: "Secret Sauce".to_string(),
+            }],
+        )
+        .await;
+
+        assert_eq!(refusals.len(), 1);
+        assert!(refusals[0].contains("robin"));
+        assert!(refusals[0].contains("Secret Sauce"));
+        assert!(refusals[0].contains("Open that Recipe in Forgejo"));
+
+        for word in ["submodule", "repository", "collaborator", "permission"] {
+            assert!(
+                !refusals[0].to_lowercase().contains(word),
+                "`{word}` must not reach the person: {}",
+                refusals[0]
+            );
+        }
+    }
+
+    #[test]
+    fn reader_is_forgejo_read() {
+        // A grant made here is an ordinary Forgejo permission, and it is the
+        // same one that the Sharing area of a Recipe hands out.
+        assert_eq!(READER_ACCESS, "read");
     }
 
     // --------------------------------------------------------- the index

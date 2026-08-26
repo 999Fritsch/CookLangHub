@@ -33,6 +33,88 @@
 </div>
 {% endif %}
 
+{% if let Some(gap) = gap %}
+{# The access mismatch, before it happens.
+
+   A Cookbook gives no access to the Recipes in it, and it names each one of
+   them. So a private Recipe in a Cookbook that other people can reach is
+   two facts that a person must read before they decide. Forgejo answered
+   both, and nothing is written until one of the buttons below is pressed. #}
+<section class="bg-white rounded-2xl shadow-lg p-6" aria-labelledby="gap-heading">
+  <h2 id="gap-heading" class="text-xl font-bold mb-4 text-gray-900">Add {{ gap.recipe.title }} to this Cookbook?</h2>
+
+  <div class="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-xl p-4 mb-4">
+    <p class="text-gray-700 m-0">
+      {{ gap.recipe.title }} is a private Recipe. A person who can read this
+      Cookbook can see that it holds the Recipe. Only a person with access to
+      the Recipe itself can open it.
+    </p>
+  </div>
+
+  {% if gap.public %}
+  <p class="text-gray-700 mb-4">
+    All users can read this Cookbook, so all users can see the name of this
+    Recipe in it. The Recipe stays closed to them.
+  </p>
+  {% endif %}
+
+  {% if !gap.shut.is_empty() %}
+  <h3 class="font-bold mb-2 text-gray-900">These people share this Cookbook and cannot read the Recipe</h3>
+  <ul class="space-y-2 list-none p-0 m-0 mb-4">
+    {% for person in gap.shut %}
+    <li class="bg-gray-50 rounded-lg px-3 py-2">
+      <span class="font-medium text-gray-900">{{ person.name }}</span>
+      <span class="text-sm text-gray-600">@{{ person.login }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if !gap.silent.is_empty() %}
+  <h3 class="font-bold mb-2 text-gray-900">Forgejo did not answer about these people</h3>
+  <p class="text-gray-600 mb-2">
+    Forgejo answers about a Recipe to the people who can control it. Open the
+    Recipe in Forgejo to see who can read it.
+  </p>
+  <ul class="space-y-2 list-none p-0 m-0 mb-4">
+    {% for person in gap.silent %}
+    <li class="bg-gray-50 rounded-lg px-3 py-2">
+      <span class="font-medium text-gray-900">{{ person.name }}</span>
+      <span class="text-sm text-gray-600">@{{ person.login }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <div class="flex flex-wrap gap-3">
+    {% if gap.has_people() %}
+    <form method="post" action="/cookbooks/{{ owner }}/{{ slug }}/recipes" class="m-0">
+      <input type="hidden" name="recipe" value="{{ gap.value }}">
+      <input type="hidden" name="holding" value="{{ gap.holding }}">
+      <input type="hidden" name="confirm" value="yes">
+      <input type="hidden" name="grant" value="yes">
+      <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Give Reader access and add the Recipe</button>
+    </form>
+    {% endif %}
+
+    <form method="post" action="/cookbooks/{{ owner }}/{{ slug }}/recipes" class="m-0">
+      <input type="hidden" name="recipe" value="{{ gap.value }}">
+      <input type="hidden" name="holding" value="{{ gap.holding }}">
+      <input type="hidden" name="confirm" value="yes">
+      <button type="submit" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Add it anyway</button>
+    </form>
+
+    <a href="/cookbooks/{{ owner }}/{{ slug }}" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</a>
+  </div>
+
+  <p class="text-sm text-gray-600 mt-4 mb-0">
+    A grant gives Reader access to the Recipe itself. Open the Sharing area of
+    the Recipe to remove it again.
+  </p>
+</section>
+
+{% else %}
+
 {% if let Some(message) = notice %}
 <div class="bg-white rounded-2xl shadow-lg p-4 mb-6 text-gray-700" role="status">
   {{ message }}
@@ -107,4 +189,5 @@
   </form>
   {% endif %}
 </section>
+{% endif %}
 {% endblock %}

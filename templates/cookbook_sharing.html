@@ -1,9 +1,15 @@
 {#
-  The Sharing area of a Recipe.
+  The Sharing area of a Cookbook.
 
-  CookCLI has no sharing screen, so this page is built out of the CookCLI
-  parts that already exist: the orange gradient title, the navigation pills,
-  the white rounded cards, the metadata pills, and the primary button.
+  This is the Sharing area of a Recipe, with the words of a Cookbook. It is
+  built out of the same CookCLI parts: the orange gradient title, the
+  navigation pills, the white rounded cards, the metadata pills, and the
+  primary button.
+
+  One thing is here that the Recipe screen has no need of. A Cookbook holds
+  its Recipes by reference, and access to the Cookbook is not access to them.
+  So, before a person gains this Cookbook, the screen lists the Recipes that
+  they cannot read, and offers a Forgejo grant for them.
 
   CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
 #}
@@ -26,19 +32,9 @@
     <p class="text-gray-600 mb-4">Owned by {{ owner }}</p>
   </div>
 
-  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Recipe">
-    <a class="nav-pill" href="/recipes/{{ owner }}/{{ slug }}">Recipe</a>
-    {% for area in areas %}
-    {% if area.name == "Sharing" %}
-    <span class="nav-pill active" aria-current="page">{{ area.name }}</span>
-    {% else %}
-    {% if let Some(href) = area.href %}
-    <a class="nav-pill" href="{{ href }}">{{ area.name }}</a>
-    {% else %}
-    <span class="nav-pill opacity-50" aria-disabled="true">{{ area.name }}</span>
-    {% endif %}
-    {% endif %}
-    {% endfor %}
+  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Cookbook">
+    <a class="nav-pill" href="{{ cookbook_path }}">Cookbook</a>
+    <span class="nav-pill active" aria-current="page">Sharing</span>
   </nav>
 
   {% if !errors.is_empty() %}
@@ -54,24 +50,89 @@
 
   {% if !is_owner %}
   <div class="bg-white rounded-2xl shadow-lg p-6">
-    <h2 class="text-xl font-bold mb-2 text-gray-900">Only the Owner can share this Recipe</h2>
+    <h2 class="text-xl font-bold mb-2 text-gray-900">Only the Owner can share this Cookbook</h2>
     <p class="text-gray-600">
-      {{ owner }} owns this Recipe and controls who can read it. Open the Recipe
-      in Forgejo to see what you can do there.
+      {{ owner }} owns this Cookbook and controls who can read it. Open the
+      Cookbook in Forgejo to see what you can do there.
+    </p>
+  </div>
+
+  {% else if let Some(gap) = gap %}
+  {# The access mismatch, before it happens. Forgejo answered about each
+     private Recipe of this Cookbook, for this one person. Nothing is
+     written until one of the buttons below is pressed. #}
+  <div class="bg-white rounded-2xl shadow-lg p-6">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">{{ gap.login }} cannot read all of these Recipes</h2>
+
+    <div class="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-xl p-4 mb-4">
+      <p class="text-gray-700 m-0">{{ separate_access }}</p>
+    </div>
+
+    {% if !gap.shut.is_empty() %}
+    <h3 class="font-bold mb-2 text-gray-900">Forgejo says that {{ gap.login }} cannot read these Recipes</h3>
+    <ul class="space-y-2 list-none p-0 m-0 mb-4">
+      {% for recipe in gap.shut %}
+      <li class="bg-gray-50 rounded-lg px-3 py-2">
+        <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}">{{ recipe.title }}</a>
+        <span class="text-sm text-gray-600">Owned by {{ recipe.owner }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if !gap.silent.is_empty() %}
+    <h3 class="font-bold mb-2 text-gray-900">Forgejo did not answer about these Recipes</h3>
+    <p class="text-gray-600 mb-2">
+      Forgejo answers about a Recipe to the people who can control it. Open
+      each Recipe in Forgejo to see who can read it.
+    </p>
+    <ul class="space-y-2 list-none p-0 m-0 mb-4">
+      {% for recipe in gap.silent %}
+      <li class="bg-gray-50 rounded-lg px-3 py-2">
+        <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}">{{ recipe.title }}</a>
+        <span class="text-sm text-gray-600">Owned by {{ recipe.owner }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <div class="flex flex-wrap gap-3">
+      <form method="post" action="{{ sharing_path }}/people" class="m-0">
+        <input type="hidden" name="login" value="{{ gap.login }}">
+        <input type="hidden" name="role" value="{{ gap.role }}">
+        <input type="hidden" name="confirm" value="yes">
+        <input type="hidden" name="grant" value="yes">
+        <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Give Reader access and share</button>
+      </form>
+
+      <form method="post" action="{{ sharing_path }}/people" class="m-0">
+        <input type="hidden" name="login" value="{{ gap.login }}">
+        <input type="hidden" name="role" value="{{ gap.role }}">
+        <input type="hidden" name="confirm" value="yes">
+        <button type="submit" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Share it anyway</button>
+      </form>
+
+      <a href="{{ sharing_path }}" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</a>
+    </div>
+
+    <p class="text-sm text-gray-600 mt-4 mb-0">
+      {{ gap.login }} becomes {{ gap.role_name }} of this Cookbook. A grant
+      gives Reader access to each Recipe above. Open the Sharing area of a
+      Recipe to remove that access again.
     </p>
   </div>
 
   {% else if confirming %}
   <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
-    <h2 class="text-xl font-bold mb-4 text-gray-900">Make this Recipe public?</h2>
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Make this Cookbook public?</h2>
 
     <div class="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-xl p-4 mb-4">
       <p class="text-gray-700">{{ public_warning }}</p>
     </div>
 
     <p class="text-gray-600 mb-6">
-      You can make the Recipe private again later. A person who reads it while
-      it is public can keep a copy.
+      You can make the Cookbook private again later. A person who reads it
+      while it is public can keep a copy.
     </p>
 
     <form method="post" action="{{ sharing_path }}/visibility" class="flex flex-wrap gap-3">
@@ -84,15 +145,15 @@
 
   {% else %}
   <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
-    <h2 class="text-xl font-bold mb-4 text-gray-900">Who can read this Recipe</h2>
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Who can read this Cookbook</h2>
 
     <div class="flex flex-wrap items-center gap-3">
       {% if public %}
       <span class="metadata-pill metadata-cuisine"><span aria-hidden="true">🌍</span>&nbsp;Public</span>
-      <p class="text-gray-600">All users can read this Recipe and its earlier Versions.</p>
+      <p class="text-gray-600">All users can read this Cookbook and its earlier Versions.</p>
       {% else %}
       <span class="metadata-pill metadata-servings"><span aria-hidden="true">🔒</span>&nbsp;Private</span>
-      <p class="text-gray-600">Only you and the people below can read this Recipe.</p>
+      <p class="text-gray-600">Only you and the people below can read this Cookbook.</p>
       {% endif %}
     </div>
 
@@ -106,68 +167,30 @@
       <a href="{{ sharing_path }}/public" class="inline-block btn-primary px-5 py-2 rounded-full font-medium text-white">Make it public</a>
       {% endif %}
     </div>
-
-    {% if !affected.is_empty() %}
-    {# Public to Private stays allowed, and the Owner reads what it costs
-       first. A Cookbook keeps its entry for this Recipe, and a reader who
-       has no access to the Recipe cannot open it. Nothing here is
-       repaired. #}
-    <div class="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-xl p-4 mt-6">
-      <h3 class="font-bold mb-2 text-gray-900">These public Cookbooks hold this Recipe</h3>
-      <p class="text-gray-700 mb-2">
-        If this Recipe becomes private, each Cookbook below becomes partly
-        unavailable. The Cookbook keeps its entry for this Recipe. A person
-        with no access to the Recipe cannot open the entry.
-      </p>
-      <ul class="space-y-2 list-none p-0 m-0">
-        {% for book in affected %}
-        <li>
-          <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/cookbooks/{{ book.owner }}/{{ book.slug }}">{{ book.title }}</a>
-          <span class="text-sm text-gray-600">Owned by {{ book.owner }}</span>
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
   </div>
-
-  {% if public %}
-  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
-    <h2 class="text-xl font-bold mb-2 text-gray-900">Share this Recipe</h2>
-    <p class="text-gray-600 mb-4">
-      Send this address to anybody. It is the address of the Recipe itself, and
-      it is the only one.
-    </p>
-
-    <div class="flex flex-wrap items-center gap-3">
-      <label class="sr-only" for="recipe-address">Recipe address</label>
-      <input id="recipe-address" type="text" readonly value="{{ recipe_url }}"
-             class="search-input grow px-3 py-2 bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 font-mono text-sm focus:outline-hidden">
-      <button id="copy-recipe-address" type="button"
-              class="hidden btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">Copy</button>
-    </div>
-    <p id="copy-recipe-address-result" class="text-sm text-gray-600 mt-2" role="status" aria-live="polite"></p>
-  </div>
-  {% endif %}
 
   <div class="bg-white rounded-2xl shadow-lg p-6">
     <h2 class="text-xl font-bold mb-2 text-gray-900">People</h2>
     <p class="text-gray-600 mb-4">
       {% if public %}
-      This Recipe is public, so everybody can read it. The list shows only the
-      people with more than read access.
+      This Cookbook is public, so everybody can read it. The list shows only
+      the people with more than read access.
       {% else %}
-      A Reader can read this Recipe. An Editor can read it and publish a
-      Version of it.
+      A Reader can read this Cookbook. An Editor can read it and can add a
+      Recipe to it.
       {% endif %}
     </p>
+
+    <div class="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-xl p-4 mb-4">
+      <p class="text-gray-700 m-0">{{ separate_access }}</p>
+    </div>
 
     {% if people.is_empty() %}
     <p class="text-gray-600 mb-6">
       {% if public %}
       Nobody has more than read access yet.
       {% else %}
-      You share this Recipe with nobody yet.
+      You share this Cookbook with nobody yet.
       {% endif %}
     </p>
     {% else %}
@@ -210,21 +233,22 @@
         <legend class="font-medium mb-2 text-gray-900">What they can do</legend>
         <label class="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50">
           <input type="radio" name="role" value="reader" checked>
-          <span class="text-gray-700"><strong>Reader</strong> &mdash; can read this Recipe.</span>
+          <span class="text-gray-700"><strong>Reader</strong> &mdash; can read this Cookbook.</span>
         </label>
         <label class="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50">
           <input type="radio" name="role" value="editor">
-          <span class="text-gray-700"><strong>Editor</strong> &mdash; can read this Recipe and publish a Version.</span>
+          <span class="text-gray-700"><strong>Editor</strong> &mdash; can read this Cookbook and can add a Recipe to it.</span>
         </label>
       </fieldset>
 
       <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Add the person</button>
     </form>
+
+    <p class="text-sm text-gray-600 mt-4 mb-0">
+      A person that you remove from this Cookbook keeps the Recipe access that
+      you gave them. Open the Sharing area of a Recipe to remove that access.
+    </p>
   </div>
   {% endif %}
 </div>
-
-{# The page works with no script. This file adds one action: it copies the
-   address that the field above already shows. #}
-<script src="/static/js/share.js" defer></script>
 {% endblock %}

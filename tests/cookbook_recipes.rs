@@ -144,6 +144,26 @@ async fn add_ok(app: &TestApp, session: &str, book: &str, recipe: &str, holding:
     assert_eq!(location(&response), format!("/cookbooks/{book}"));
 }
 
+/// Put a private Recipe into a Cookbook that other people can reach.
+///
+/// This is an access mismatch, so the application asks before it happens
+/// and writes nothing until the person answers. The question itself is
+/// covered by `tests/cookbook_access.rs`. Here the answer is Add it anyway,
+/// so that the test keeps its subject.
+async fn add_anyway(app: &TestApp, session: &str, book: &str, recipe: &str) -> reqwest::Response {
+    post(
+        app,
+        &format!("/cookbooks/{book}/recipes"),
+        Some(session),
+        &[
+            ("recipe", recipe),
+            ("holding", "pinned"),
+            ("confirm", "yes"),
+        ],
+    )
+    .await
+}
+
 /// Take a Recipe out of a Cookbook.
 async fn remove(app: &TestApp, session: Option<&str>, book: &str, path: &str) -> reqwest::Response {
     post(
@@ -592,7 +612,10 @@ async fn a_recipe_that_a_person_cannot_read_gives_nothing_away() {
         "a person must be able to add their own private Recipe: {form:.4000}"
     );
 
-    add_ok(
+    // This Cookbook is public and this Recipe is private, so the
+    // application asks before the Recipe goes in. The question changes
+    // nothing.
+    let asked = add(
         &app,
         &sam,
         "sam/sunday-dinners",
@@ -600,6 +623,24 @@ async fn a_recipe_that_a_person_cannot_read_gives_nothing_away() {
         None,
     )
     .await;
+    assert_eq!(
+        asked.status(),
+        200,
+        "a private Recipe in a public Cookbook must be asked about first"
+    );
+    let question = asked.text().await.expect("the page has no body");
+    assert!(
+        question.contains("Add it anyway"),
+        "the person must be offered a way on: {question:.4000}"
+    );
+
+    let landed = add_anyway(&app, &sam, "sam/sunday-dinners", "sam/secret-birthday-cake").await;
+    assert_eq!(
+        landed.status(),
+        303,
+        "`sam/secret-birthday-cake` was not added to `sam/sunday-dinners`"
+    );
+    assert_eq!(location(&landed), "/cookbooks/sam/sunday-dinners");
 
     // Forgejo really holds the reference.
     assert_eq!(

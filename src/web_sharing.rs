@@ -141,6 +141,11 @@ struct SharingTemplate {
     /// Where each form posts to, and where a cancel returns to.
     sharing_path: String,
     people: Vec<Person>,
+    /// The public Cookbooks that hold this Recipe.
+    ///
+    /// A Recipe that stops being public makes each of them partly
+    /// unavailable, so the Owner reads the list before they decide.
+    affected: Vec<crate::cookbook::Named>,
     /// Show the Private to Public confirmation instead of the controls.
     confirming: bool,
     /// What the confirmation says, kept in one place.
@@ -266,6 +271,23 @@ impl Screen<'_> {
             Vec::new()
         };
 
+        // Public to Private is allowed, and it is not free. A public
+        // Cookbook that holds this Recipe becomes partly unavailable, so
+        // the Owner reads which ones before they press the button. Git
+        // holds the answer and every Cookbook is read again for it.
+        let affected = if context.is_owner && public {
+            crate::cookbook::public_cookbooks_with(
+                &self.state.pool,
+                &self.state.forgejo,
+                &context.actor.token,
+                self.owner,
+                self.slug,
+            )
+            .await
+        } else {
+            Vec::new()
+        };
+
         respond(SharingTemplate {
             layout: Layout::new(self.current).on(self.headers, &self.sharing_path()),
             owner: self.owner.to_string(),
@@ -278,6 +300,7 @@ impl Screen<'_> {
             recipe_url: self.recipe_url().await,
             sharing_path: self.sharing_path(),
             people,
+            affected,
             confirming,
             public_warning: PUBLIC_WARNING,
             errors,
