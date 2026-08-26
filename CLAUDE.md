@@ -62,9 +62,10 @@ Five rules:
    anything else.
 
    A badge belongs inside running text, where it separates an ingredient
-   from cookware. A list of one kind of thing gets a tinted row instead:
-   the name on the left, the amount in bold on the right. In such a list a
-   badge repeats the heading and takes the weight that the amount needs.
+   from cookware. A list of one kind of thing gets a tinted row instead,
+   taken from CookCLI: a band across the whole row, the name on the left,
+   the amount on the right. The band is the point. It ties the two sides
+   together so that a long list never loses which line you are on.
 5. **It must not look like a code forge.** Recipe pages are culinary
    first. History, Suggestions, and Variations use quiet neutral chrome,
    never the visual language of a source control tool.
@@ -84,10 +85,12 @@ Do not "correct" these back.
 
 - CookCLI puts white text on `#ff6b35` and uses `orange-700` on
   `light-orange`. Both fail WCAG AA. This project darkens the foreground.
-- CookCLI uses gradients on buttons, pills, and navigation. This project
-  uses flat fills, because a flat fill has a contrast ratio that can be
-  measured. The one gradient kept is the three-stop rule on a Recipe card,
-  which is decoration and carries no text.
+- CookCLI uses gradients on buttons, pills, and navigation. A gradient is
+  permitted when every stop is measured, because then the ratio is known
+  everywhere on the shape. The gather-list rows are CookCLI gradients kept
+  exactly, and `tokens.css` carries the ratio of both stops. A gradient
+  with many stops under text is not permitted, because there is no single
+  pair to measure.
 - cooklang.org loads Inter, Lora, and JetBrains Mono from Google Fonts.
   This project serves its fonts itself.
 - CookCLI has no History, Suggestion, Discussion, Variation, or Sharing

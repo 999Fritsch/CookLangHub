@@ -479,17 +479,18 @@ input[type="text"]:focus, textarea:focus {
   padding: var(--space-4);
 }
 
-.recipe-aside h2 { margin-top: 0; font-size: var(--text-base); }
+.recipe-aside h2 { margin-top: 0; }
 .recipe-aside section + section { margin-top: var(--space-5); }
 
 /* ---- Gather lists ------------------------------------------------------ */
-/* What to collect before cooking. The name reads on the left and the amount
- * on the right, which is what makes a long list scannable.
+/* What to collect before cooking, taken from CookCLI.
  *
- * A row carries no entity badge. Every row in this list is already the same
- * kind of thing, so a badge would repeat the heading and would take the
- * weight that belongs to the amount. The badge appears inside a step
- * instead, where it separates an ingredient from cookware in running text.
+ * The band across the whole row is what makes this readable: it ties the
+ * name on the left to the amount on the right, so a long list never loses
+ * which line you are on.
+ *
+ * The fill is a two-stop gradient, and both stops are measured in
+ * tokens.css. A gradient is fine when its ends are known.
  */
 
 .gather-list {
@@ -497,38 +498,73 @@ input[type="text"]:focus, textarea:focus {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-3);
 }
 
 .gather-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: baseline;
-  gap: var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 }
 
-.gather-list--ingredient .gather-row { background: var(--ingredient-row); }
-.gather-list--cookware .gather-row { background: var(--cookware-row); }
+.gather-list--ingredient .gather-row {
+  background: linear-gradient(
+    to right,
+    var(--ingredient-row-from),
+    var(--ingredient-row-to)
+  );
+}
 
-.gather-name { color: var(--ink); }
+.gather-list--cookware .gather-row {
+  background: linear-gradient(
+    to right,
+    var(--cookware-row-from),
+    var(--cookware-row-to)
+  );
+}
+
+.gather-name {
+  color: var(--ink);
+  font-weight: var(--weight-medium);
+}
 
 .gather-amount {
-  font-weight: var(--weight-bold);
+  margin-left: var(--space-2);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.gather-list--ingredient .gather-amount { color: var(--ingredient-ink); }
-.gather-list--cookware .gather-amount { color: var(--cookware-ink); }
+.gather-list--ingredient .gather-amount { color: var(--ingredient-amount); }
+.gather-list--cookware .gather-amount { color: var(--cookware-amount); }
 
 .gather-note {
-  grid-column: 1 / -1;
+  margin-left: var(--space-1);
   color: var(--ink-muted);
   font-size: var(--text-sm);
   font-style: italic;
 }
+
+/* The heading carries the color of its entity and an emoji, which is how
+ * CookCLI names these two lists. */
+/* The size is not decoration. A heading colour of 3.56:1 is permitted only
+ * because the text is large and bold, which WCAG puts at 18.66px bold or
+ * more. Shrinking this text would make the colour illegal. */
+.gather-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: 0;
+  margin-bottom: var(--space-4);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+}
+
+.gather-heading--ingredient { color: var(--ingredient-heading); }
+.gather-heading--cookware { color: var(--cookware-heading); }
 
 /* ---- Steps -------------------------------------------------------------- */
 
@@ -638,4 +674,12 @@ main.main--wide { max-width: var(--measure-wide); }
   background: var(--brand-fill);
   border-color: var(--brand-fill);
   color: var(--brand-on-fill);
+}
+
+/* Name and note stay together on the left of the row. */
+.gather-left {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  flex: 1;
 }

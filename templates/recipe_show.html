@@ -88,16 +88,18 @@
     <aside class="recipe-aside">
       {% if !cooked.ingredients.is_empty() %}
       <section aria-labelledby="ingredients-heading">
-        <h2 id="ingredients-heading">Ingredients</h2>
+        <h2 id="ingredients-heading" class="gather-heading gather-heading--ingredient"><span aria-hidden="true">🥘</span> Ingredients</h2>
         <ul class="gather-list gather-list--ingredient">
           {% for item in cooked.ingredients %}
           <li class="gather-row">
-            <span class="gather-name">{{ item.name }}</span>
+            <span class="gather-left">
+              <span class="gather-name">{{ item.name }}</span>
+              {% if let Some(note) = item.note %}
+              <span class="gather-note">({{ note }})</span>
+              {% endif %}
+            </span>
             {% if let Some(quantity) = item.quantity %}
             <span class="gather-amount">{{ quantity }}</span>
-            {% endif %}
-            {% if let Some(note) = item.note %}
-            <span class="gather-note">{{ note }}</span>
             {% endif %}
           </li>
           {% endfor %}
@@ -107,11 +109,13 @@
 
       {% if !cooked.cookware.is_empty() %}
       <section aria-labelledby="cookware-heading">
-        <h2 id="cookware-heading">Cookware</h2>
+        <h2 id="cookware-heading" class="gather-heading gather-heading--cookware"><span aria-hidden="true">🍳</span> Cookware</h2>
         <ul class="gather-list gather-list--cookware">
           {% for item in cooked.cookware %}
           <li class="gather-row">
-            <span class="gather-name">{{ item.name }}</span>
+            <span class="gather-left">
+              <span class="gather-name">{{ item.name }}</span>
+            </span>
             {% if let Some(quantity) = item.quantity %}
             <span class="gather-amount">{{ quantity }}</span>
             {% endif %}
