@@ -29,7 +29,8 @@ use crate::auth::OAUTH_APPLICATION_NAME;
 use crate::forgejo::{ForgejoError, ForgejoUser, Repository};
 use crate::recipe::{self, RECIPE_FILE};
 use crate::secret::Secret;
-use crate::session::{self, COOKIE_NAME, CurrentUser};
+use crate::session::CurrentUser;
+
 use crate::web::{AppState, Layout, MaybeUser};
 use crate::web_recipes::{RecipeArea, areas};
 
@@ -117,11 +118,7 @@ struct Actor {
 
 /// Read the session and fetch the Forgejo identity behind it.
 async fn actor(state: &AppState, jar: &CookieJar) -> Option<Actor> {
-    let cookie = jar.get(COOKIE_NAME)?;
-    let token = session::access_token(&state.pool, &state.cipher, cookie.value())
-        .await
-        .ok()
-        .flatten()?;
+    let token = crate::web::viewer_token(state, jar).await?;
     let user = state.forgejo.current_user(&token).await.ok()?;
     Some(Actor { user, token })
 }

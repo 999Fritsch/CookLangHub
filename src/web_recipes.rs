@@ -16,7 +16,7 @@ use crate::recipe::{self, RECIPE_FILE};
 use crate::render::{self, RenderedRecipe};
 use crate::scale::View;
 use crate::secret::Secret;
-use crate::session::{self, COOKIE_NAME};
+
 use crate::upload::{self, SourceMode};
 use crate::web::{AppState, Layout, MaybeUser};
 
@@ -90,11 +90,7 @@ pub(crate) struct Actor {
 /// The identity comes from Forgejo rather than from the session row so that
 /// the address obeys the current privacy setting of that person.
 pub(crate) async fn actor(state: &AppState, jar: &CookieJar) -> Option<Actor> {
-    let cookie = jar.get(COOKIE_NAME)?;
-    let token = session::access_token(&state.pool, &state.cipher, cookie.value())
-        .await
-        .ok()
-        .flatten()?;
+    let token = crate::web::viewer_token(state, jar).await?;
     let user = state.forgejo.current_user(&token).await.ok()?;
     Some(Actor { user, token })
 }

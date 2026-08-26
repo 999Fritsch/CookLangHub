@@ -190,8 +190,14 @@ async fn callback(
         )
         .await?;
 
-    let access_token = Secret::new(tokens.access_token);
-    let refresh_token = tokens.refresh_token.map(Secret::new);
+    let access_token = Secret::new(tokens.access_token.clone());
+    let refresh_token = tokens
+        .refresh_token
+        .as_ref()
+        .map(|v| Secret::new(v.clone()));
+    // Forgejo says how long this token lives. Keeping the moment means the
+    // next request can tell a live token from a spent one without asking.
+    let access_token_expires_at = tokens.expires_at(session::now());
 
     let user = app.forgejo.current_user(&access_token).await?;
 
@@ -201,6 +207,7 @@ async fn callback(
         &user,
         &access_token,
         refresh_token.as_ref(),
+        access_token_expires_at,
     )
     .await?;
 

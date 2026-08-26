@@ -211,13 +211,44 @@ impl SystemHook {
 }
 
 /// The answer of the token endpoint.
-#[derive(Debug, Deserialize)]
+///
+/// Two of these fields are credentials. `Debug` is written by hand rather
+/// than derived, because a derived one prints both of them, and one
+/// `tracing` field that formats this value would put a working credential
+/// into a log for as long as that log is kept.
+#[derive(Deserialize)]
 pub struct TokenResponse {
     pub access_token: String,
     #[serde(default)]
     pub refresh_token: Option<String>,
     #[serde(default)]
     pub expires_in: Option<i64>,
+}
+
+impl std::fmt::Debug for TokenResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenResponse")
+            .field("access_token", &crate::secret::REDACTED)
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| crate::secret::REDACTED),
+            )
+            .field("expires_in", &self.expires_in)
+            .finish()
+    }
+}
+
+impl TokenResponse {
+    /// The moment the access token stops working, in seconds since the
+    /// epoch, when Forgejo says how long it lives.
+    pub fn expires_at(&self, now: i64) -> Option<i64> {
+        // A lifetime that is zero or negative is not a lifetime. Treat it
+        // as unknown rather than as a token that is already dead, so a
+        // strange answer cannot put a session into a renewal loop.
+        self.expires_in
+            .filter(|value| *value > 0)
+            .map(|value| now + value)
+    }
 }
 
 /// A Forgejo issue, which is one Discussion.
@@ -414,6 +445,37 @@ impl ForgejoClient {
             ("code", code),
             ("redirect_uri", redirect_uri),
             ("code_verifier", pkce_verifier),
+        ];
+
+        let response = self
+            .send(
+                self.http
+                    .post(format!("{}/login/oauth/access_token", self.api_url))
+                    .form(&form),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Trade a refresh token for a new access token.
+    ///
+    /// Forgejo gives a new refresh token with every answer and refuses the
+    /// old one from then on, so the caller must store what comes back. Two
+    /// callers that refresh the same session at once would spend the same
+    /// one-use token twice, which is why only one place in this application
+    /// may call this.
+    pub async fn refresh_access_token(
+        &self,
+        client_id: &str,
+        client_secret: &Secret<String>,
+        refresh_token: &Secret<String>,
+    ) -> Result<TokenResponse, ForgejoError> {
+        let form = [
+            ("grant_type", "refresh_token"),
+            ("client_id", client_id),
+            ("client_secret", client_secret.expose().as_str()),
+            ("refresh_token", refresh_token.expose().as_str()),
         ];
 
         let response = self
@@ -1296,8 +1358,12 @@ fn trim(url: String) -> String {
 ///
 /// Two shapes matter. A Forgejo personal access token carries a `gto_` or
 /// `gt_` prefix. An OAuth2 access token is a JWT, which is three
-/// dot-separated base64url parts and begins with `eyJ`.
-fn strip_credentials(text: &str) -> String {
+/// dot-separated base64url parts and begins with `eyJ`. A refresh token has
+/// the same shape as an access token.
+///
+/// Public so that a test can hold it against a credential that a real
+/// Forgejo issued, rather than against a shape this file assumed.
+pub fn strip_credentials(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for word in text.split_inclusive(char::is_whitespace) {
         if looks_like_credential(word.trim()) {

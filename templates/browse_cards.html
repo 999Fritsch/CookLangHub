@@ -18,10 +18,13 @@
 </div>
 {% endif %}
 
+{# An empty list with nothing to say is a blank card, so say nothing. #}
 {% if recipes.is_empty() %}
+{% if !empty.is_empty() %}
 <div class="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-600">
   {{ empty }}
 </div>
+{% endif %}
 {% else %}
 <ul class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 list-none p-0 m-0">
   {% for recipe in recipes %}

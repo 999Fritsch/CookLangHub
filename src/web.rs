@@ -19,6 +19,7 @@ use crate::crypto::Cipher;
 use crate::forgejo::ForgejoClient;
 use crate::git::GitAdapter;
 use crate::health;
+use crate::secret::Secret;
 use crate::session::{self, COOKIE_NAME, CurrentUser};
 
 /// Shared state that every handler can read.
@@ -102,6 +103,53 @@ impl FromRequestParts<Arc<AppState>> for MaybeUser {
                 tracing::warn!(%error, "cannot read the session store");
                 Ok(Self(None))
             }
+        }
+    }
+}
+
+/// The Forgejo credential of the person who is looking, when they have one.
+///
+/// Every page that acts as a person goes through here, and the credential is
+/// renewed first when it is spent. This is the one place in the application
+/// that renews, because Forgejo gives a new refresh token each time and
+/// refuses the old one.
+///
+/// Two paths deliberately do NOT come through here. The photo route serves
+/// many images for one page and must not start a renewal per image, and the
+/// reconciliation and the webhook read every stored credential at once and
+/// must never make an outside event drive a credential operation.
+pub async fn viewer_token(state: &AppState, jar: &CookieJar) -> Option<Secret<String>> {
+    let cookie = jar.get(session::COOKIE_NAME)?;
+
+    let client = match crate::auth::load_client(&state.pool, &state.cipher).await {
+        Ok(Some(client)) => client,
+        // No registered client means the bootstrap has not run. Renewal is
+        // impossible, so the stored token is the best that can be offered.
+        Ok(None) => {
+            return session::access_token(&state.pool, &state.cipher, cookie.value())
+                .await
+                .ok()
+                .flatten();
+        }
+        Err(error) => {
+            tracing::warn!(%error, "cannot read the OAuth client");
+            return None;
+        }
+    };
+
+    match session::live_token(
+        &state.pool,
+        &state.cipher,
+        &state.forgejo,
+        &client,
+        cookie.value(),
+    )
+    .await
+    {
+        Ok(found) => found,
+        Err(error) => {
+            tracing::warn!(%error, "cannot read the credential of this session");
+            None
         }
     }
 }

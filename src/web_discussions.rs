@@ -31,7 +31,7 @@ use crate::create_recipe::MAIN_BRANCH;
 use crate::forgejo::{ForgejoUser, Repository};
 use crate::recipe::{self, RECIPE_FILE};
 use crate::secret::Secret;
-use crate::session::{self, COOKIE_NAME};
+
 use crate::web::{AppState, Layout, MaybeUser};
 use crate::web_recipes::{RecipeArea, areas};
 
@@ -73,11 +73,7 @@ pub fn router() -> Router<Arc<AppState>> {
 ///
 /// A public Recipe is readable without a session, so this can be `None`.
 async fn token(state: &AppState, jar: &CookieJar) -> Option<Secret<String>> {
-    let cookie = jar.get(COOKIE_NAME)?;
-    session::access_token(&state.pool, &state.cipher, cookie.value())
-        .await
-        .ok()
-        .flatten()
+    crate::web::viewer_token(state, jar).await
 }
 
 /// The Recipe that a Discussion belongs to.

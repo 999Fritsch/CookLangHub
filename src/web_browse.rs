@@ -23,7 +23,8 @@ use serde::Deserialize;
 use crate::forgejo::Ownership;
 use crate::index;
 use crate::secret::Secret;
-use crate::session::{self, COOKIE_NAME, CurrentUser};
+use crate::session::CurrentUser;
+
 use crate::web::{AppState, Layout, MaybeUser, RecipeCard};
 
 /// How many Recipes one page shows.
@@ -319,11 +320,7 @@ fn encode(value: &str) -> String {
 
 /// The credential of the person who is looking, when they have one.
 pub async fn viewer_token(state: &AppState, jar: &CookieJar) -> Option<Secret<String>> {
-    let cookie = jar.get(COOKIE_NAME)?;
-    session::access_token(&state.pool, &state.cipher, cookie.value())
-        .await
-        .ok()
-        .flatten()
+    crate::web::viewer_token(state, jar).await
 }
 
 // ------------------------------------------------------------------ pages

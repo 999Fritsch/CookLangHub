@@ -105,6 +105,15 @@ impl Forgejo {
 
 /// Start Forgejo and wait until its API answers.
 pub async fn start_forgejo() -> Forgejo {
+    start_forgejo_with_token_lifetime(None).await
+}
+
+/// Start Forgejo with a chosen lifetime for an OAuth access token.
+///
+/// The default lifetime is one hour, which no test can wait out. A test
+/// about a spent credential asks for a few seconds instead, so the primary
+/// acceptance seam can exercise the state that a person really reaches.
+pub async fn start_forgejo_with_token_lifetime(seconds: Option<u32>) -> Forgejo {
     // Readiness comes from the API poll below, not from a log message. Log
     // wording is not part of the Forgejo API and can change between
     // releases, so a test must not depend on it.
@@ -116,7 +125,17 @@ pub async fn start_forgejo() -> Forgejo {
         .with_env_var("FORGEJO__database__DB_TYPE", "sqlite3")
         .with_env_var("FORGEJO__database__PATH", "/data/gitea/forgejo.db")
         .with_env_var("FORGEJO__server__HTTP_PORT", "3000")
-        .with_env_var("FORGEJO__service__DEFAULT_KEEP_EMAIL_PRIVATE", "true")
+        .with_env_var("FORGEJO__service__DEFAULT_KEEP_EMAIL_PRIVATE", "true");
+
+    let container = match seconds {
+        Some(seconds) => container.with_env_var(
+            "FORGEJO__oauth2__ACCESS_TOKEN_EXPIRATION_TIME",
+            seconds.to_string(),
+        ),
+        None => container,
+    };
+
+    let container = container
         .start()
         .await
         .expect("cannot start the Forgejo container");
