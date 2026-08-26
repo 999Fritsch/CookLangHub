@@ -1,38 +1,37 @@
 {#
-  Explore: the public Recipes of this installation.
+  Explore, Cookbooks: the public Cookbooks of this installation.
 
-  It needs no account, because Public means public.
+  It needs no account, because Public means public. Explore keeps Recipes and
+  Cookbooks apart, so this page is the second of the two lists.
 
   CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
 #}
 {% extends "base.html" %}
 
-{% block title %}Explore &middot; CookLangHub{% endblock %}
+{% block title %}Explore Cookbooks &middot; CookLangHub{% endblock %}
 
 {% block content %}
 <div class="flex items-center justify-between flex-wrap gap-4 mb-6">
   <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">Explore</h1>
   {% if layout.signed_in %}
-  <a href="/recipes/new" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">New Recipe</a>
+  <a href="/cookbooks/new" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">New Cookbook</a>
   {% else %}
   <a href="/auth/sign-in" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">Sign in</a>
   {% endif %}
 </div>
 
-{# Explore keeps Recipes and Cookbooks apart, so it carries two lists. #}
 <nav class="flex flex-wrap gap-1 mb-6 border-b border-gray-200 pb-2" aria-label="Explore">
-  <a class="nav-pill active" href="/explore" aria-current="page">Recipes</a>
-  <a class="nav-pill" href="/explore/cookbooks">Cookbooks</a>
+  <a class="nav-pill" href="/explore">Recipes</a>
+  <a class="nav-pill active" href="/explore/cookbooks" aria-current="page">Cookbooks</a>
 </nav>
 
-<p class="text-gray-600 mb-6">Every public Recipe of this installation.</p>
+<p class="text-gray-600 mb-6">Every public Cookbook of this installation.</p>
 
-{% include "browse_controls.html" %}
-{% include "browse_cards.html" %}
+{% include "cookbook_controls.html" %}
+{% include "cookbook_cards.html" %}
 
 <div class="mt-8 text-sm text-gray-600">
   Forgejo: <a href="{{ forgejo_url }}" class="text-blue-600 hover:text-blue-800 hover:underline">{{ forgejo_url }}</a>
   &middot; <a href="/health" class="text-blue-600 hover:text-blue-800 hover:underline">/health</a>
-  &middot; <a href="/admin/index" class="text-blue-600 hover:text-blue-800 hover:underline">Recipe index</a>
 </div>
 {% endblock %}

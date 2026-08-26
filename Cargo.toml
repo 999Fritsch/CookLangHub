@@ -19,6 +19,7 @@ cooklang = "0.18"
 futures = "0.3"
 hkdf = "0.12"
 hmac = "0.12"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 rand = "0.9"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "http2", "form", "query"] }
 serde = { version = "1", features = ["derive"] }

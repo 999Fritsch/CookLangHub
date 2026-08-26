@@ -1,0 +1,43 @@
+{#
+  The Cookbooks area: Mine, Shared with me, and Favorites.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}Cookbooks &middot; CookLangHub{% endblock %}
+
+{% block content %}
+{% if layout.signed_in %}
+<div class="flex items-center justify-between flex-wrap gap-4 mb-6">
+  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">Cookbooks</h1>
+  <a href="/cookbooks/new" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">New Cookbook</a>
+</div>
+
+<nav class="flex flex-wrap gap-1 mb-6 border-b border-gray-200 pb-2" aria-label="Cookbooks">
+  {% for tab in tabs %}
+  <a class="nav-pill {% if tab.active %}active{% endif %}" href="{{ tab.href }}"
+     {% if tab.active %}aria-current="page"{% endif %}>{{ tab.name }}</a>
+  {% endfor %}
+</nav>
+
+{% include "cookbook_controls.html" %}
+{% include "cookbook_cards.html" %}
+{% else %}
+<div class="bg-white rounded-2xl shadow-lg p-8">
+  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent mb-4">Cookbooks</h1>
+  <p class="text-gray-600 mb-6">
+    A Cookbook keeps Recipes together under one name. Sign in to make one, or
+    select <strong>Explore</strong> to read the public Cookbooks.
+  </p>
+  <div class="flex flex-wrap gap-2">
+    <a href="/auth/sign-in" class="btn-primary inline-block px-5 py-2 rounded-full font-medium text-white">Sign in</a>
+    <a href="/explore/cookbooks" class="nav-pill inline-block">Explore</a>
+  </div>
+</div>
+{% endif %}
+
+<div class="mt-8 text-sm text-gray-600">
+  Forgejo: <a href="{{ forgejo_url }}" class="text-blue-600 hover:text-blue-800 hover:underline">{{ forgejo_url }}</a>
+</div>
+{% endblock %}

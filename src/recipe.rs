@@ -183,6 +183,15 @@ pub fn set_title(source: &str, title: &str) -> String {
 /// stays fixed, so renaming a Recipe later changes the Cooklang title but
 /// not this value.
 pub fn slug(title: &str) -> String {
+    slug_with(title, "recipe")
+}
+
+/// Make a repository slug, and name what a title with no usable letters
+/// becomes.
+///
+/// A Cookbook needs the same rules and a different word for that case, so
+/// the fallback is the one part that the caller chooses.
+pub fn slug_with(title: &str, fallback: &str) -> String {
     let mut out = String::with_capacity(title.len());
     let mut last_dash = true;
 
@@ -233,7 +242,7 @@ pub fn slug(title: &str) -> String {
     let slug = slug.trim_end_matches('-').to_string();
 
     if slug.is_empty() {
-        "recipe".to_string()
+        fallback.to_string()
     } else {
         slug
     }

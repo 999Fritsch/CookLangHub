@@ -123,6 +123,22 @@
             color: #d8b4fe;
         }
 
+/* Not from CookCLI. The box that says why something did not work.
+           Four pages draw it with `bg-red-50`, `border-red-400`, and
+           `text-red-900`, and their rules cover none of the three, so the
+           box stayed a light card on a dark page.
+
+           The rule names `role="alert"` on purpose. `.timer-badge` also
+           carries `text-red-900` and `border-red-400` over a light red
+           background of its own, so a rule on those two class names alone
+           would make a timer unreadable. Written in their shape, from their
+           palette. */
+        .dark [role="alert"].bg-red-50 {
+            background-color: #450a0a;
+            border-color: #7f1d1d;
+            color: #fecaca;
+        }
+
 .dark .bg-gradient-to-r.from-gray-50.to-orange-50 {
             background: linear-gradient(to right, #1f2937, #111827);
             border: 1px solid #374151;

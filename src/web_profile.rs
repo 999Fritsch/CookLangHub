@@ -37,11 +37,9 @@ use crate::web::{AppState, Layout, MaybeUser, RecipeCard};
 
 /// The topics that mark a Cookbook repository.
 ///
-/// `recipe::RECIPE_TOPICS` holds the same pair for a Recipe. Cookbooks
-/// arrive with their own ticket, and this constant moves next to them then.
-/// A repository without both topics is not a Cookbook, exactly as a
-/// repository without both Recipe topics is not a Recipe.
-const COOKBOOK_TOPICS: [&str; 2] = ["cooklang", "cookbook"];
+/// Cookbooks own this now, so it is read from there rather than written
+/// twice. Two copies of a marker agree until the day one of them changes.
+use crate::cookbook::COOKBOOK_TOPICS;
 
 /// The topic that one search asks Forgejo about.
 ///
@@ -68,15 +66,6 @@ const NO_FORGEJO: &str =
 
 /// Shown when a profile holds more than one page shows.
 const TOO_MANY: &str = "This cook has more Recipes and Cookbooks than one page shows. The ones that changed last come first.";
-
-/// Shown above the Cookbooks of a profile.
-///
-/// CookLangHub has no Cookbook page yet. The Cookbooks are still listed,
-/// because Forgejo holds them and a person must see what is there, and each
-/// one opens in Forgejo. The application says this plainly instead of
-/// hiding a Cookbook that exists.
-const NO_COOKBOOK_PAGE: &str =
-    "CookLangHub has no Cookbook page yet. Open a Cookbook in Forgejo to read it.";
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -256,9 +245,7 @@ async fn show(
             owner: repository.owner.login.clone(),
             name: repository.name.clone(),
             private: repository.private,
-            url: state
-                .forgejo
-                .web_url(&format!("{}/{}", repository.owner.login, repository.name)),
+            url: format!("/cookbooks/{}/{}", repository.owner.login, repository.name),
         })
         .collect();
 
@@ -269,11 +256,10 @@ async fn show(
             .map(card_of)
             .collect();
 
-    let cookbook_notice = if cookbooks.is_empty() {
-        None
-    } else {
-        Some(NO_COOKBOOK_PAGE.to_string())
-    };
+    // A Cookbook had no page here when this was written, so every card led
+    // to Forgejo and said why. Cookbooks have a page now.
+    // A Cookbook has a page here now, so no card needs explaining.
+    let cookbook_notice: Option<String> = None;
 
     respond(ProfileTemplate {
         layout,

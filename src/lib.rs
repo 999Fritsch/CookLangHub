@@ -7,6 +7,7 @@
 pub mod auth;
 pub mod bootstrap;
 pub mod config;
+pub mod cookbook;
 pub mod cooking;
 pub mod create_recipe;
 pub mod crypto;
@@ -26,6 +27,7 @@ pub mod theme;
 pub mod upload;
 pub mod web;
 pub mod web_browse;
+pub mod web_cookbooks;
 pub mod web_discussions;
 pub mod web_edit;
 pub mod web_history;
