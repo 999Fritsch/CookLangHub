@@ -1336,6 +1336,34 @@ impl ForgejoClient {
 
         Ok(())
     }
+
+    /// Read one user by name, as the person who is looking sees them.
+    ///
+    /// `None` is an anonymous visitor, and Forgejo then answers as it
+    /// answers anybody with no account. Forgejo answers 404 for a person
+    /// whose profile it hides from the asker, so a limited profile answers
+    /// 404 to a visitor and a private profile answers 404 to almost
+    /// everybody. The application uses that answer as it is given, which is
+    /// what keeps the profile visibility setting of Forgejo in force.
+    ///
+    /// [`Self::user`] is the same question asked with a credential that is
+    /// always present.
+    pub async fn user_as(
+        &self,
+        token: Option<&Secret<String>>,
+        login: &str,
+    ) -> Result<ForgejoUser, ForgejoError> {
+        let mut request = self.http.get(format!(
+            "{}/api/v1/users/{}",
+            self.api_url,
+            urlencode(login)
+        ));
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        read_json(self.send(request).await?).await
+    }
 }
 
 async fn read_json<T: serde::de::DeserializeOwned>(

@@ -41,7 +41,9 @@
       </div>
     </div>
 
-    <p class="text-gray-600 mb-4">Owned by {{ owner }}</p>
+    {# The owner name is the way to their profile, which shows the rest of
+       their Recipes that this person may see. #}
+    <p class="text-gray-600 mb-4">Owned by <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/cooks/{{ owner }}">{{ owner }}</a></p>
 
     {# The photo of the Recipe. It is served by this application, so the
        page needs no other origin and a private Recipe keeps its photo. #}
