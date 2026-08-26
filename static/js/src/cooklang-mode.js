@@ -11,6 +11,20 @@
 
 import { StreamLanguage } from "@codemirror/language";
 
+// `state.position` holds this mode's own name for where the stream is, but
+// a StreamLanguage must answer with a style that CodeMirror knows. Handing
+// back the internal name made CodeMirror report "Unknown highlighting tag"
+// and left the amount and the unit unstyled. The names are translated here.
+//
+// This corrects the CookCLI original rather than copying it.
+const STYLE = {
+  measurement: "number",
+  unit: "atom",
+  timer: "number",
+  "metadata-key": "property",
+  "metadata-value": "string",
+};
+
 // Cooklang syntax highlighting mode for CodeMirror 6
 // Ported from cooklang-obsidian/src/mode/cook/cook.ts
 export const cooklang = StreamLanguage.define({
@@ -182,6 +196,6 @@ export const cooklang = StreamLanguage.define({
       return null;
     }
 
-    return state.position;
+    return state.position ? (STYLE[state.position] ?? state.position) : null;
   }
 });

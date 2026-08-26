@@ -49,6 +49,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/health", get(health_endpoint))
+        .route("/avatar", get(avatar))
         .merge(crate::auth::router())
         .merge(crate::web_recipes::router())
         .merge(crate::theme::router())
@@ -232,4 +233,136 @@ async fn health_endpoint(State(state): State<Arc<AppState>>) -> Response {
     };
 
     (status, axum::Json(report)).into_response()
+}
+
+/// Serve the avatar of the signed-in person from this application.
+///
+/// Forgejo hosts the image, and the policy of this application allows an
+/// image from its own origin only. Fetching it here keeps the rule intact
+/// and keeps the browser from asking another host for anything.
+///
+/// Only an address on the Forgejo this application is configured for is
+/// fetched. The address arrives from Forgejo rather than from the person,
+/// but a check here means a changed answer still cannot make this server
+/// fetch somewhere else.
+async fn avatar(State(state): State<Arc<AppState>>, MaybeUser(user): MaybeUser) -> Response {
+    let Some(user) = user else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    let Some(address) = avatar_address(
+        &user.avatar_url,
+        state.forgejo.public_url(),
+        state.forgejo.api_url(),
+    ) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    let answer = match reqwest::Client::new().get(address).send().await {
+        Ok(answer) if answer.status().is_success() => answer,
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+
+    // Only an image is passed on. Forgejo serves one here, and refusing
+    // anything else keeps this route from becoming a general way to fetch.
+    let content_type = answer
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| value.starts_with("image/"))
+        .unwrap_or("image/png")
+        .to_string();
+
+    match answer.bytes().await {
+        Ok(bytes) => (
+            [
+                (header::CONTENT_TYPE, content_type),
+                // The picture belongs to one person, so no shared cache
+                // keeps it, and the browser rereads it on the next visit.
+                (header::CACHE_CONTROL, "private, max-age=300".to_string()),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// The address to fetch an avatar from, when it may be fetched at all.
+///
+/// Forgejo reports an avatar address for a browser, so it carries the
+/// public address of Forgejo. This server cannot use that address: inside a
+/// container `localhost` is the container itself, not Forgejo. The address
+/// is therefore checked against the public address and fetched through the
+/// one this application talks to.
+///
+/// Only an address on the Forgejo of this installation passes. The value
+/// comes from Forgejo and not from a person, but this server must never be
+/// usable to fetch an address that somebody else chose, so the rule is
+/// applied rather than assumed.
+fn avatar_address(avatar_url: &str, public_url: &str, api_url: &str) -> Option<String> {
+    let address = avatar_url.trim();
+    let base = public_url.trim_end_matches('/');
+
+    if base.is_empty() || address.len() <= base.len() || !address.starts_with(base) {
+        return None;
+    }
+
+    let path = &address[base.len()..];
+
+    // The rest must begin a path. Without this check `http://forgejo.test`
+    // would also match `http://forgejo.test.evil`.
+    if !path.starts_with('/') {
+        return None;
+    }
+
+    Some(format!("{}{path}", api_url.trim_end_matches('/')))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_avatar_is_checked_in_public_and_fetched_inside() {
+        // Forgejo names itself as a browser sees it. The fetch has to go to
+        // the address this application reaches it on.
+        assert_eq!(
+            avatar_address(
+                "http://localhost:3000/avatars/abc",
+                "http://localhost:3000/",
+                "http://forgejo:3000"
+            ),
+            Some("http://forgejo:3000/avatars/abc".to_string())
+        );
+        assert_eq!(
+            avatar_address(
+                "http://forgejo.test/avatars/abc",
+                "http://forgejo.test",
+                "http://forgejo.test"
+            ),
+            Some("http://forgejo.test/avatars/abc".to_string())
+        );
+    }
+
+    #[test]
+    fn an_avatar_anywhere_else_is_refused() {
+        for address in [
+            "http://evil.test/avatars/abc",
+            // A host that only begins with the Forgejo address.
+            "http://forgejo.test.evil.test/avatars/abc",
+            "https://forgejo.test/avatars/abc",
+            "file:///etc/passwd",
+            "http://169.254.169.254/latest/meta-data/",
+            "",
+            "   ",
+            "http://forgejo.test",
+        ] {
+            assert_eq!(
+                avatar_address(address, "http://forgejo.test", "http://forgejo:3000"),
+                None,
+                "`{address}` must not be fetched"
+            );
+        }
+    }
 }
