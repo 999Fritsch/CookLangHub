@@ -1,0 +1,30 @@
+{#
+  Shown when a photo cannot be stored. The page says why, and it gives the
+  way back to the Recipe. Nothing changed, so there is nothing to undo.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}Photo &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div class="bg-white rounded-2xl shadow-lg p-6">
+  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent mb-6">This photo cannot be used</h1>
+
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-6" role="alert">
+    <ul class="list-disc pl-5 space-y-1">
+      {% for reason in reasons %}
+      <li>{{ reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="flex flex-wrap gap-3">
+    <a href="{{ back }}" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Back to the Recipe</a>
+    {% if let Some(forgejo_url) = forgejo_url %}
+    <a href="{{ forgejo_url }}" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Open in Forgejo</a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

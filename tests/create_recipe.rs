@@ -202,13 +202,15 @@ async fn public_is_the_default_and_private_is_honoured() {
     let token = forgejo.access_token("sam");
 
     // The form with no visibility field at all must give a public Recipe.
-    let response = support::client()
-        .post(app.url("/recipes/new"))
-        .header("cookie", format!("{COOKIE_NAME}={session}"))
-        .form(&[("title", "Default Visibility"), ("source", "")])
-        .send()
-        .await
-        .expect("cannot post the form");
+    let response = support::post_form(
+        &app,
+        &session,
+        "/recipes/new",
+        reqwest::multipart::Form::new()
+            .text("title", "Default Visibility")
+            .text("source", ""),
+    )
+    .await;
     assert_eq!(response.status(), 303);
 
     let public = support::forgejo_api(&forgejo, &token, "/repos/sam/default-visibility").await;

@@ -13,7 +13,7 @@
 //! variable that a credential helper reads.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use async_trait::async_trait;
 use tokio::process::Command;
@@ -40,6 +40,10 @@ pub enum GitError {
     Start(#[source] std::io::Error),
     #[error("git {command} failed: {message}")]
     Command { command: String, message: String },
+    /// The path is not a plain name inside the Recipe. The path itself
+    /// never reaches the message, for the same reason an argument does not.
+    #[error("a file name in this Version is not allowed")]
+    Name,
 }
 
 /// Who a Version belongs to.
@@ -63,8 +67,28 @@ pub struct InitialCommit<'a> {
     pub identity: &'a Identity,
     pub branch: &'a str,
     pub message: &'a str,
-    /// File name to content.
+    /// File name to content. The content is bytes, so a photo is as
+    /// ordinary here as a Cooklang source.
     pub files: BTreeMap<String, Vec<u8>>,
+}
+
+/// A request to add one Version to a Recipe that exists.
+///
+/// One request makes one Version. A photo that replaces a photo of another
+/// format therefore writes the new file and removes the old file together,
+/// and History never holds a Version with two photos in it.
+#[derive(Debug)]
+pub struct ChangeCommit<'a> {
+    /// Where to push, without any credential in it.
+    pub remote_url: &'a str,
+    pub token: &'a Secret<String>,
+    pub identity: &'a Identity,
+    pub branch: &'a str,
+    pub message: &'a str,
+    /// File name to content, for each file to write.
+    pub write: BTreeMap<String, Vec<u8>>,
+    /// File names to remove. A name that is not there is not a fault.
+    pub delete: Vec<String>,
 }
 
 /// The Git operations that the Recipe model needs.
@@ -77,6 +101,13 @@ pub trait GitAdapter: Send + Sync + std::fmt::Debug {
     ///
     /// Returns the identifier of the Version that it created.
     async fn create_initial_commit(&self, request: InitialCommit<'_>) -> Result<String, GitError>;
+
+    /// Add one Version to a Recipe that exists.
+    ///
+    /// Returns the identifier of the Version. A change that makes no
+    /// difference to the content adds no Version, and the identifier of
+    /// the published Version comes back instead.
+    async fn commit_change(&self, request: ChangeCommit<'_>) -> Result<String, GitError>;
 }
 
 /// Runs the system Git executable in a temporary workspace.
@@ -101,17 +132,7 @@ impl GitAdapter for SystemGit {
         )
         .await?;
 
-        for (name, content) in &request.files {
-            let file = path.join(name);
-            if let Some(parent) = file.parent() {
-                tokio::fs::create_dir_all(parent)
-                    .await
-                    .map_err(GitError::Workspace)?;
-            }
-            tokio::fs::write(&file, content)
-                .await
-                .map_err(GitError::Workspace)?;
-        }
+        write_files(path, &request.files).await?;
 
         self.run(path, request.token, &["add", "--all"]).await?;
 
@@ -157,18 +178,138 @@ impl GitAdapter for SystemGit {
 
         Ok(sha)
     }
+
+    async fn commit_change(&self, request: ChangeCommit<'_>) -> Result<String, GitError> {
+        let workspace = tempfile::tempdir().map_err(GitError::Workspace)?;
+        // The clone goes into a folder of its own, so that the workspace
+        // above it can stay the home folder that keeps Git away from the
+        // configuration of the machine.
+        let home = workspace.path();
+        let work = home.join("work");
+
+        // One Version needs one branch, and it needs only the state that
+        // the new Version is built on. A Recipe with a long History
+        // therefore costs the same as a new one.
+        self.run_in(
+            home,
+            home,
+            request.token,
+            &[
+                "clone",
+                "--quiet",
+                "--depth",
+                "1",
+                "--single-branch",
+                "--branch",
+                request.branch,
+                request.remote_url,
+                "work",
+            ],
+        )
+        .await?;
+
+        write_files(&work, &request.write).await?;
+
+        for name in &request.delete {
+            let file = safe_path(&work, name)?;
+            match tokio::fs::remove_file(&file).await {
+                Ok(()) => {}
+                // A file that is already gone is the state that was asked
+                // for, so this is not a fault.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(GitError::Workspace(error)),
+            }
+        }
+
+        self.run_in(&work, home, request.token, &["add", "--all"])
+            .await?;
+
+        // A change that makes no difference must not become an empty
+        // Version, because History is for a person to read.
+        let pending = self
+            .run_in(&work, home, request.token, &["status", "--porcelain"])
+            .await?;
+        if pending.trim().is_empty() {
+            return self.head(&work, home, request.token).await;
+        }
+
+        self.run_in(
+            &work,
+            home,
+            request.token,
+            &[
+                "-c",
+                &format!("user.name={}", request.identity.name),
+                "-c",
+                &format!("user.email={}", request.identity.email),
+                "commit",
+                "--quiet",
+                "--message",
+                request.message,
+            ],
+        )
+        .await?;
+
+        self.run_in(
+            &work,
+            home,
+            request.token,
+            &[
+                "push",
+                "--quiet",
+                request.remote_url,
+                &format!("{}:{}", request.branch, request.branch),
+            ],
+        )
+        .await?;
+
+        let sha = self.head(&work, home, request.token).await?;
+
+        drop(workspace);
+
+        Ok(sha)
+    }
 }
 
 impl SystemGit {
+    /// The identifier of the Version that the workspace is on.
+    async fn head(
+        &self,
+        work: &Path,
+        home: &Path,
+        token: &Secret<String>,
+    ) -> Result<String, GitError> {
+        Ok(self
+            .run_in(work, home, token, &["rev-parse", "HEAD"])
+            .await?
+            .trim()
+            .to_string())
+    }
+
     async fn run(
         &self,
         workspace: &Path,
         token: &Secret<String>,
         args: &[&str],
     ) -> Result<String, GitError> {
+        self.run_in(workspace, workspace, token, args).await
+    }
+
+    /// Run Git in one folder while the home folder is another.
+    ///
+    /// A clone puts the work tree below the workspace, and the workspace
+    /// stays the home folder so that Git still reads no configuration of
+    /// the machine or of the person who runs the server.
+    async fn run_in(
+        &self,
+        cwd: &Path,
+        home: &Path,
+        token: &Secret<String>,
+        args: &[&str],
+    ) -> Result<String, GitError> {
         let mut command = Command::new("git");
         command
-            .current_dir(workspace)
+            .current_dir(cwd)
             // The helper reads the token from the environment, so it never
             // reaches argv, a config file, or a remote address.
             .arg("-c")
@@ -179,8 +320,8 @@ impl SystemGit {
             // so a self-hoster setting cannot change what this does.
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_TERMINAL_PROMPT", "0")
-            .env("HOME", workspace)
-            .env("USERPROFILE", workspace)
+            .env("HOME", home)
+            .env("USERPROFILE", home)
             .kill_on_drop(true);
 
         let output = command.output().await.map_err(GitError::Start)?;
@@ -197,6 +338,44 @@ impl SystemGit {
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
+}
+
+/// Write each file into the work tree, making the folders it needs.
+async fn write_files(root: &Path, files: &BTreeMap<String, Vec<u8>>) -> Result<(), GitError> {
+    for (name, content) in files {
+        let file = safe_path(root, name)?;
+        if let Some(parent) = file.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(GitError::Workspace)?;
+        }
+        tokio::fs::write(&file, content)
+            .await
+            .map_err(GitError::Workspace)?;
+    }
+    Ok(())
+}
+
+/// Turn a name from a Recipe into a path inside the work tree.
+///
+/// The names this adapter gets are constants today. The check is here
+/// anyway, because a caller that one day builds a name from something a
+/// person typed must not be able to write outside the Recipe.
+fn safe_path(root: &Path, name: &str) -> Result<PathBuf, GitError> {
+    let candidate = Path::new(name);
+
+    if name.trim().is_empty() || candidate.is_absolute() {
+        return Err(GitError::Name);
+    }
+
+    for part in candidate.components() {
+        match part {
+            Component::Normal(part) if part != ".git" => {}
+            _ => return Err(GitError::Name),
+        }
+    }
+
+    Ok(root.join(candidate))
 }
 
 /// Remove the token from a message, whatever shape Git echoed it in.
@@ -230,6 +409,38 @@ mod tests {
 
         assert!(!clean.contains("gto_secret_value"));
         assert!(clean.contains("[redacted]"));
+    }
+
+    #[test]
+    fn a_plain_file_name_stays_inside_the_recipe() {
+        let root = Path::new("/work");
+        assert_eq!(
+            safe_path(root, "recipe.cook").unwrap(),
+            root.join("recipe.cook")
+        );
+        assert_eq!(
+            safe_path(root, "recipe.jpg").unwrap(),
+            root.join("recipe.jpg")
+        );
+    }
+
+    #[test]
+    fn a_name_that_leaves_the_recipe_is_refused() {
+        let root = Path::new("/work");
+        for name in [
+            "../escape",
+            "a/../../escape",
+            "/etc/passwd",
+            ".git/config",
+            "a/.git/hooks/pre-commit",
+            "",
+            "   ",
+        ] {
+            assert!(
+                safe_path(root, name).is_err(),
+                "`{name}` must not be written"
+            );
+        }
     }
 
     #[tokio::test]

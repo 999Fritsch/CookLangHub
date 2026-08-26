@@ -17,7 +17,7 @@
   </div>
   {% endif %}
 
-  <form method="post" action="/recipes/new" class="space-y-6">
+  <form id="recipe-form" method="post" action="/recipes/new" enctype="multipart/form-data" class="space-y-6">
     <div>
       <label for="title" class="block font-medium mb-2">Title</label>
       <input id="title" name="title" type="text" value="{{ title }}" required autocomplete="off" autofocus
@@ -25,7 +25,20 @@
       <p class="text-sm text-gray-600 mt-1">The title is stored in the Recipe itself.</p>
     </div>
 
-    <div>
+    <fieldset class="border-0 m-0 p-0">
+      <legend class="font-medium mb-2">Where the Recipe comes from</legend>
+      <p class="text-sm text-gray-600 mb-2">Select one. The application uses only the content that you select.</p>
+      <label class="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50">
+        <input type="radio" name="mode" value="text" {% if !mode.is_file() %}checked{% endif %}>
+        <span><strong>Write it here</strong> &mdash; type the Recipe in Cooklang.</span>
+      </label>
+      <label class="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50">
+        <input type="radio" name="mode" value="file" {% if mode.is_file() %}checked{% endif %}>
+        <span><strong>Upload a file</strong> &mdash; use a <code>.cook</code> file that you have.</span>
+      </label>
+    </fieldset>
+
+    <div id="mode-text">
       <label for="source" class="block font-medium mb-2">Recipe</label>
       <textarea id="source" name="source" rows="18" spellcheck="false"
                 placeholder="Chop the @onion{1} and fry it in a #pan{} for ~{5%minutes}."
@@ -33,6 +46,26 @@
       <p class="text-sm text-gray-600 mt-1">
         Write in Cooklang. Mark an ingredient with <code>@</code>, cookware with
         <code>#</code>, and a time with <code>~</code>. A title on its own is enough to start.
+      </p>
+    </div>
+
+    <div id="mode-file">
+      <label for="recipe-file" class="block font-medium mb-2">Recipe file</label>
+      <input id="recipe-file" name="recipe_file" type="file" accept=".cook,text/plain"
+             class="block w-full text-sm text-gray-700 file:mr-3 file:px-4 file:py-2 file:rounded-full file:border-0 file:bg-orange-500 file:text-white file:font-medium">
+      <p class="text-sm text-gray-600 mt-1">
+        A <code>.cook</code> file of 1 MB or less. The application writes the title above into it.
+        {% if !errors.is_empty() %}Select the file again: a browser does not keep a file that it sent.{% endif %}
+      </p>
+    </div>
+
+    <div>
+      <label for="thumbnail" class="block font-medium mb-2">Photo</label>
+      <input id="thumbnail" name="thumbnail" type="file" accept="image/jpeg,image/png,image/webp"
+             class="block w-full text-sm text-gray-700 file:mr-3 file:px-4 file:py-2 file:rounded-full file:border-0 file:bg-orange-500 file:text-white file:font-medium">
+      <p class="text-sm text-gray-600 mt-1">
+        Optional. JPEG, PNG, or WebP, 5 MB or less. The application stores the image as it is.
+        {% if !errors.is_empty() %}Select the photo again: a browser does not keep a file that it sent.{% endif %}
       </p>
     </div>
 
@@ -54,4 +87,9 @@
     </div>
   </form>
 </div>
+
+{# The script shows only the source that the person selected. Without it
+   both stay visible, the radio still says which one applies, and the
+   server refuses a form that carries two. #}
+<script src="/static/js/recipe-new.js" defer></script>
 {% endblock %}
