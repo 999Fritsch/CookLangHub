@@ -457,13 +457,20 @@ async fn a_profile_lists_the_cookbooks_that_forgejo_shows() {
         visitor.contains("Sam Soup"),
         "a Cookbook must not push the Recipes off the page"
     );
+    // This test was written while Cookbooks had no page here, so a card led
+    // to Forgejo and the page said why. Cookbooks have a page now, and the
+    // card must lead to it rather than send a person away.
     assert!(
-        visitor.contains("no Cookbook page yet"),
-        "the application says plainly that it cannot show a Cookbook yet"
+        visitor.contains("/cookbooks/sam/weeknight-dinners"),
+        "a Cookbook card must lead to the Cookbook"
     );
     assert!(
-        visitor.contains(&format!("{}/sam/weeknight-dinners", forgejo.base_url)),
-        "a Cookbook opens in Forgejo"
+        !visitor.contains("no Cookbook page yet"),
+        "there is a Cookbook page now, so nothing should say otherwise"
+    );
+    assert!(
+        !visitor.contains(&format!("{}/sam/weeknight-dinners", forgejo.base_url)),
+        "a Cookbook that this application can show must not send a person to Forgejo"
     );
 
     // Another cook sees the same public Cookbook and no private one.

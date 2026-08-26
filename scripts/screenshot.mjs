@@ -41,6 +41,10 @@ const PAGES = [
   { name: "sharing", path: "/recipes/filip/chili-sin-carne/sharing", needsSession: true },
   { name: "discussions", path: "/recipes/filip/chili-sin-carne/discussions", needsSession: false },
   { name: "editor", path: "/recipes/filip/chili-sin-carne/edit", needsSession: true },
+  { name: "history", path: "/recipes/filip/chili-sin-carne/history", needsSession: false },
+  { name: "cookbooks", path: "/cookbooks", needsSession: true },
+  { name: "cookbook-new", path: "/cookbooks/new", needsSession: true },
+  { name: "profile", path: "/cooks/filip", needsSession: false },
 ];
 
 const SIZES = [
