@@ -1,47 +1,77 @@
+{#
+  The Recipe page follows CookCLI: the title in the orange gradient, tag
+  pills, metadata pills, and a three-column grid that puts what to gather
+  beside what to do.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
 {% extends "base.html" %}
 
 {% block title %}{{ title }} &middot; CookLangHub{% endblock %}
 
-{% block main_class %}main--wide{% endblock %}
-
 {% block content %}
-<article class="recipe">
-  <header class="recipe-header">
-    <h1>{{ title }}</h1>
-    <p class="lead">Owned by {{ owner }}</p>
+<div>
+  <div class="mb-8">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
+        {{ title }}
+      </h1>
+      <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap self-start" href="{{ forgejo_url }}">Open in Forgejo</a>
+    </div>
 
-    {% if !cooked.tags.is_empty() %}
-    <ul class="tags" aria-label="Tags">
-      {% for tag in cooked.tags %}
-      <li class="tag">{{ tag }}</li>
-      {% endfor %}
-    </ul>
-    {% endif %}
-  </header>
+    <p class="text-gray-600 mb-4">Owned by {{ owner }}</p>
 
-  <nav class="recipe-tabs" aria-label="Recipe">
-    <span class="recipe-tab is-current" aria-current="page">Recipe</span>
+    <div class="space-y-4">
+      {% if !cooked.tags.is_empty() %}
+      <div class="flex flex-wrap gap-2">
+        {% for tag in cooked.tags %}
+        <span class="tag">#{{ tag }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="flex flex-wrap gap-2">
+        {% if let Some(servings) = cooked.servings %}
+        <span class="metadata-pill metadata-servings"><span aria-hidden="true">👥</span> {{ servings }} servings</span>
+        {% endif %}
+        {% for fact in cooked.facts %}
+        {% if let Some(link) = fact.link %}
+        <span class="metadata-pill metadata-custom"><span aria-hidden="true">🔗</span> <a href="{{ link }}" rel="noopener noreferrer nofollow" class="text-blue-600 hover:text-blue-800 hover:underline">{{ fact.label }}</a></span>
+        {% else %}
+        <span class="metadata-pill metadata-custom">{{ fact.label }}: {{ fact.value }}</span>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Recipe">
+    <span class="nav-pill active" aria-current="page">Recipe</span>
     {% for area in areas %}
-    <span class="recipe-tab is-later" aria-disabled="true">{{ area }}</span>
+    <span class="nav-pill opacity-50" aria-disabled="true">{{ area }}</span>
     {% endfor %}
   </nav>
 
   {% if !errors.is_empty() %}
-  <div class="notice notice--error" role="alert">
-    <h2>This Recipe cannot be read</h2>
-    <ul>
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-8" role="alert">
+    <h2 class="font-bold mb-2">This Recipe cannot be read</h2>
+    <ul class="list-disc pl-5 space-y-1">
       {% for error in errors %}
       <li>{{ error }}</li>
       {% endfor %}
     </ul>
-    <p><a href="{{ forgejo_url }}">Open in Forgejo</a></p>
   </div>
-  {% endif %}
+
+  <div class="bg-white rounded-2xl shadow-lg p-6">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Recipe source</h2>
+    <pre class="bg-gray-50 rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words text-sm"><code>{{ source }}</code></pre>
+  </div>
+  {% else %}
 
   {% if !warnings.is_empty() %}
-  <div class="notice notice--warning">
-    <h2>Worth a look</h2>
-    <ul>
+  <div class="bg-yellow-50 border border-yellow-400 text-yellow-900 rounded-xl p-4 mb-8">
+    <h2 class="font-bold mb-2">Worth a look</h2>
+    <ul class="list-disc pl-5 space-y-1">
       {% for warning in warnings %}
       <li>{{ warning }}</li>
       {% endfor %}
@@ -49,127 +79,93 @@
   </div>
   {% endif %}
 
-  {% if !errors.is_empty() %}
-  <section aria-labelledby="source-heading">
-    <h2 id="source-heading">Recipe source</h2>
-    <pre class="source"><code>{{ source }}</code></pre>
-  </section>
-  {% else %}
-
-  {% if cooked.servings.is_some() || !cooked.facts.is_empty() %}
-  <section class="recipe-facts" aria-labelledby="facts-heading">
-    <h2 id="facts-heading" class="visually-hidden">Details</h2>
-    <dl class="facts">
-      {% if let Some(servings) = cooked.servings %}
-      <dt>Servings</dt>
-      <dd>{{ servings }}</dd>
-      {% endif %}
-      {% for fact in cooked.facts %}
-      <dt>{{ fact.label }}</dt>
-      <dd>
-        {% if let Some(link) = fact.link %}
-        <a href="{{ link }}" rel="noopener noreferrer nofollow">{{ fact.value }}</a>
-        {% else %}
-        {{ fact.value }}
-        {% endif %}
-      </dd>
-      {% endfor %}
-    </dl>
-  </section>
-  {% endif %}
-
   {% if cooked.is_empty() %}
-  <p class="empty">
+  <div class="bg-white rounded-2xl shadow-lg p-6 text-center text-gray-600">
     This Recipe has a title and nothing else yet.
-  </p>
+  </div>
   {% else %}
 
-  <div class="recipe-body">
-    <aside class="recipe-aside">
-      {% if !cooked.ingredients.is_empty() %}
-      <section aria-labelledby="ingredients-heading">
-        <h2 id="ingredients-heading" class="gather-heading gather-heading--ingredient"><span aria-hidden="true">🥘</span> Ingredients</h2>
-        <ul class="gather-list gather-list--ingredient">
+  <div class="grid md:grid-cols-3 gap-8 mb-8">
+    <div class="md:col-span-1">
+      <div class="bg-white rounded-2xl shadow-lg p-6">
+        {% if !cooked.ingredients.is_empty() %}
+        <h2 class="text-xl font-bold mb-4 text-orange-600"><span aria-hidden="true">🥘</span> Ingredients</h2>
+        <ul class="space-y-3">
           {% for item in cooked.ingredients %}
-          <li class="gather-row">
-            <span class="gather-left">
-              <span class="gather-name">{{ item.name }}</span>
+          <li class="flex justify-between items-center bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg px-3 py-2">
+            <div class="flex-1 flex items-center">
+              <span class="font-medium">{{ item.name }}</span>
               {% if let Some(note) = item.note %}
-              <span class="gather-note">({{ note }})</span>
+              <span class="text-sm text-gray-600 italic ml-1 break-words">({{ note }})</span>
               {% endif %}
-            </span>
+            </div>
             {% if let Some(quantity) = item.quantity %}
-            <span class="gather-amount">{{ quantity }}</span>
+            <span class="text-orange-700 font-semibold ml-2">{{ quantity }}</span>
             {% endif %}
           </li>
           {% endfor %}
         </ul>
-      </section>
-      {% endif %}
-
-      {% if !cooked.cookware.is_empty() %}
-      <section aria-labelledby="cookware-heading">
-        <h2 id="cookware-heading" class="gather-heading gather-heading--cookware"><span aria-hidden="true">🍳</span> Cookware</h2>
-        <ul class="gather-list gather-list--cookware">
-          {% for item in cooked.cookware %}
-          <li class="gather-row">
-            <span class="gather-left">
-              <span class="gather-name">{{ item.name }}</span>
-            </span>
-            {% if let Some(quantity) = item.quantity %}
-            <span class="gather-amount">{{ quantity }}</span>
-            {% endif %}
-          </li>
-          {% endfor %}
-        </ul>
-      </section>
-      {% endif %}
-    </aside>
-
-    <section class="recipe-steps" aria-labelledby="steps-heading">
-      <h2 id="steps-heading">Method</h2>
-
-      {% for section in cooked.sections %}
-      {% if let Some(name) = section.name %}
-      <h3>{{ name }}</h3>
-      {% endif %}
-
-      <ol class="steps">
-        {% for block in section.blocks %}
-        {% if block.is_step() %}
-        <li class="step">
-          <span class="step-number" aria-hidden="true">{{ block.number }}</span>
-          <p class="step-text">
-            {%- for piece in block.pieces -%}
-            {%- if piece.kind.is_text() -%}
-            {{ piece.text }}
-            {%- else -%}
-            <span class="{{ piece.kind.css_class() }}"><span class="visually-hidden">{{ piece.kind.label() }}: </span>{{ piece.text }}{% if let Some(quantity) = piece.quantity %} <span class="badge-amount">{{ quantity }}</span>{% endif %}</span>
-            {%- endif -%}
-            {%- endfor -%}
-          </p>
-        </li>
-        {% else %}
-        <li class="step step--note">
-          <p class="step-text">
-            {%- for piece in block.pieces -%}{{ piece.text }}{%- endfor -%}
-          </p>
-        </li>
         {% endif %}
+
+        {% if !cooked.cookware.is_empty() %}
+        <h2 class="text-xl font-bold mt-6 mb-4 text-green-600"><span aria-hidden="true">🍳</span> Cookware</h2>
+        <ul class="space-y-2">
+          {% for item in cooked.cookware %}
+          <li class="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg px-3 py-2 flex justify-between items-center">
+            <span class="font-medium">{{ item.name }}</span>
+            {% if let Some(quantity) = item.quantity %}
+            <span class="text-green-700 font-semibold ml-2">{{ quantity }}</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="md:col-span-2">
+      <div class="bg-white rounded-2xl shadow-lg p-6">
+        {% for section in cooked.sections %}
+        {% if let Some(name) = section.name %}
+        <h3 class="text-xl font-semibold mt-6 mb-4 text-orange-700 border-b-2 border-orange-200 pb-2">{{ name }}</h3>
+        {% endif %}
+
+        <ol class="space-y-4">
+          {% for block in section.blocks %}
+          {% if block.is_step() %}
+          <li class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4">
+            <div class="flex gap-4">
+              <div class="step-number">{{ block.number }}</div>
+              <div class="flex-1">
+                <div class="text-gray-700 mb-2 leading-8">
+                  {%- for piece in block.pieces -%}
+                  {%- if piece.kind.is_text() -%}
+                  {{ piece.text }}
+                  {%- else -%}
+                  <span class="{{ piece.kind.css_class() }}"><span class="sr-only">{{ piece.kind.label() }}: </span>{{ piece.text }}{% if let Some(quantity) = piece.quantity %} {{ quantity }}{% endif %}</span>
+                  {%- endif -%}
+                  {%- endfor -%}
+                </div>
+              </div>
+            </div>
+          </li>
+          {% else %}
+          <li class="text-gray-600 italic border-l-2 border-orange-300 pl-4">
+            {%- for piece in block.pieces -%}{{ piece.text }}{%- endfor -%}
+          </li>
+          {% endif %}
+          {% endfor %}
+        </ol>
         {% endfor %}
-      </ol>
-      {% endfor %}
-    </section>
+      </div>
+    </div>
   </div>
   {% endif %}
   {% endif %}
 
-  <footer class="recipe-footer">
-    <details class="source-details">
-      <summary>Recipe source</summary>
-      <pre class="source"><code>{{ source }}</code></pre>
-    </details>
-    <a class="button" href="{{ forgejo_url }}">Open in Forgejo</a>
-  </footer>
-</article>
+  <details class="bg-white rounded-2xl shadow-lg p-6">
+    <summary class="cursor-pointer font-medium text-gray-600 hover:text-gray-900">Recipe source</summary>
+    <pre class="mt-4 bg-gray-50 rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words text-sm"><code>{{ source }}</code></pre>
+  </details>
+</div>
 {% endblock %}

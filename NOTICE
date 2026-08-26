@@ -1,0 +1,45 @@
+CookLangHub
+Copyright (C) 2026 the CookLangHub authors
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+
+This product includes work from CookCLI.
+
+    CookCLI
+    Copyright (c) 2021-2023 Alexey Dubovskoy
+    Licensed under the MIT License.
+    https://github.com/cooklang/cookcli
+
+    The full MIT text is in LICENSE-MIT-cookcli.
+
+The MIT License permits this reuse, and it requires that the copyright
+notice above stays with the work. AGPL-3.0-or-later can absorb MIT code,
+so the combined work is under the AGPL while these parts keep their MIT
+notice.
+
+
+Files taken from CookCLI
+------------------------
+
+The visual design of CookLangHub is the visual design of CookCLI, so that
+the Cooklang ecosystem reads as one family. These files are copies or
+close adaptations:
+
+    tailwind.config.js           copied
+    static/css/input.css         copied, then extended
+    static/css/custom-styles.css copied
+    static/css/cooking-mode.css  copied
+
+    templates/*.html             the class names, the markup shape, and
+                                 the component structure follow CookCLI
+
+Each adapted file carries the CookCLI copyright notice in its own header.
+
+
+Changes made
+------------
+
+CookLangHub is a different product with a different backend, so the
+templates carry different data and different actions. The design language,
+the palette, the component classes, and the layout come from CookCLI
+unchanged.

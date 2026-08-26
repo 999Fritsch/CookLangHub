@@ -38,64 +38,75 @@ the primary acceptance seam. Do not replace it with a mock.
 
 ## Visual identity
 
-The palette follows CookCLI and cooklang.org so that the Cooklang ecosystem
-reads as one family.
+**The design is the CookCLI design.** CookLangHub is a Cooklang product, and
+it should look and feel like the rest of the Cooklang tools with a
+collaborative backend behind it. A cook who knows `cook server` must
+recognise this immediately.
 
-**`static/tokens.css` is the single source of truth.** Every color, size,
-radius, and font stack lives there. Never write a literal color anywhere
-else. Use `var(--...)`.
+CookCLI is MIT licensed, copyright Alexey Dubovskoy, and the licence permits
+this reuse. See `NOTICE` and `LICENSE-MIT-cookcli`.
 
-Five rules:
+These files are CookCLI's, copied:
 
-1. **No external host.** No CDN, no Google Fonts, no remote image. The
+    tailwind.config.js
+    static/css/input.css
+    static/css/custom-styles.css
+    static/css/cooking-mode.css
+    static/css/theme.src.css     (their inline dark-mode rules)
+
+Rules:
+
+1. **Copy, do not invent.** When CookCLI already styles something, use their
+   class and their markup shape. Read their templates in the CookCLI
+   repository before writing a new component. Only design from scratch when
+   CookCLI has no equivalent, and then build it out of their existing
+   classes.
+2. **Keep the attribution.** An adapted file carries the CookCLI copyright
+   notice in its header, and `NOTICE` records it.
+3. **No external host.** No CDN, no Google Fonts, no remote image. The
    Content Security Policy is `default-src 'self'` and it must stay that
-   way. Self-hosting a font file is the correct way to add one.
-2. **Measure contrast.** Every foreground and background pair must reach
-   WCAG 2.1 AA, which is 4.5:1 for normal text. Each pair in `tokens.css`
-   carries its measured ratio in a comment. Change a value, measure again.
-3. **`--brand` is not a text color.** `#ff6b35` gives 2.84:1 and fails AA.
-   It is for rules, gradients, and placeholder fills. Text and buttons use
-   `--brand-ink` and `--brand-fill`.
+   way. This is why CookCLI's inline `<style>` and inline `<script>` were
+   moved into served files.
 4. **One color per Cooklang entity.** Ingredient is amber, cookware is
-   green, timer is red. This mapping comes from CookCLI, so a cook who
-   knows that interface can read this one. Do not reuse these hues for
-   anything else.
+   green, timer is red, through the CookCLI classes `ingredient-badge`,
+   `cookware-badge`, and `timer-badge`.
 
-   A badge belongs inside running text, where it separates an ingredient
-   from cookware. A list of one kind of thing gets a tinted row instead,
-   taken from CookCLI: a band across the whole row, the name on the left,
-   the amount on the right. The band is the point. It ties the two sides
-   together so that a long list never loses which line you are on.
-5. **It must not look like a code forge.** Recipe pages are culinary
-   first. History, Suggestions, and Variations use quiet neutral chrome,
-   never the visual language of a source control tool.
-
-A page follows the operating system until a person chooses otherwise. The
-server writes `data-theme` onto the page from a cookie, so the palette is
-correct in the first byte and nothing flashes. Never move that choice into
-a script.
-
-Accessibility is a shipping requirement, not a later ticket: semantic HTML,
-a label on every control, a visible focus ring, full keyboard operation,
-and a working mobile viewport.
-
-### Where the design differs from CookCLI, and why
+### Where this differs from CookCLI, and why
 
 Do not "correct" these back.
 
-- CookCLI puts white text on `#ff6b35` and uses `orange-700` on
-  `light-orange`. Both fail WCAG AA. This project darkens the foreground.
-- CookCLI uses gradients on buttons, pills, and navigation. A gradient is
-  permitted when every stop is measured, because then the ratio is known
-  everywhere on the shape. The gather-list rows are CookCLI gradients kept
-  exactly, and `tokens.css` carries the ratio of both stops. A gradient
-  with many stops under text is not permitted, because there is no single
-  pair to measure.
-- cooklang.org loads Inter, Lora, and JetBrains Mono from Google Fonts.
-  This project serves its fonts itself.
-- CookCLI has no History, Suggestion, Discussion, Variation, or Sharing
-  interface. Those screens have no upstream precedent, so design them
-  quietly from the tokens rather than inventing new decoration.
+- **The amount sits inside the step badge.** CookCLI puts a bare name in the
+  step and lists every amount again in a line underneath. That line makes a
+  cook move between the sentence and the list, so this project puts the
+  amount in the badge and drops the line. This was a direct request.
+- **The palette choice comes from the server.** CookCLI sets a `dark` class
+  from `localStorage` in an inline script. Here a cookie carries the choice
+  and the server writes the class, so nothing flashes and no inline script
+  is needed. `scripts/build-theme-css.mjs` emits their rules a second time
+  under `prefers-color-scheme` so that following the system needs no script.
+- **CookCLI screens that do not exist here** (shopping list, pantry, search)
+  are absent, and CookLangHub screens that CookCLI has no equivalent for
+  (History, Suggestions, Discussions, Variations, Sharing) are built from
+  CookCLI's own classes.
+
+### Accessibility
+
+Semantic HTML, a label on every control, a visible focus ring, full keyboard
+operation, and a working mobile viewport are still expected.
+
+WCAG AA contrast is **not** a gate for the prototype. This was decided
+deliberately: matching CookCLI exactly matters more right now than meeting a
+ratio, and most of their palette meets AA anyway. Do not darken a CookCLI
+colour to chase a ratio. Revisit this before the platform is used by people
+outside the first small group.
+
+### Build
+
+    npm install
+    npm run build      # theme.css, then the Tailwind stylesheet
+
+Node is a build-time dependency only. The runtime is the Rust binary plus
+the files in `static/`.
 
 ## Reuse and attribution
 

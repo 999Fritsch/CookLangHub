@@ -88,7 +88,10 @@ async fn the_index_page_is_server_rendered_html() {
 
     // Server-rendered: the markup arrives complete, without a client render
     // step.
-    assert!(body.contains("<h1>CookLangHub</h1>"));
+    // The heading now carries the CookCLI gradient classes, so match the
+    // words rather than a bare element.
+    assert!(body.contains("CookLangHub"), "the page must name itself");
+    assert!(body.contains("<h1"), "the page must have a heading");
     assert!(body.trim_start().starts_with("<!DOCTYPE html>"));
 }
 
@@ -131,7 +134,7 @@ async fn no_page_asset_comes_from_another_host() {
 async fn the_stylesheet_comes_from_the_local_server() {
     let app = support::start_app(&support::unreachable_url().await).await;
 
-    let response = reqwest::get(app.url("/static/app.css"))
+    let response = reqwest::get(app.url("/static/css/styles.css"))
         .await
         .expect("cannot reach the stylesheet");
 

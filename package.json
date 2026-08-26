@@ -1,0 +1,15 @@
+{
+  "name": "cooklanghub",
+  "private": true,
+  "description": "Build-time assets for CookLangHub. The runtime is Rust.",
+  "scripts": {
+    "build-css": "tailwindcss -i ./static/css/input.css -o ./static/css/styles.css --minify",
+    "watch-css": "tailwindcss -i ./static/css/input.css -o ./static/css/styles.css --watch",
+    "build-theme": "node scripts/build-theme-css.mjs",
+    "build": "npm run build-theme && npm run build-css"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  }
+}

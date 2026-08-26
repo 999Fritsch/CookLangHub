@@ -1,49 +1,81 @@
+{#
+  The page frame follows CookCLI, so that CookLangHub reads as the same
+  family of software.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+
+  Two things differ. The palette choice arrives as a class that the server
+  wrote, not from a script, so the page never shows the wrong colours while
+  it loads. And the navigation carries the actions of this product.
+#}
 <!DOCTYPE html>
-<html lang="en"{% if !layout.theme.attribute().is_empty() %} data-theme="{{ layout.theme.attribute() }}"{% endif %}>
+<html lang="en" class="{{ layout.theme.css_class() }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}CookLangHub{% endblock %}</title>
-    <link rel="stylesheet" href="/static/tokens.css">
-    <link rel="stylesheet" href="/static/app.css">
+    <link href="/static/css/styles.css" rel="stylesheet">
+    <link href="/static/css/custom-styles.css" rel="stylesheet">
+    <link href="/static/css/theme.css" rel="stylesheet">
   </head>
-  <body>
-    <a class="skip-link" href="#main">Skip to the main content</a>
-    <header class="site-header">
-      <a class="brand" href="/">CookLangHub</a>
-      <nav class="site-nav" aria-label="Account">
-        {% if layout.signed_in %}
-        <span class="account">
-          {% if !layout.user_avatar.is_empty() %}
-          <img class="avatar" src="{{ layout.user_avatar }}" alt="" width="24" height="24">
-          {% endif %}
-          <span class="account-name">{{ layout.user_name }}</span>
-        </span>
-        <form class="signout-form" method="post" action="/auth/sign-out">
-          <button class="button" type="submit">Sign out</button>
-        </form>
-        {% else %}
-        <a class="button button--primary" href="/auth/sign-in">Sign in</a>
-        {% endif %}
+  <body class="bg-gray-50">
+    <a class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-4 focus:px-4 focus:py-2 focus:bg-white focus:rounded-lg focus:shadow-lg" href="#main">Skip to the main content</a>
+
+    <div class="viewport">
+      <nav class="bg-white shadow-lg rounded-2xl mb-8 relative">
+        <div class="px-3 lg:px-6 py-4">
+          <div class="flex items-center justify-between flex-wrap gap-y-3">
+            <a href="/" class="flex items-center gap-2 font-bold text-xl text-gray-900">
+              <span aria-hidden="true">🍳</span>
+              CookLangHub
+            </a>
+
+            <div class="flex items-center gap-1 lg:gap-2">
+              {% if layout.signed_in %}
+              <a href="/" class="nav-pill active">Recipes</a>
+              <a href="/recipes/new" class="nav-pill">New Recipe</a>
+
+              <span class="hidden md:inline-flex items-center gap-2 ml-2 text-sm text-gray-600">
+                {% if !layout.user_avatar.is_empty() %}
+                <img class="h-6 w-6 rounded-full" src="{{ layout.user_avatar }}" alt="" width="24" height="24">
+                {% endif %}
+                {{ layout.user_name }}
+              </span>
+
+              <form method="post" action="/auth/sign-out" class="ml-1">
+                <button type="submit" class="nav-pill">Sign out</button>
+              </form>
+              {% else %}
+              <a href="/auth/sign-in" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">Sign in</a>
+              {% endif %}
+            </div>
+          </div>
+        </div>
       </nav>
-    </header>
-    <main id="main" class="{% block main_class %}{% endblock %}">
-      {% block content %}{% endblock %}
-    </main>
-    <footer class="site-footer">
-      <form class="theme-choice" method="post" action="/preferences/theme">
-        <input type="hidden" name="return_to" value="{{ layout.path }}">
-        <fieldset>
-          <legend>Appearance</legend>
-          <button type="submit" name="theme" value="system"
-                  {% if layout.theme.is("system") %}aria-pressed="true" class="is-chosen"{% else %}aria-pressed="false"{% endif %}>System</button>
-          <button type="submit" name="theme" value="light"
-                  {% if layout.theme.is("light") %}aria-pressed="true" class="is-chosen"{% else %}aria-pressed="false"{% endif %}>Light</button>
-          <button type="submit" name="theme" value="dark"
-                  {% if layout.theme.is("dark") %}aria-pressed="true" class="is-chosen"{% else %}aria-pressed="false"{% endif %}>Dark</button>
-        </fieldset>
-      </form>
-      <p>CookLangHub {{ layout.version }} &middot; AGPL-3.0-or-later</p>
-    </footer>
+
+      <main id="main">
+        {% block content %}{% endblock %}
+      </main>
+
+      <footer class="mt-8 mb-4 flex flex-wrap items-center justify-between gap-4 text-sm text-gray-600">
+        <form class="flex items-center gap-1" method="post" action="/preferences/theme">
+          <input type="hidden" name="return_to" value="{{ layout.path }}">
+          <fieldset class="flex items-center gap-1 border-0 m-0 p-0">
+            <legend class="sr-only">Appearance</legend>
+            <span class="mr-1">Appearance</span>
+            <button type="submit" name="theme" value="system"
+                    aria-pressed="{% if layout.theme.is("system") %}true{% else %}false{% endif %}"
+                    class="nav-pill {% if layout.theme.is("system") %}active{% endif %}">System</button>
+            <button type="submit" name="theme" value="light"
+                    aria-pressed="{% if layout.theme.is("light") %}true{% else %}false{% endif %}"
+                    class="nav-pill {% if layout.theme.is("light") %}active{% endif %}">Light</button>
+            <button type="submit" name="theme" value="dark"
+                    aria-pressed="{% if layout.theme.is("dark") %}true{% else %}false{% endif %}"
+                    class="nav-pill {% if layout.theme.is("dark") %}active{% endif %}">Dark</button>
+          </fieldset>
+        </form>
+        <p class="m-0">CookLangHub {{ layout.version }} &middot; AGPL-3.0-or-later &middot; design from CookCLI (MIT)</p>
+      </footer>
+    </div>
   </body>
 </html>

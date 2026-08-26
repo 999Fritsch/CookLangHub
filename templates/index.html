@@ -3,57 +3,45 @@
 {% block title %}Recipes &middot; CookLangHub{% endblock %}
 
 {% block content %}
-<h1>CookLangHub</h1>
-
-<p class="lead">
-  A place to write Recipes, keep them together in Cookbooks, and cook them
-  with friends and family.
-</p>
-
 {% if layout.signed_in %}
-<section aria-labelledby="mine-heading">
-  <div class="section-header">
-    <h2 id="mine-heading">My Recipes</h2>
-    <a class="button button--primary" href="/recipes/new">New Recipe</a>
-  </div>
+<div class="flex items-center justify-between flex-wrap gap-4 mb-6">
+  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">My Recipes</h1>
+  <a href="/recipes/new" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">New Recipe</a>
+</div>
 
-  {% if recipes.is_empty() %}
-  <p class="empty">
-    You have no Recipes yet. Select <strong>New Recipe</strong> to write your
-    first one.
-  </p>
-  {% else %}
-  <ul class="cards">
-    {% for recipe in recipes %}
-    <li class="card card--recipe">
-      <h3 class="card-title">
-        <a href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}">{{ recipe.title }}</a>
-      </h3>
-      <p class="card-meta">
-        Owned by {{ recipe.owner }}{% if recipe.private %} &middot; Private{% endif %}
-      </p>
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-</section>
+{% if recipes.is_empty() %}
+<div class="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-600">
+  You have no Recipes yet. Select <strong>New Recipe</strong> to write your first one.
+</div>
 {% else %}
-<section aria-labelledby="signin-heading">
-  <h2 id="signin-heading">Sign in</h2>
-  <p>
-    CookLangHub uses your Forgejo account. Select <strong>Sign in</strong> to
-    continue.
+<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+  {% for recipe in recipes %}
+  <a href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}"
+     class="recipe-card bg-white rounded-2xl shadow-lg p-6 hover:shadow-xl transition-shadow">
+    <h2 class="text-lg font-bold text-gray-900 mb-1">{{ recipe.title }}</h2>
+    <p class="text-sm text-gray-600 m-0">
+      Owned by {{ recipe.owner }}{% if recipe.private %} &middot; Private{% endif %}
+    </p>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% else %}
+<div class="bg-white rounded-2xl shadow-lg p-8">
+  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent mb-4">CookLangHub</h1>
+  <p class="text-gray-600 mb-6">
+    A place to write Recipes, keep them together in Cookbooks, and cook them
+    with friends and family.
   </p>
-</section>
+  <p class="text-gray-600 mb-6">
+    CookLangHub uses your Forgejo account. Select <strong>Sign in</strong> to continue.
+  </p>
+  <a href="/auth/sign-in" class="btn-primary inline-block px-5 py-2 rounded-full font-medium text-white">Sign in</a>
+</div>
 {% endif %}
 
-<section aria-labelledby="status-heading">
-  <h2 id="status-heading">Installation</h2>
-  <dl class="facts">
-    <dt>Forgejo</dt>
-    <dd><a href="{{ forgejo_url }}">{{ forgejo_url }}</a></dd>
-    <dt>Health</dt>
-    <dd><a href="/health">/health</a></dd>
-  </dl>
-</section>
+<div class="mt-8 text-sm text-gray-600">
+  Forgejo: <a href="{{ forgejo_url }}" class="text-blue-600 hover:text-blue-800 hover:underline">{{ forgejo_url }}</a>
+  &middot; <a href="/health" class="text-blue-600 hover:text-blue-800 hover:underline">/health</a>
+</div>
 {% endblock %}

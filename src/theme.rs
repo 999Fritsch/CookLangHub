@@ -56,11 +56,12 @@ impl Theme {
         }
     }
 
-    /// The value for the `data-theme` attribute of the page.
+    /// The class that the page carries on its root element.
     ///
-    /// `System` writes nothing, which leaves `prefers-color-scheme` in
-    /// charge.
-    pub fn attribute(&self) -> &'static str {
+    /// CookCLI switches its palette with a `dark` class, so this project
+    /// uses the same class and can keep its rules unchanged. `System`
+    /// writes nothing, which leaves `prefers-color-scheme` in charge.
+    pub fn css_class(&self) -> &'static str {
         match self {
             Theme::System => "",
             Theme::Light => "light",
@@ -144,10 +145,10 @@ mod tests {
     }
 
     #[test]
-    fn system_writes_no_attribute_so_the_operating_system_decides() {
-        assert_eq!(Theme::System.attribute(), "");
-        assert_eq!(Theme::Light.attribute(), "light");
-        assert_eq!(Theme::Dark.attribute(), "dark");
+    fn system_writes_no_class_so_the_operating_system_decides() {
+        assert_eq!(Theme::System.css_class(), "");
+        assert_eq!(Theme::Light.css_class(), "light");
+        assert_eq!(Theme::Dark.css_class(), "dark");
     }
 
     #[test]

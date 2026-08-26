@@ -148,23 +148,28 @@ away.
 
 ## Appearance
 
+The design is the CookCLI design. CookLangHub is a Cooklang product, so it
+should look and feel like the rest of the Cooklang tools, with a
+collaborative backend behind it.
+
+CookCLI is MIT licensed, copyright Alexey Dubovskoy, and the licence permits
+this reuse. `NOTICE` records every file taken, and `LICENSE-MIT-cookcli`
+carries the full text.
+
 A page follows the operating system until a person chooses otherwise. The
 control in the footer offers System, Light, and Dark. The choice lives in a
-cookie and the server writes it onto the page, so the right palette is in
-the first byte of HTML and nothing flashes. It needs no JavaScript.
+cookie and the server writes the class onto the page, so the right palette
+is in the first byte of HTML and nothing flashes. The page carries no
+script at all.
 
-Everything a person wrote reaches the page as text, and the template
-escapes it, so a Recipe that contains markup shows those characters and
-cannot run. An address becomes a link only when it starts with `http` or
-`https`. No page asks the browser for an image on another host.
+### Build the assets
 
-## Addresses
+    npm install
+    npm run build
 
-Forgejo reports `clone_url` and `html_url` built from its own `ROOT_URL`.
-The application does not use either. It builds a Git address from
-`FORGEJO_URL`, which is how this process reaches Forgejo, and a browser
-address from `FORGEJO_PUBLIC_URL`. In the bundled stack these differ, and
-using the reported value would break every push.
+Node is a build-time dependency only. The runtime is the Rust binary plus
+the files in `static/`. The Docker image builds the assets in its own stage,
+so `docker compose up --build` needs no Node on the host.
 
 ## Design
 

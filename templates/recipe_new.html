@@ -3,53 +3,55 @@
 {% block title %}New Recipe &middot; CookLangHub{% endblock %}
 
 {% block content %}
-<h1>New Recipe</h1>
+<div class="bg-white rounded-2xl shadow-lg p-6">
+  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent mb-6">New Recipe</h1>
 
-{% if !errors.is_empty() %}
-<div class="notice notice--error" role="alert">
-  <h2>This Recipe cannot be created yet</h2>
-  <ul>
-    {% for error in errors %}
-    <li>{{ error }}</li>
-    {% endfor %}
-  </ul>
+  {% if !errors.is_empty() %}
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-6" role="alert">
+    <h2 class="font-bold mb-2">This Recipe cannot be created yet</h2>
+    <ul class="list-disc pl-5 space-y-1">
+      {% for error in errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/recipes/new" class="space-y-6">
+    <div>
+      <label for="title" class="block font-medium mb-2">Title</label>
+      <input id="title" name="title" type="text" value="{{ title }}" required autocomplete="off" autofocus
+             class="search-input w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-hidden">
+      <p class="text-sm text-gray-600 mt-1">The title is stored in the Recipe itself.</p>
+    </div>
+
+    <div>
+      <label for="source" class="block font-medium mb-2">Recipe</label>
+      <textarea id="source" name="source" rows="18" spellcheck="false"
+                placeholder="Chop the @onion{1} and fry it in a #pan{} for ~{5%minutes}."
+                class="search-input w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-gray-900 font-mono text-sm focus:outline-hidden">{{ source }}</textarea>
+      <p class="text-sm text-gray-600 mt-1">
+        Write in Cooklang. Mark an ingredient with <code>@</code>, cookware with
+        <code>#</code>, and a time with <code>~</code>. A title on its own is enough to start.
+      </p>
+    </div>
+
+    <fieldset class="border-0 m-0 p-0">
+      <legend class="font-medium mb-2">Who can see this Recipe</legend>
+      <label class="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50">
+        <input type="radio" name="visibility" value="public" {% if !private %}checked{% endif %}>
+        <span><strong>Public</strong> &mdash; anybody can read it.</span>
+      </label>
+      <label class="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50">
+        <input type="radio" name="visibility" value="private" {% if private %}checked{% endif %}>
+        <span><strong>Private</strong> &mdash; only you and people you share it with.</span>
+      </label>
+    </fieldset>
+
+    <div class="flex flex-wrap gap-3">
+      <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Create Recipe</button>
+      <a href="/" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</a>
+    </div>
+  </form>
 </div>
-{% endif %}
-
-<form method="post" action="/recipes/new" class="stack">
-  <div class="field">
-    <label for="title">Title</label>
-    <input id="title" name="title" type="text" value="{{ title }}" required
-           autocomplete="off" autofocus>
-    <p class="hint">The title is stored in the Recipe itself.</p>
-  </div>
-
-  <div class="field">
-    <label for="source">Recipe</label>
-    <textarea id="source" name="source" rows="18" spellcheck="false"
-              placeholder="Chop the @onion{1} and fry it in a #pan{} for ~{5%minutes}.">{{ source }}</textarea>
-    <p class="hint">
-      Write in Cooklang. Mark an ingredient with <code>@</code>, cookware with
-      <code>#</code>, and a time with <code>~</code>. A title on its own is
-      enough to start.
-    </p>
-  </div>
-
-  <fieldset class="field">
-    <legend>Who can see this Recipe</legend>
-    <label class="choice">
-      <input type="radio" name="visibility" value="public" {% if !private %}checked{% endif %}>
-      <span><strong>Public</strong> — anybody can read it.</span>
-    </label>
-    <label class="choice">
-      <input type="radio" name="visibility" value="private" {% if private %}checked{% endif %}>
-      <span><strong>Private</strong> — only you and people you share it with.</span>
-    </label>
-  </fieldset>
-
-  <div class="actions">
-    <button class="button button--primary" type="submit">Create Recipe</button>
-    <a class="button" href="/">Cancel</a>
-  </div>
-</form>
 {% endblock %}

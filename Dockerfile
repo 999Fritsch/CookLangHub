@@ -1,3 +1,18 @@
+# Asset stage. Node is a build-time dependency only: the runtime is the Rust
+# binary plus the files this stage produces.
+FROM node:22-slim AS assets
+
+WORKDIR /assets
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY tailwind.config.js ./
+COPY scripts ./scripts
+COPY static ./static
+COPY templates ./templates
+COPY src ./src
+RUN npm run build
+
 # Build stage.
 FROM rust:1.97-slim-bookworm AS builder
 
@@ -35,7 +50,7 @@ RUN useradd --create-home --uid 1000 cooklanghub \
 
 WORKDIR /app
 COPY --from=builder /build/target/release/cooklanghub /usr/local/bin/cooklanghub
-COPY static ./static
+COPY --from=assets /assets/static ./static
 
 USER cooklanghub
 

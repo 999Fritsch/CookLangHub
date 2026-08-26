@@ -39,7 +39,9 @@ async fn the_page_shows_ingredients_cookware_timings_and_steps() {
     // The cook sees what to gather.
     assert!(body.contains("Ingredients"), "no ingredient list");
     assert!(body.contains("Cookware"), "no cookware list");
-    assert!(body.contains("Method"), "no steps");
+    // CookCLI gives the steps no heading of their own: the numbered circle
+    // is what marks them.
+    assert!(body.contains("step-number"), "no steps");
 
     for item in ["gelbe Zwiebel", "Öl", "Kidneybohnen", "großen Pfanne"] {
         assert!(body.contains(item), "`{item}` is missing from the page");
@@ -50,17 +52,28 @@ async fn the_page_shows_ingredients_cookware_timings_and_steps() {
         assert!(body.contains(amount), "`{amount}` is missing from the page");
     }
 
-    // Inside a step each entity carries its own class, which is what gives
-    // it its color and separates an ingredient from cookware in prose.
-    assert!(body.contains("class=\"ingredient\""), "no ingredient marks");
-    assert!(body.contains("class=\"cookware\""), "no cookware marks");
-    assert!(body.contains("class=\"timer\""), "no timer marks");
+    // Inside a step each entity carries the CookCLI badge class, which is
+    // what gives it its color and separates an ingredient from cookware.
+    assert!(body.contains("ingredient-badge"), "no ingredient marks");
+    assert!(body.contains("cookware-badge"), "no cookware marks");
+    assert!(body.contains("timer-badge"), "no timer marks");
 
     // The gather list reads name then amount, and carries no badge: every
     // row there is already the same kind of thing.
-    assert!(body.contains("gather-list--ingredient"), "no ingredient list");
-    assert!(body.contains("gather-list--cookware"), "no cookware list");
-    assert!(body.contains("gather-amount"), "an amount must stand on its own");
+    // The lists carry the CookCLI row: a band across the whole row, the
+    // name on the left and the amount on the right.
+    assert!(
+        body.contains("from-orange-50 to-yellow-50"),
+        "the ingredient rows must carry the CookCLI band"
+    );
+    assert!(
+        body.contains("from-green-50 to-blue-50"),
+        "the cookware rows must carry the CookCLI band"
+    );
+    assert!(
+        body.contains("text-orange-700 font-semibold"),
+        "an amount must stand on its own at the right of the row"
+    );
 
     // The amount sits inside the badge, next to the thing it belongs to,
     // so the eye never leaves the sentence to find it.
@@ -68,15 +81,30 @@ async fn the_page_shows_ingredients_cookware_timings_and_steps() {
         !body.contains("step-needs"),
         "a separate amount line would repeat what the badge already says"
     );
+    // The amount sits inside the badge, next to its ingredient, so a
+    // reader never leaves the sentence to look it up. This is the one place
+    // CookLangHub departs from CookCLI, which puts every amount in a
+    // separate line under each step.
+    let after = body
+        .split("timer-badge\">")
+        .nth(1)
+        .expect("a timer badge must exist");
+    let inside = after
+        .split("</span>")
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let text: String = strip_tags(&inside);
     assert!(
-        body.contains("badge-amount"),
-        "an amount must sit inside the badge"
+        text.contains("Min."),
+        "the amount must be inside the badge, got `{text}`"
     );
 
-    // Metadata a cook cares about.
-    assert!(body.contains("Servings"));
-    assert!(body.contains("Prep Time"));
-    assert!(body.contains("vegan"), "tags must show");
+    // Metadata a cook cares about, in the pills that CookCLI uses.
+    assert!(body.contains("metadata-pill"), "no metadata pills");
+    assert!(body.contains("4 servings"), "the serving count must show");
+    assert!(body.contains("Prep Time"), "the prep time must show");
+    assert!(body.contains("#vegan"), "tags must show as CookCLI writes them");
 }
 
 #[tokio::test]
@@ -99,9 +127,11 @@ async fn the_raw_cooklang_is_not_the_first_thing_a_reader_sees() {
     // than presented as the Recipe.
     assert!(body.contains("<details"), "the source must be folded away");
 
-    let method_at = body.find("Method").expect("the method must be on the page");
+    let method_at = body
+        .find("step-number")
+        .expect("the steps must be on the page");
     let source_at = body
-        .find("source-details")
+        .rfind("<details")
         .expect("the source must still be reachable");
     assert!(
         method_at < source_at,
@@ -153,7 +183,7 @@ async fn an_anonymous_reader_sees_a_public_recipe() {
 
     let body = response.text().await.expect("cannot read the body");
     assert!(body.contains("Kidneybohnen"), "the Recipe must be readable");
-    assert!(body.contains("Method"));
+    assert!(body.contains("step-number"), "the steps must be readable");
     // And they are offered a way in.
     assert!(body.contains("/auth/sign-in"));
 }
@@ -358,7 +388,10 @@ async fn a_person_can_choose_light_or_dark_and_it_sticks() {
         .text()
         .await
         .expect("cannot read the body");
-    assert!(!first.contains("data-theme="), "the default must follow the system");
+    assert!(
+        first.contains("<html lang=\"en\" class=\"\">"),
+        "the default carries no class, so the system decides"
+    );
     assert!(first.contains("Appearance"), "the control must be on the page");
 
     // Choosing dark returns the person to where they were.
@@ -391,7 +424,10 @@ async fn a_person_can_choose_light_or_dark_and_it_sticks() {
         .await
         .expect("cannot read the body");
 
-    assert!(page.contains("data-theme=\"dark\""), "the page must carry the choice");
+    assert!(
+        page.contains("<html lang=\"en\" class=\"dark\">"),
+        "the page must carry the choice as the class CookCLI uses"
+    );
     assert!(!page.contains("<script"), "the choice must need no script");
 }
 
@@ -413,4 +449,19 @@ async fn a_theme_form_cannot_send_a_person_to_another_site() {
             "`{hostile}` must not be followed"
         );
     }
+}
+
+/// Drop every element from a fragment, leaving the words a person reads.
+fn strip_tags(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut inside = false;
+    for c in html.chars() {
+        match c {
+            '<' => inside = true,
+            '>' => inside = false,
+            _ if !inside => out.push(c),
+            _ => {}
+        }
+    }
+    out.trim().to_string()
 }

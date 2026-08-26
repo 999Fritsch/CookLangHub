@@ -24,12 +24,15 @@ pub enum PieceKind {
 
 impl PieceKind {
     /// The class that carries the color of this entity.
+    ///
+    /// These are the CookCLI class names, so the badges are styled by the
+    /// CookCLI stylesheet without a change.
     pub fn css_class(&self) -> &'static str {
         match self {
             PieceKind::Text => "",
-            PieceKind::Ingredient => "ingredient",
-            PieceKind::Cookware => "cookware",
-            PieceKind::Timer => "timer",
+            PieceKind::Ingredient => "ingredient-badge",
+            PieceKind::Cookware => "cookware-badge",
+            PieceKind::Timer => "timer-badge",
         }
     }
 
@@ -443,9 +446,9 @@ mod tests {
 
     #[test]
     fn each_entity_carries_its_own_class_and_label() {
-        assert_eq!(PieceKind::Ingredient.css_class(), "ingredient");
-        assert_eq!(PieceKind::Cookware.css_class(), "cookware");
-        assert_eq!(PieceKind::Timer.css_class(), "timer");
+        assert_eq!(PieceKind::Ingredient.css_class(), "ingredient-badge");
+        assert_eq!(PieceKind::Cookware.css_class(), "cookware-badge");
+        assert_eq!(PieceKind::Timer.css_class(), "timer-badge");
         assert_eq!(PieceKind::Ingredient.label(), "Ingredient");
         assert!(PieceKind::Text.is_text());
     }
