@@ -18,10 +18,17 @@
 //! longer names. While Forgejo does name a source that this person cannot
 //! read, the page says that the source is not available and offers **Open in
 //! Forgejo**.
+//!
+//! A source Recipe moves on after somebody makes a Variation of it. What it
+//! holds that the Variation does not is read from the two Histories that
+//! Forgejo already keeps, and it is never written down here: [`Upstream`] is
+//! computed again on every request. Nothing at all is applied until the
+//! person asks for it, and then Git joins the two sides. A join that Git
+//! cannot make changes neither Recipe.
 
 use crate::create_recipe;
 use crate::forgejo::{ForgejoClient, ForgejoError, ForgejoUser, Repository};
-use crate::git::{GitAdapter, GitError};
+use crate::git::{Brought, GitAdapter, GitError, Identity, UpdateFromSource};
 use crate::recipe::{self, RECIPE_FILE, RECIPE_TOPICS};
 use crate::secret::Secret;
 
@@ -36,6 +43,16 @@ pub const VERSION_WINDOW: u32 = 50;
 
 /// How many Variations one page shows.
 pub const MAX_VARIATIONS: u32 = 50;
+
+/// How far back the two Histories are read to compare them.
+///
+/// This is the same page of History that a person reads. Two Recipes that
+/// share no Version inside it have grown too far apart for this page to
+/// speak about, and the answer is then [`Upstream::Unknown`].
+pub const NEWER_WINDOW: u32 = 50;
+
+/// What a new Version says in History after an update.
+pub const UPDATE_MESSAGE: &str = "Update from the source Recipe";
 
 /// What Forgejo says when the person already has a Variation of this Recipe.
 ///
@@ -66,10 +83,30 @@ pub enum VariationError {
     /// Every name that the application offered was taken.
     #[error("cannot find a free name for the Variation")]
     NoFreeName,
+    /// Git cannot put what the source Recipe holds together with what this
+    /// Variation holds. Both Recipes are exactly as they were.
+    #[error("the changes of the source Recipe and of this Recipe cannot be joined")]
+    Conflict,
     #[error(transparent)]
     Forgejo(#[from] ForgejoError),
     #[error(transparent)]
     Git(#[from] GitError),
+}
+
+/// A published Recipe, as Forgejo and Git name it.
+#[derive(Debug, Clone, Copy)]
+pub struct Published<'a> {
+    pub owner: &'a str,
+    pub slug: &'a str,
+    /// The branch that carries the published Recipe.
+    pub branch: &'a str,
+}
+
+impl Published<'_> {
+    /// The name Forgejo gives this Recipe, which its address is built from.
+    fn full_name(&self) -> String {
+        format!("{}/{}", self.owner, self.slug)
+    }
 }
 
 /// Where a Recipe came from.
@@ -108,11 +145,23 @@ pub struct SourceRecipe {
     pub slug: String,
     /// The title a cook sees. It lives in the Recipe, not in the name.
     pub title: String,
+    /// The branch that carries the published source Recipe. Forgejo names
+    /// it, and both the comparison and the update read it.
+    pub branch: String,
 }
 
 impl SourceRecipe {
     pub fn href(&self) -> String {
         format!("/recipes/{}/{}", self.owner, self.slug)
+    }
+
+    /// The source Recipe as Forgejo and Git name it.
+    pub fn published(&self) -> Published<'_> {
+        Published {
+            owner: &self.owner,
+            slug: &self.slug,
+            branch: &self.branch,
+        }
     }
 }
 
@@ -312,7 +361,200 @@ pub async fn source_of(
         owner: source_owner.to_string(),
         slug: source_slug.to_string(),
         title,
+        branch: repository.branch().to_string(),
     })
+}
+
+/// What the source Recipe holds that a Variation does not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Upstream {
+    /// The Variation holds every Version of the source Recipe.
+    Current,
+    /// The source Recipe has Versions that the Variation does not hold.
+    Newer(NewerVersions),
+    /// The application cannot say. Forgejo did not answer for one of the
+    /// two Recipes, or the two share no Version inside [`NEWER_WINDOW`].
+    Unknown,
+}
+
+/// The Versions that the source Recipe has and a Variation does not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewerVersions {
+    /// How many of them there are.
+    pub count: usize,
+    /// The newest Version that both Recipes hold. A comparison of the two
+    /// starts here.
+    pub common: String,
+    /// The published Version of the source Recipe.
+    pub version: String,
+}
+
+/// Read what the source Recipe holds that this Recipe does not.
+///
+/// Nothing is stored and nothing is written. Forgejo keeps the History of
+/// both Recipes, and the answer is those two lists put beside each other:
+/// the newest Version that both hold ends the count, and every Version above
+/// it in the source Recipe is one this Recipe does not have.
+///
+/// This is why an update needs no record of what was taken before. After an
+/// update the Variation holds the Versions of the source Recipe, so the same
+/// question answers [`Upstream::Current`] by itself.
+pub async fn newer_in_source(
+    forgejo: &ForgejoClient,
+    token: Option<&Secret<String>>,
+    variation: Published<'_>,
+    source: Published<'_>,
+) -> Upstream {
+    let theirs = match history(forgejo, token, source).await {
+        Some(theirs) => theirs,
+        None => return Upstream::Unknown,
+    };
+    let ours = match history(forgejo, token, variation).await {
+        Some(ours) => ours,
+        None => return Upstream::Unknown,
+    };
+
+    count_newer(&theirs, &ours)
+}
+
+/// One page of the History of a published Recipe, newest Version first.
+///
+/// `None` says Forgejo did not answer, which is not the same as a Recipe
+/// that holds no Version.
+async fn history(
+    forgejo: &ForgejoClient,
+    token: Option<&Secret<String>>,
+    recipe: Published<'_>,
+) -> Option<Vec<String>> {
+    match forgejo
+        .list_commits(
+            token,
+            recipe.owner,
+            recipe.slug,
+            recipe.branch,
+            NEWER_WINDOW,
+        )
+        .await
+    {
+        Ok(commits) => Some(
+            commits
+                .iter()
+                .map(|commit| commit.sha.to_ascii_lowercase())
+                .collect(),
+        ),
+        Err(error) => {
+            tracing::info!(%error, owner = %recipe.owner, slug = %recipe.slug, "cannot read the History of this Recipe");
+            None
+        }
+    }
+}
+
+/// Put the two Histories beside each other and count.
+///
+/// Both lists are newest Version first, which is the order Forgejo answers
+/// in. The first Version of the source Recipe that the Variation also holds
+/// is where the two meet, and everything above it in the source Recipe is a
+/// Version that the Variation does not have.
+fn count_newer(source: &[String], variation: &[String]) -> Upstream {
+    // The source Recipe holds nothing at all, so there is nothing to bring.
+    let Some(version) = source.first().cloned() else {
+        return Upstream::Current;
+    };
+
+    let held: std::collections::HashSet<&String> = variation.iter().collect();
+
+    for (count, candidate) in source.iter().enumerate() {
+        if !held.contains(candidate) {
+            continue;
+        }
+
+        return if count == 0 {
+            Upstream::Current
+        } else {
+            Upstream::Newer(NewerVersions {
+                count,
+                common: candidate.clone(),
+                version,
+            })
+        };
+    }
+
+    // The two Recipes share no Version that this page can see. Saying
+    // nothing is better than counting a History that was never shared.
+    Upstream::Unknown
+}
+
+/// What an update from the source Recipe did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Updated {
+    /// The Variation holds the Versions of the source Recipe now, and this
+    /// is the Version that the update made.
+    Version(String),
+    /// The Variation held every Version of the source Recipe already, so no
+    /// Version was made.
+    Nothing,
+}
+
+/// Bring what the source Recipe holds into a Variation.
+///
+/// Only the Variation changes. The source Recipe is read and never written,
+/// so it holds exactly what it held whatever this answers.
+///
+/// The caller passes the [`SourceRecipe`] that [`source_of`] gave, which is
+/// what keeps Forgejo the one authority on where a Recipe came from. This
+/// runs only when a person asks for it: nothing here is ever started by the
+/// application itself.
+///
+/// [`VariationError::Conflict`] says Git cannot put the two sides together.
+/// Neither Recipe changed, and the person has to decide what to do.
+pub async fn update_from_source(
+    forgejo: &ForgejoClient,
+    git: &dyn GitAdapter,
+    token: &Secret<String>,
+    identity: &Identity,
+    variation: Published<'_>,
+    source: &SourceRecipe,
+) -> Result<Updated, VariationError> {
+    let mine = forgejo.git_url(&variation.full_name());
+    let theirs = forgejo.git_url(&source.published().full_name());
+
+    match git
+        .update_from_source(UpdateFromSource {
+            remote_url: &mine,
+            token,
+            identity,
+            branch: variation.branch,
+            source_url: &theirs,
+            source_branch: &source.branch,
+            message: UPDATE_MESSAGE,
+        })
+        .await
+    {
+        Ok(Brought::Version(version)) => {
+            tracing::info!(
+                owner = %variation.owner,
+                slug = %variation.slug,
+                source_owner = %source.owner,
+                source_slug = %source.slug,
+                %version,
+                "brought the Versions of the source Recipe into a Variation"
+            );
+            Ok(Updated::Version(version))
+        }
+        Ok(Brought::Nothing) => Ok(Updated::Nothing),
+        Err(GitError::Conflict) => {
+            tracing::info!(
+                owner = %variation.owner,
+                slug = %variation.slug,
+                "the source Recipe and this Variation cannot be joined"
+            );
+            Err(VariationError::Conflict)
+        }
+        Err(error) => {
+            tracing::warn!(%error, owner = %variation.owner, slug = %variation.slug, "cannot update this Variation from its source Recipe");
+            Err(error.into())
+        }
+    }
 }
 
 /// The title a cook sees for a Recipe. It lives in the Recipe file.
@@ -441,6 +683,8 @@ mod tests {
             VariationError::AlreadyThere.to_string(),
             VariationError::NoVersion.to_string(),
             VariationError::NoFreeName.to_string(),
+            VariationError::Conflict.to_string(),
+            UPDATE_MESSAGE.to_string(),
         ] {
             assert_eq!(
                 says_forge_word(&message),
@@ -487,7 +731,74 @@ mod tests {
             owner: "sam".to_string(),
             slug: "chili".to_string(),
             title: "Chili sin Carne".to_string(),
+            branch: "main".to_string(),
         };
         assert_eq!(source.href(), "/recipes/sam/chili");
+
+        // The update reads the source Recipe where Forgejo published it.
+        let published = source.published();
+        assert_eq!(published.owner, "sam");
+        assert_eq!(published.slug, "chili");
+        assert_eq!(published.branch, "main");
+        assert_eq!(published.full_name(), "sam/chili");
+    }
+
+    #[test]
+    fn a_variation_that_holds_every_version_of_its_source_is_current() {
+        // Nothing is stored, so this is the whole of the answer: the newest
+        // Version of the source Recipe is one this Recipe holds.
+        assert_eq!(
+            beside(&["c", "b", "a"], &["c", "b", "a"]),
+            Upstream::Current
+        );
+
+        // A Recipe that went on ahead still holds every Version of its
+        // source, so there is nothing to bring.
+        assert_eq!(
+            beside(&["c", "b", "a"], &["e", "d", "c", "b", "a"]),
+            Upstream::Current
+        );
+    }
+
+    #[test]
+    fn the_versions_of_the_source_above_the_shared_one_are_the_newer_ones() {
+        assert_eq!(
+            beside(&["e", "d", "c", "b", "a"], &["z", "c", "b", "a"]),
+            Upstream::Newer(NewerVersions {
+                count: 2,
+                common: "c".to_string(),
+                version: "e".to_string(),
+            })
+        );
+
+        // A Variation that nobody changed counts the same way.
+        assert_eq!(
+            beside(&["c", "b", "a"], &["a"]),
+            Upstream::Newer(NewerVersions {
+                count: 2,
+                common: "a".to_string(),
+                version: "c".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn two_recipes_that_share_no_version_leave_the_page_saying_nothing() {
+        // The page reads one page of History. Below it the application can
+        // count nothing, and a number that is a guess is worse than none.
+        assert_eq!(beside(&["c", "b"], &["z", "y"]), Upstream::Unknown);
+
+        // A Recipe with no Version at all shares none either.
+        assert_eq!(beside(&["c", "b"], &[]), Upstream::Unknown);
+
+        // A source Recipe that holds nothing has nothing to give.
+        assert_eq!(beside(&[], &["z"]), Upstream::Current);
+    }
+
+    /// Call [`count_newer`] the way [`newer_in_source`] calls it.
+    fn beside(source: &[&str], variation: &[&str]) -> Upstream {
+        let source: Vec<String> = source.iter().map(|sha| sha.to_string()).collect();
+        let variation: Vec<String> = variation.iter().map(|sha| sha.to_string()).collect();
+        count_newer(&source, &variation)
     }
 }

@@ -278,6 +278,22 @@ pub trait GitAdapter: Send + Sync + std::fmt::Debug {
     ///
     /// Returns the identifier of the Cookbook Version that this made.
     async fn remove_reference(&self, request: RemoveReference<'_>) -> Result<String, GitError>;
+
+    /// Bring what one Recipe holds into another Recipe that came from it.
+    ///
+    /// Only the Recipe at [`UpdateFromSource::remote_url`] changes. The
+    /// source Recipe is read and never written, so it holds exactly what it
+    /// held whatever this answers.
+    ///
+    /// Git joins the two sides itself, with the Version that both Recipes
+    /// hold as the common side. When Git cannot join them, this gives
+    /// [`GitError::Conflict`], nothing is pushed, and both Recipes keep
+    /// exactly what they had.
+    ///
+    /// [`Brought::Nothing`] says the Recipe already holds every Version of
+    /// the source Recipe. No Version is made then, because a Version that
+    /// carries nothing is a Version that a person still has to read.
+    async fn update_from_source(&self, request: UpdateFromSource<'_>) -> Result<Brought, GitError>;
 }
 
 /// Runs the system Git executable in a temporary workspace.
@@ -900,6 +916,105 @@ impl GitAdapter for SystemGit {
             &Reference::Remove { path: request.path },
         )
         .await
+    }
+
+    async fn update_from_source(&self, request: UpdateFromSource<'_>) -> Result<Brought, GitError> {
+        let mut last = String::new();
+
+        for _ in 0..MAX_PUBLISH_ATTEMPTS {
+            let workspace = tempfile::tempdir().map_err(GitError::Workspace)?;
+            // Git reads its per-user configuration from the home directory,
+            // and that directory must sit outside the work tree.
+            let home = workspace.path();
+            let work = home.join("work");
+
+            // The whole History of this Recipe travels. Git needs it to find
+            // the Version that the two Recipes share, and a shortened
+            // History cannot answer that.
+            self.run_in(
+                home,
+                home,
+                request.token,
+                &[
+                    "clone",
+                    "--quiet",
+                    "--single-branch",
+                    "--branch",
+                    request.branch,
+                    request.remote_url,
+                    "work",
+                ],
+            )
+            .await?;
+
+            // The source Recipe is fetched and never pushed to. This is the
+            // only place it is touched at all.
+            self.run_in(
+                home,
+                &work,
+                request.token,
+                &[
+                    "fetch",
+                    "--quiet",
+                    request.source_url,
+                    request.source_branch,
+                ],
+            )
+            .await?;
+
+            let source = self
+                .run_in(home, &work, request.token, &["rev-parse", "FETCH_HEAD"])
+                .await?
+                .trim()
+                .to_string();
+
+            // This Recipe can hold every Version of the source Recipe
+            // already. That is an answer, and it must not become a Version
+            // that carries nothing.
+            let held = self
+                .attempt(
+                    home,
+                    &work,
+                    request.token,
+                    &["merge-base", "--is-ancestor", &source, "HEAD"],
+                )
+                .await?;
+            if held.success {
+                return Ok(Brought::Nothing);
+            }
+
+            self.join(home, &work, &request, &source).await?;
+
+            let version = self.head(&work, home, request.token).await?;
+
+            let pushed = self
+                .attempt(
+                    home,
+                    &work,
+                    request.token,
+                    &[
+                        "push",
+                        "--quiet",
+                        request.remote_url,
+                        &format!("{version}:refs/heads/{}", request.branch),
+                    ],
+                )
+                .await?;
+
+            if pushed.success {
+                return Ok(Brought::Version(version));
+            }
+
+            // This Recipe moved between the read and the push. The whole
+            // join is made again on the new state, and the Version built a
+            // moment ago reached nobody.
+            last = redact(&pushed.stderr, request.token);
+        }
+
+        Err(GitError::Command {
+            command: "push".to_string(),
+            message: last,
+        })
     }
 }
 
@@ -1588,6 +1703,218 @@ mod tests {
         );
     }
 
+    /// Make a bare repository that Git can push to, and give its address.
+    async fn bare(git: &SystemGit, token: &Secret<String>, at: &Path) -> String {
+        git.run(at, token, &["init", "--quiet", "--bare"])
+            .await
+            .expect("cannot make the probe repository");
+        at.to_string_lossy().replace('\\', "/")
+    }
+
+    /// Write one Version that holds this Recipe file.
+    async fn version_holding(
+        git: &SystemGit,
+        token: &Secret<String>,
+        remote: &str,
+        identity: &Identity,
+        base: &str,
+        text: &str,
+    ) -> String {
+        let mut files = BTreeMap::new();
+        files.insert("recipe.cook".to_string(), text.as_bytes().to_vec());
+
+        git.publish_version(PublishVersion {
+            remote_url: remote,
+            token,
+            identity,
+            branch: "main",
+            message: "A new Version",
+            base_version: base,
+            files,
+        })
+        .await
+        .expect("cannot write the Version")
+    }
+
+    #[tokio::test]
+    async fn an_update_joins_a_clean_change_and_leaves_a_conflict_alone() {
+        // This is the whole of **Update from original**: Git joins the two
+        // sides, a join it cannot make changes nothing at all, and a Recipe
+        // that already holds every Version of its source gets no Version.
+        let git = SystemGit;
+        let token = Secret::new(String::new());
+        let identity = Identity {
+            name: "Sam Cook".to_string(),
+            email: "sam@noreply.localhost".to_string(),
+        };
+
+        let source_at = tempfile::tempdir().unwrap();
+        let variation_at = tempfile::tempdir().unwrap();
+        let source = bare(&git, &token, source_at.path()).await;
+
+        // A Recipe with room in it. Two changes far apart are the ones Git
+        // joins by itself, and two changes on one line are the ones it
+        // cannot.
+        let recipe = |first: &str, last: &str| {
+            format!("{first}\n\nFry it.\n\nAdd salt.\n\nStir it.\n\n{last}\n")
+        };
+
+        let mut first = BTreeMap::new();
+        first.insert(
+            "recipe.cook".to_string(),
+            recipe("Chop the onion.", "Serve it.").into_bytes(),
+        );
+        let start = git
+            .create_initial_commit(InitialCommit {
+                remote_url: &source,
+                token: &token,
+                identity: &identity,
+                branch: "main",
+                message: "Add Chili",
+                files: first,
+            })
+            .await
+            .expect("cannot write the first Version");
+
+        // The Variation is a copy of the source Recipe, which is what
+        // Forgejo makes when somebody asks for one.
+        let variation = variation_at.path().to_string_lossy().replace('\\', "/");
+        git.run(
+            source_at.path(),
+            &token,
+            &["clone", "--quiet", "--bare", &source, &variation],
+        )
+        .await
+        .expect("cannot copy the Recipe");
+
+        // Nothing has moved anywhere, so an update has nothing to bring.
+        let nothing = git
+            .update_from_source(UpdateFromSource {
+                remote_url: &variation,
+                token: &token,
+                identity: &identity,
+                branch: "main",
+                source_url: &source,
+                source_branch: "main",
+                message: "Update from the source Recipe",
+            })
+            .await
+            .expect("an update that brings nothing is an answer");
+        assert_eq!(nothing, Brought::Nothing);
+        assert_eq!(
+            git.branch_head(&variation, &token, "main").await.unwrap(),
+            Some(start.clone()),
+            "an update that brought nothing must make no Version"
+        );
+
+        // Each side changes a line of its own, so Git can join them.
+        let theirs = version_holding(
+            &git,
+            &token,
+            &source,
+            &identity,
+            &start,
+            &recipe("Chop the onion and the garlic.", "Serve it."),
+        )
+        .await;
+        let ours = version_holding(
+            &git,
+            &token,
+            &variation,
+            &identity,
+            &start,
+            &recipe("Chop the onion.", "Serve it with bread."),
+        )
+        .await;
+
+        let brought = git
+            .update_from_source(UpdateFromSource {
+                remote_url: &variation,
+                token: &token,
+                identity: &identity,
+                branch: "main",
+                source_url: &source,
+                source_branch: "main",
+                message: "Update from the source Recipe",
+            })
+            .await
+            .expect("Git can join these two");
+
+        let Brought::Version(joined) = brought else {
+            panic!("a clean update must make a Version");
+        };
+        assert_ne!(joined, ours, "the update must add a Version of its own");
+        assert_eq!(
+            git.branch_head(&variation, &token, "main").await.unwrap(),
+            Some(joined.clone())
+        );
+        assert_eq!(
+            git.branch_head(&source, &token, "main").await.unwrap(),
+            Some(theirs.clone()),
+            "an update must never change the source Recipe"
+        );
+
+        // The same update again has nothing left to bring.
+        assert_eq!(
+            git.update_from_source(UpdateFromSource {
+                remote_url: &variation,
+                token: &token,
+                identity: &identity,
+                branch: "main",
+                source_url: &source,
+                source_branch: "main",
+                message: "Update from the source Recipe",
+            })
+            .await
+            .expect("an update that brings nothing is an answer"),
+            Brought::Nothing
+        );
+
+        // Now both sides change the same line, which Git cannot join.
+        let theirs = version_holding(
+            &git,
+            &token,
+            &source,
+            &identity,
+            &theirs,
+            &recipe("Chop the onion and the garlic.", "Serve it in a bowl."),
+        )
+        .await;
+        let ours = version_holding(
+            &git,
+            &token,
+            &variation,
+            &identity,
+            &joined,
+            &recipe("Chop the onion and the garlic.", "Serve it on a plate."),
+        )
+        .await;
+
+        let refused = git
+            .update_from_source(UpdateFromSource {
+                remote_url: &variation,
+                token: &token,
+                identity: &identity,
+                branch: "main",
+                source_url: &source,
+                source_branch: "main",
+                message: "Update from the source Recipe",
+            })
+            .await;
+
+        assert!(matches!(refused, Err(GitError::Conflict)));
+        assert_eq!(
+            git.branch_head(&variation, &token, "main").await.unwrap(),
+            Some(ours),
+            "a refused update must leave this Recipe exactly as it was"
+        );
+        assert_eq!(
+            git.branch_head(&source, &token, "main").await.unwrap(),
+            Some(theirs),
+            "a refused update must leave the source Recipe exactly as it was"
+        );
+    }
+
     #[test]
     fn a_name_that_leaves_the_recipe_is_refused() {
         let root = Path::new("/work");
@@ -1665,5 +1992,106 @@ impl Reference<'_> {
         match self {
             Reference::Write { path, .. } | Reference::Remove { path } => path,
         }
+    }
+}
+
+/// A request to bring what a source Recipe holds into a Recipe made from it.
+///
+/// The Recipe at `remote_url` is the one that changes. The source Recipe is
+/// read only, and no address here ever carries a credential.
+#[derive(Debug)]
+pub struct UpdateFromSource<'a> {
+    /// Where to push, without any credential in it. This Recipe changes.
+    pub remote_url: &'a str,
+    pub token: &'a Secret<String>,
+    pub identity: &'a Identity,
+    /// The branch that carries this published Recipe.
+    pub branch: &'a str,
+    /// Where to read from, without any credential in it. This is the source
+    /// Recipe, and nothing is ever written to it.
+    pub source_url: &'a str,
+    /// The branch that carries the published source Recipe.
+    pub source_branch: &'a str,
+    /// What the new Version says in History.
+    pub message: &'a str,
+}
+
+/// What an update from a source Recipe brought.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Brought {
+    /// The Recipe holds the Versions of the source Recipe now, and this is
+    /// the Version that the join made.
+    Version(String),
+    /// The Recipe held every Version of the source Recipe already, so
+    /// nothing was made and nothing was pushed.
+    Nothing,
+}
+
+impl SystemGit {
+    /// Join what the source Recipe holds into the Recipe in the workspace.
+    ///
+    /// Git decides whether the two sides go together. A join that Git
+    /// cannot make leaves nothing behind: the work tree goes back to what
+    /// it held, and this answers before anything can be pushed.
+    async fn join(
+        &self,
+        home: &Path,
+        work: &Path,
+        request: &UpdateFromSource<'_>,
+        source: &str,
+    ) -> Result<(), GitError> {
+        // The person who asked for the update carries the new Version. The
+        // Versions that come with it keep the people who wrote them.
+        let name = format!("user.name={}", request.identity.name);
+        let email = format!("user.email={}", request.identity.email);
+
+        let joined = self
+            .attempt(
+                home,
+                work,
+                request.token,
+                &[
+                    "-c",
+                    &name,
+                    "-c",
+                    &email,
+                    "merge",
+                    "--quiet",
+                    // Always one new Version, even when this Recipe holds
+                    // nothing of its own yet. History then says when the
+                    // person took the change, and from where.
+                    "--no-ff",
+                    "--no-edit",
+                    "--message",
+                    request.message,
+                    source,
+                ],
+            )
+            .await?;
+
+        if joined.success {
+            return Ok(());
+        }
+
+        // A file that Git could not join is left unmerged in the index.
+        // That is the state, not the wording of a message, so read it.
+        let unmerged = self
+            .attempt(home, work, request.token, &["ls-files", "--unmerged"])
+            .await?;
+        let conflicted = !unmerged.stdout.trim().is_empty();
+
+        // Leave nothing half-joined behind, whatever comes next.
+        let _ = self
+            .attempt(home, work, request.token, &["merge", "--abort"])
+            .await;
+
+        if conflicted {
+            return Err(GitError::Conflict);
+        }
+
+        Err(GitError::Command {
+            command: "merge".to_string(),
+            message: redact(&joined.stderr, request.token),
+        })
     }
 }

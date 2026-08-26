@@ -45,6 +45,7 @@ const PAGES = [
   { name: "cookbooks", path: "/cookbooks", needsSession: true },
   { name: "cookbook-new", path: "/cookbooks/new", needsSession: true },
   { name: "profile", path: "/cooks/filip", needsSession: false },
+  { name: "variations", path: "/recipes/filip/chili-sin-carne/variations", needsSession: false },
 ];
 
 const SIZES = [
