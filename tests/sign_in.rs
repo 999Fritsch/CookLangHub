@@ -293,7 +293,10 @@ async fn no_forgejo_token_reaches_the_browser() {
             !body.contains(held.as_str()),
             "the access token appeared in the answer of {path}"
         );
-        assert!(!body.contains("gto_"), "a token-shaped value reached {path}");
+        assert!(
+            !body.contains("gto_"),
+            "a token-shaped value reached {path}"
+        );
         assert!(
             !body.contains("eyJ"),
             "a value shaped like a JWT reached {path}"

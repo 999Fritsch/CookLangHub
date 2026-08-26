@@ -159,10 +159,7 @@ mod tests {
             ("system", Theme::System),
         ] {
             let mut headers = HeaderMap::new();
-            headers.insert(
-                "cookie",
-                format!("{COOKIE_NAME}={value}").parse().unwrap(),
-            );
+            headers.insert("cookie", format!("{COOKIE_NAME}={value}").parse().unwrap());
             assert_eq!(from_headers(&headers), expected);
         }
     }

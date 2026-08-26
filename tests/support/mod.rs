@@ -317,7 +317,9 @@ pub async fn unreachable_url() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("cannot bind a probe listener");
-    let address = listener.local_addr().expect("cannot read the probe address");
+    let address = listener
+        .local_addr()
+        .expect("cannot read the probe address");
     drop(listener);
     format!("http://{address}")
 }
@@ -458,10 +460,11 @@ async fn forgejo_authorize(browser: &reqwest::Client, authorize_url: &str) -> St
 
     let body = page.text().await.unwrap_or_default();
 
-    let mut fields: Vec<(String, String)> = ["client_id", "state", "scope", "nonce", "redirect_uri"]
-        .iter()
-        .filter_map(|name| hidden_field(&body, name).map(|value| (name.to_string(), value)))
-        .collect();
+    let mut fields: Vec<(String, String)> =
+        ["client_id", "state", "scope", "nonce", "redirect_uri"]
+            .iter()
+            .filter_map(|name| hidden_field(&body, name).map(|value| (name.to_string(), value)))
+            .collect();
     fields.push(("granted".to_string(), "true".to_string()));
     if let Some(csrf) = csrf_token(&body) {
         fields.push(("_csrf".to_string(), csrf));
@@ -536,7 +539,10 @@ pub async fn create_recipe(
 
     client()
         .post(app.url("/recipes/new"))
-        .header("cookie", format!("{}={session}", cooklanghub::session::COOKIE_NAME))
+        .header(
+            "cookie",
+            format!("{}={session}", cooklanghub::session::COOKIE_NAME),
+        )
         .form(&[
             ("title", title),
             ("source", source),

@@ -61,10 +61,11 @@ pub async fn load_client(
     pool: &SqlitePool,
     cipher: &Cipher,
 ) -> Result<Option<OAuthClient>, AuthError> {
-    let row: Option<(String, Vec<u8>, String)> =
-        sqlx::query_as("SELECT client_id, client_secret, redirect_uri FROM oauth_client WHERE id = 1")
-            .fetch_optional(pool)
-            .await?;
+    let row: Option<(String, Vec<u8>, String)> = sqlx::query_as(
+        "SELECT client_id, client_secret, redirect_uri FROM oauth_client WHERE id = 1",
+    )
+    .fetch_optional(pool)
+    .await?;
 
     match row {
         Some((client_id, encrypted, redirect_uri)) => Ok(Some(OAuthClient {

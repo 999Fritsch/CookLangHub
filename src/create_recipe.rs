@@ -33,7 +33,12 @@ pub const DEFAULT_NOREPLY_DOMAIN: &str = "noreply.localhost";
 /// would publish it, because History is readable by anybody who can read the
 /// Recipe. So a person who hides their address gets the Forgejo no-reply
 /// address instead, which is what Forgejo itself writes.
-pub fn commit_email(login: &str, real_email: &str, hide_email: bool, noreply_domain: &str) -> String {
+pub fn commit_email(
+    login: &str,
+    real_email: &str,
+    hide_email: bool,
+    noreply_domain: &str,
+) -> String {
     if hide_email || real_email.trim().is_empty() {
         format!("{}@{}", login.to_lowercase(), noreply_domain)
     } else {
@@ -125,12 +130,7 @@ pub async fn create(
 
     let identity = Identity {
         name: user.display_name().to_string(),
-        email: commit_email(
-            &user.login,
-            &user.email,
-            hide_email,
-            &input.noreply_domain,
-        ),
+        email: commit_email(&user.login, &user.email, hide_email, &input.noreply_domain),
     };
 
     let mut files = BTreeMap::new();

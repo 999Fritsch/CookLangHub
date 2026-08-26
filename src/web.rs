@@ -43,8 +43,7 @@ pub struct AppState {
 /// `default-src 'self'` stops the browser from loading a script, a style, a
 /// font, or an image from another host. A page therefore cannot depend on an
 /// external CDN, and cannot leak a page view to one.
-const CONTENT_SECURITY_POLICY: &str =
-    "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 pub fn router(state: AppState, static_dir: &str) -> Router {
     Router::new()

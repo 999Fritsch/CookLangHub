@@ -283,11 +283,13 @@ mod tests {
         // units are English, and an unknown timer unit is an error, so
         // without the German units file this Recipe could not be created.
         for unit in ["Min.", "Minuten", "Min", "Std.", "Stunden", "Sek."] {
-            let source = format!("---
+            let source = format!(
+                "---
 title: Test
 ---
 
-Wait ~{{5%{unit}}}.");
+Wait ~{{5%{unit}}}."
+            );
             let parsed = parse(&source);
             assert!(
                 parsed.is_valid(),
@@ -312,11 +314,13 @@ title: Test
     fn an_unknown_timer_unit_is_still_an_error() {
         // The German units widen what is known. They must not turn the check
         // off, or a real mistake would pass unnoticed.
-        let parsed = parse("---
+        let parsed = parse(
+            "---
 title: Test
 ---
 
-Wait ~{5%bananas}.");
+Wait ~{5%bananas}.",
+        );
         assert!(!parsed.is_valid(), "an unknown unit must still be an error");
     }
 

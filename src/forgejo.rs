@@ -332,7 +332,10 @@ impl ForgejoClient {
         let response = self
             .send(
                 self.http
-                    .get(format!("{}/api/v1/repos/{owner}/{repository}", self.api_url))
+                    .get(format!(
+                        "{}/api/v1/repos/{owner}/{repository}",
+                        self.api_url
+                    ))
                     .bearer_auth(token.expose()),
             )
             .await?;
@@ -364,7 +367,10 @@ impl ForgejoClient {
     ) -> Result<(), ForgejoError> {
         self.send(
             self.http
-                .delete(format!("{}/api/v1/repos/{owner}/{repository}", self.api_url))
+                .delete(format!(
+                    "{}/api/v1/repos/{owner}/{repository}",
+                    self.api_url
+                ))
                 .bearer_auth(token.expose()),
         )
         .await?;
@@ -661,7 +667,10 @@ mod tests {
         let client =
             ForgejoClient::with_urls("http://forgejo:3000", "http://localhost:3000").unwrap();
 
-        assert_eq!(client.web_url("sam/chili"), "http://localhost:3000/sam/chili");
+        assert_eq!(
+            client.web_url("sam/chili"),
+            "http://localhost:3000/sam/chili"
+        );
         assert!(!client.web_url("sam/chili").contains("forgejo:3000"));
     }
 
@@ -694,7 +703,10 @@ mod tests {
 
         assert!(!clean.contains(jwt), "the JWT survived: {clean}");
         assert!(clean.contains("[redacted]"));
-        assert!(clean.contains("was refused"), "the message must stay useful");
+        assert!(
+            clean.contains("was refused"),
+            "the message must stay useful"
+        );
     }
 
     #[test]

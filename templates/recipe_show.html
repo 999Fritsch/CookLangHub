@@ -16,7 +16,10 @@
       <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
         {{ title }}
       </h1>
-      <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap self-start" href="{{ forgejo_url }}">Open in Forgejo</a>
+      <div class="flex flex-wrap items-center gap-2 self-start">
+        {# Recipe actions. Edit goes before this link, Share after it. #}
+        <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
+      </div>
     </div>
 
     <p class="text-gray-600 mb-4">Owned by {{ owner }}</p>
@@ -48,7 +51,11 @@
   <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Recipe">
     <span class="nav-pill active" aria-current="page">Recipe</span>
     {% for area in areas %}
-    <span class="nav-pill opacity-50" aria-disabled="true">{{ area }}</span>
+    {% if let Some(href) = area.href %}
+    <a class="nav-pill" href="{{ href }}">{{ area.name }}</a>
+    {% else %}
+    <span class="nav-pill opacity-50" aria-disabled="true">{{ area.name }}</span>
+    {% endif %}
     {% endfor %}
   </nav>
 

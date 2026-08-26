@@ -35,7 +35,11 @@ async fn a_recipe_becomes_a_repository_with_one_version() {
     )
     .await;
 
-    assert_eq!(response.status(), 303, "creation must redirect to the Recipe");
+    assert_eq!(
+        response.status(),
+        303,
+        "creation must redirect to the Recipe"
+    );
     let location = response
         .headers()
         .get("location")
@@ -121,8 +125,10 @@ async fn a_title_only_recipe_is_valid() {
     let status = response.status();
     if status != 303 {
         let body = response.text().await.unwrap_or_default();
-        panic!("expected 303, got {status}. body:
-{body:.2000}");
+        panic!(
+            "expected 303, got {status}. body:
+{body:.2000}"
+        );
     }
 
     let repo = support::forgejo_api(&forgejo, &token, "/repos/sam/just-a-title").await;
@@ -138,7 +144,11 @@ async fn a_cooklang_error_stops_the_creation_and_is_shown() {
     let response =
         support::create_recipe(&app, &session, "Broken", "Wait ~{5%bananas}.", false).await;
 
-    assert_eq!(response.status(), 200, "the form comes back, it does not redirect");
+    assert_eq!(
+        response.status(),
+        200,
+        "the form comes back, it does not redirect"
+    );
 
     let body = response.text().await.expect("cannot read the body");
     assert!(
@@ -387,8 +397,7 @@ async fn umlauts_survive_the_whole_round_trip() {
 
     let source = "@Äpfel{2} schälen. In eine #Schüssel{} geben und mit @Rapsöl{1%TL} pürieren. Straße, Grüße, Müsli.";
 
-    let response =
-        support::create_recipe(&app, &session, "Frischer Obstbrei", source, false).await;
+    let response = support::create_recipe(&app, &session, "Frischer Obstbrei", source, false).await;
     assert_eq!(response.status(), 303);
 
     // What Forgejo stores must carry the same letters that were written.
@@ -408,7 +417,14 @@ async fn umlauts_survive_the_whole_round_trip() {
     let stored = String::from_utf8(stored.to_vec()).expect("the stored file must be UTF-8");
 
     for word in [
-        "Äpfel", "schälen", "Schüssel", "Rapsöl", "pürieren", "Straße", "Grüße", "Müsli",
+        "Äpfel",
+        "schälen",
+        "Schüssel",
+        "Rapsöl",
+        "pürieren",
+        "Straße",
+        "Grüße",
+        "Müsli",
     ] {
         assert!(stored.contains(word), "`{word}` did not survive storage");
     }

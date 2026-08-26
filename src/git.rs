@@ -93,7 +93,11 @@ impl GitAdapter for SystemGit {
         self.run(
             path,
             request.token,
-            &["symbolic-ref", "HEAD", &format!("refs/heads/{}", request.branch)],
+            &[
+                "symbolic-ref",
+                "HEAD",
+                &format!("refs/heads/{}", request.branch),
+            ],
         )
         .await?;
 

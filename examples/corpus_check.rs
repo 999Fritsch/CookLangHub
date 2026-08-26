@@ -46,7 +46,10 @@ fn main() {
         ),
     ];
 
-    println!("{:<26} {:>8} {:>10} {:>10}", "config", "errors", "warnings", "no title");
+    println!(
+        "{:<26} {:>8} {:>10} {:>10}",
+        "config", "errors", "warnings", "no title"
+    );
     println!("{}", "-".repeat(58));
 
     // The application's own parser, with the German units loaded.
@@ -63,10 +66,17 @@ fn main() {
                     *kinds.entry(key).or_default() += 1;
                 }
             }
-            if !p.warnings.is_empty() { warns += 1; }
-            if p.title.is_none() { notitle += 1; }
+            if !p.warnings.is_empty() {
+                warns += 1;
+            }
+            if p.title.is_none() {
+                notitle += 1;
+            }
         }
-        println!("{:<26} {errs:>8} {warns:>10} {notitle:>10}", "CookLangHub (de units)");
+        println!(
+            "{:<26} {errs:>8} {warns:>10} {notitle:>10}",
+            "CookLangHub (de units)"
+        );
         for (k, v) in kinds.iter().take(4) {
             println!("      {v:>3}x {k}");
         }

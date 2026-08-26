@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::Form;
+use axum::Router;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
-use axum::Router;
 use axum_extra::extract::CookieJar;
 use serde::Deserialize;
 
@@ -20,15 +20,47 @@ use crate::secret::Secret;
 use crate::session::{self, COOKIE_NAME};
 use crate::web::{AppState, Layout, MaybeUser};
 
-/// The other areas of a Recipe. Each one arrives in a later ticket, and the
-/// page names them so that the shape of a Recipe is clear from the start.
-const RECIPE_AREAS: [&str; 5] = [
-    "History",
-    "Suggestions",
-    "Discussions",
-    "Variations",
-    "Sharing",
-];
+/// One area of a Recipe page.
+///
+/// The page names every area from the start, so that the shape of a Recipe
+/// is clear before each area is built. An area whose ticket has not landed
+/// shows as unavailable instead of disappearing.
+pub struct RecipeArea {
+    pub name: &'static str,
+    /// Where the area lives. `None` means it is not built yet.
+    pub href: Option<String>,
+}
+
+/// The areas of a Recipe, in the order the page shows them.
+///
+/// A ticket that builds an area fills in that one line. This keeps the
+/// areas in one list, so no area is forgotten and no two tickets have to
+/// edit the same line.
+pub fn areas(owner: &str, slug: &str) -> Vec<RecipeArea> {
+    let _ = (owner, slug);
+    vec![
+        RecipeArea {
+            name: "History",
+            href: None,
+        },
+        RecipeArea {
+            name: "Suggestions",
+            href: None,
+        },
+        RecipeArea {
+            name: "Discussions",
+            href: None,
+        },
+        RecipeArea {
+            name: "Variations",
+            href: None,
+        },
+        RecipeArea {
+            name: "Sharing",
+            href: None,
+        },
+    ]
+}
 
 /// Shown when the stored file is not text that the application can read.
 const NOT_TEXT_MESSAGE: &str = "This Recipe is not UTF-8 text. Each character that could not be read appears below as a replacement mark. Open the Recipe in Forgejo to see the exact content.";
@@ -171,7 +203,7 @@ struct ShowTemplate {
     /// The Cooklang behind it, kept for anybody who wants to look.
     source: String,
     forgejo_url: String,
-    areas: [&'static str; 5],
+    areas: Vec<RecipeArea>,
     warnings: Vec<String>,
     errors: Vec<String>,
 }
@@ -246,6 +278,8 @@ async fn show(
         .map(render::render)
         .unwrap_or_default();
 
+    let areas = areas(&owner, &slug);
+
     respond(ShowTemplate {
         layout: Layout::new(current.as_ref()).on(&headers, &here),
         owner,
@@ -253,7 +287,7 @@ async fn show(
         cooked,
         source,
         forgejo_url: state.forgejo.web_url(&repository.full_name),
-        areas: RECIPE_AREAS,
+        areas,
         warnings: parsed.warnings.iter().map(|d| d.message.clone()).collect(),
         errors,
     })

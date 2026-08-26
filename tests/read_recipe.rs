@@ -89,11 +89,7 @@ async fn the_page_shows_ingredients_cookware_timings_and_steps() {
         .split("timer-badge\">")
         .nth(1)
         .expect("a timer badge must exist");
-    let inside = after
-        .split("</span>")
-        .take(2)
-        .collect::<Vec<_>>()
-        .join(" ");
+    let inside = after.split("</span>").take(2).collect::<Vec<_>>().join(" ");
     let text: String = strip_tags(&inside);
     assert!(
         text.contains("Min."),
@@ -104,7 +100,10 @@ async fn the_page_shows_ingredients_cookware_timings_and_steps() {
     assert!(body.contains("metadata-pill"), "no metadata pills");
     assert!(body.contains("4 servings"), "the serving count must show");
     assert!(body.contains("Prep Time"), "the prep time must show");
-    assert!(body.contains("#vegan"), "tags must show as CookCLI writes them");
+    assert!(
+        body.contains("#vegan"),
+        "tags must show as CookCLI writes them"
+    );
 }
 
 #[tokio::test]
@@ -392,7 +391,10 @@ async fn a_person_can_choose_light_or_dark_and_it_sticks() {
         first.contains("<html lang=\"en\" class=\"\">"),
         "the default carries no class, so the system decides"
     );
-    assert!(first.contains("Appearance"), "the control must be on the page");
+    assert!(
+        first.contains("Appearance"),
+        "the control must be on the page"
+    );
 
     // Choosing dark returns the person to where they were.
     let chosen = support::client()
@@ -404,12 +406,15 @@ async fn a_person_can_choose_light_or_dark_and_it_sticks() {
 
     assert_eq!(chosen.status(), 303);
     assert_eq!(
-        chosen.headers().get("location").and_then(|v| v.to_str().ok()),
+        chosen
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok()),
         Some("/recipes/sam/themed")
     );
 
-    let cookie = support::set_cookie(&chosen, "cooklanghub_theme")
-        .expect("the choice must be remembered");
+    let cookie =
+        support::set_cookie(&chosen, "cooklanghub_theme").expect("the choice must be remembered");
     let value = support::cookie_value(&cookie);
     assert_eq!(value, "dark");
 
@@ -444,7 +449,10 @@ async fn a_theme_form_cannot_send_a_person_to_another_site() {
             .expect("cannot choose a theme");
 
         assert_eq!(
-            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok()),
             Some("/"),
             "`{hostile}` must not be followed"
         );

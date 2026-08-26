@@ -191,9 +191,6 @@ mod tests {
         let mut config = sample();
         config.public_url = trim("http://localhost:8080/".to_string());
 
-        assert_eq!(
-            config.redirect_uri(),
-            "http://localhost:8080/auth/callback"
-        );
+        assert_eq!(config.redirect_uri(), "http://localhost:8080/auth/callback");
     }
 }

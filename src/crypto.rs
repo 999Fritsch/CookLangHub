@@ -50,8 +50,8 @@ impl Cipher {
         hkdf.expand(KEY_INFO, &mut key)
             .map_err(|_| CryptoError::KeyDerivation)?;
 
-        let inner = ChaCha20Poly1305::new_from_slice(&key)
-            .map_err(|_| CryptoError::KeyDerivation)?;
+        let inner =
+            ChaCha20Poly1305::new_from_slice(&key).map_err(|_| CryptoError::KeyDerivation)?;
         Ok(Self { inner })
     }
 

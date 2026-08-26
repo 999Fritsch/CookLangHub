@@ -99,12 +99,14 @@ pub async fn lookup(pool: &SqlitePool, token: &str) -> Result<Option<CurrentUser
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.map(|(forgejo_user_id, login, display_name, avatar_url)| CurrentUser {
-        forgejo_user_id,
-        login,
-        display_name,
-        avatar_url,
-    }))
+    Ok(row.map(
+        |(forgejo_user_id, login, display_name, avatar_url)| CurrentUser {
+            forgejo_user_id,
+            login,
+            display_name,
+            avatar_url,
+        },
+    ))
 }
 
 /// Read the Forgejo access token of a session.

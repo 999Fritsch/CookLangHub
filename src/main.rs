@@ -57,8 +57,12 @@ async fn main() -> ExitCode {
 }
 
 /// Open everything that both subcommands need.
-async fn prepare() -> anyhow::Result<(Config, sqlx::SqlitePool, crypto::Cipher, forgejo::ForgejoClient)>
-{
+async fn prepare() -> anyhow::Result<(
+    Config,
+    sqlx::SqlitePool,
+    crypto::Cipher,
+    forgejo::ForgejoClient,
+)> {
     let config = Config::from_env()?;
     telemetry::init(config.log_format);
 
