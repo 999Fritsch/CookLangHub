@@ -57,7 +57,7 @@ pub fn areas(owner: &str, slug: &str) -> Vec<RecipeArea> {
         },
         RecipeArea {
             name: "Sharing",
-            href: None,
+            href: Some(format!("/recipes/{owner}/{slug}/sharing")),
         },
     ]
 }

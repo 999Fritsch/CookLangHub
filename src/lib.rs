@@ -21,5 +21,6 @@ pub mod telemetry;
 pub mod theme;
 pub mod web;
 pub mod web_recipes;
+pub mod web_sharing;
 
 pub use config::Config;

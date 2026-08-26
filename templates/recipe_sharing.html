@@ -1,0 +1,207 @@
+{#
+  The Sharing area of a Recipe.
+
+  CookCLI has no sharing screen, so this page is built out of the CookCLI
+  parts that already exist: the orange gradient title, the navigation pills,
+  the white rounded cards, the metadata pills, and the primary button.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}Sharing &middot; {{ title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div>
+  <div class="mb-8">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
+        {{ title }}
+      </h1>
+      <div class="flex flex-wrap items-center gap-2 self-start">
+        <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
+      </div>
+    </div>
+
+    <p class="text-gray-600 mb-4">Owned by {{ owner }}</p>
+  </div>
+
+  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Recipe">
+    <a class="nav-pill" href="/recipes/{{ owner }}/{{ slug }}">Recipe</a>
+    {% for area in areas %}
+    {% if area.name == "Sharing" %}
+    <span class="nav-pill active" aria-current="page">{{ area.name }}</span>
+    {% else %}
+    {% if let Some(href) = area.href %}
+    <a class="nav-pill" href="{{ href }}">{{ area.name }}</a>
+    {% else %}
+    <span class="nav-pill opacity-50" aria-disabled="true">{{ area.name }}</span>
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+  </nav>
+
+  {% if !errors.is_empty() %}
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-8" role="alert">
+    <h2 class="font-bold mb-2">This change did not happen</h2>
+    <ul class="list-disc pl-5 space-y-1">
+      {% for error in errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if !is_owner %}
+  <div class="bg-white rounded-2xl shadow-lg p-6">
+    <h2 class="text-xl font-bold mb-2 text-gray-900">Only the Owner can share this Recipe</h2>
+    <p class="text-gray-600">
+      {{ owner }} owns this Recipe and controls who can read it. Open the Recipe
+      in Forgejo to see what you can do there.
+    </p>
+  </div>
+
+  {% else if confirming %}
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Make this Recipe public?</h2>
+
+    <div class="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-xl p-4 mb-4">
+      <p class="text-gray-700">{{ public_warning }}</p>
+    </div>
+
+    <p class="text-gray-600 mb-6">
+      You can make the Recipe private again later. A person who reads it while
+      it is public can keep a copy.
+    </p>
+
+    <form method="post" action="{{ sharing_path }}/visibility" class="flex flex-wrap gap-3">
+      <input type="hidden" name="visibility" value="public">
+      <input type="hidden" name="confirm" value="yes">
+      <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Make it public</button>
+      <a href="{{ sharing_path }}" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Keep it private</a>
+    </form>
+  </div>
+
+  {% else %}
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Who can read this Recipe</h2>
+
+    <div class="flex flex-wrap items-center gap-3">
+      {% if public %}
+      <span class="metadata-pill metadata-cuisine"><span aria-hidden="true">🌍</span>&nbsp;Public</span>
+      <p class="text-gray-600">All users can read this Recipe and its earlier Versions.</p>
+      {% else %}
+      <span class="metadata-pill metadata-servings"><span aria-hidden="true">🔒</span>&nbsp;Private</span>
+      <p class="text-gray-600">Only you and the people below can read this Recipe.</p>
+      {% endif %}
+    </div>
+
+    <div class="mt-6">
+      {% if public %}
+      <form method="post" action="{{ sharing_path }}/visibility">
+        <input type="hidden" name="visibility" value="private">
+        <button type="submit" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Make it private</button>
+      </form>
+      {% else %}
+      <a href="{{ sharing_path }}/public" class="inline-block btn-primary px-5 py-2 rounded-full font-medium text-white">Make it public</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if public %}
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-2 text-gray-900">Share this Recipe</h2>
+    <p class="text-gray-600 mb-4">
+      Send this address to anybody. It is the address of the Recipe itself, and
+      it is the only one.
+    </p>
+
+    <div class="flex flex-wrap items-center gap-3">
+      <label class="sr-only" for="recipe-address">Recipe address</label>
+      <input id="recipe-address" type="text" readonly value="{{ recipe_url }}"
+             class="search-input grow px-3 py-2 bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 font-mono text-sm focus:outline-hidden">
+      <button id="copy-recipe-address" type="button"
+              class="hidden btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">Copy</button>
+    </div>
+    <p id="copy-recipe-address-result" class="text-sm text-gray-600 mt-2" role="status" aria-live="polite"></p>
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-2xl shadow-lg p-6">
+    <h2 class="text-xl font-bold mb-2 text-gray-900">People</h2>
+    <p class="text-gray-600 mb-4">
+      {% if public %}
+      This Recipe is public, so everybody can read it. The list shows only the
+      people with more than read access.
+      {% else %}
+      A Reader can read this Recipe. An Editor can read it and publish a
+      Version of it.
+      {% endif %}
+    </p>
+
+    {% if people.is_empty() %}
+    <p class="text-gray-600 mb-6">
+      {% if public %}
+      Nobody has more than read access yet.
+      {% else %}
+      You share this Recipe with nobody yet.
+      {% endif %}
+    </p>
+    {% else %}
+    <ul class="space-y-3 mb-6">
+      {% for person in people %}
+      <li class="flex flex-wrap justify-between items-center gap-3 bg-gray-50 rounded-lg px-3 py-2">
+        <div>
+          <span class="font-medium text-gray-900">{{ person.name }}</span>
+          <span class="text-sm text-gray-600">@{{ person.login }}</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="metadata-pill metadata-servings">{{ person.role }}</span>
+          {% if person.managed %}
+          <form method="post" action="{{ sharing_path }}/people/remove">
+            <input type="hidden" name="login" value="{{ person.login }}">
+            <button type="submit" class="px-3 py-1 rounded-full text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Remove</button>
+          </form>
+          {% else %}
+          <a href="{{ forgejo_url }}" class="px-3 py-1 rounded-full text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Open in Forgejo</a>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <form method="post" action="{{ sharing_path }}/people" class="space-y-4 border-t border-gray-200 pt-6">
+      <div>
+        <label for="login" class="block font-medium mb-2 text-gray-900">Add a person</label>
+        <input id="login" name="login" type="text" required autocomplete="off" spellcheck="false"
+               placeholder="Their name in Forgejo"
+               class="search-input w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-hidden">
+        <p class="text-sm text-gray-600 mt-1">
+          The person must have a Forgejo account already. The application sends
+          no invitation by email.
+        </p>
+      </div>
+
+      <fieldset class="border-0 m-0 p-0">
+        <legend class="font-medium mb-2 text-gray-900">What they can do</legend>
+        <label class="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50">
+          <input type="radio" name="role" value="reader" checked>
+          <span class="text-gray-700"><strong>Reader</strong> &mdash; can read this Recipe.</span>
+        </label>
+        <label class="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50">
+          <input type="radio" name="role" value="editor">
+          <span class="text-gray-700"><strong>Editor</strong> &mdash; can read this Recipe and publish a Version.</span>
+        </label>
+      </fieldset>
+
+      <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Add the person</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+{# The page works with no script. This file adds one action: it copies the
+   address that the field above already shows. #}
+<script src="/static/js/share.js" defer></script>
+{% endblock %}
