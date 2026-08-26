@@ -217,6 +217,7 @@ async fn create(
 struct ShowTemplate {
     layout: Layout,
     owner: String,
+    /// The technical name of the Recipe, for an action that links to it.
     slug: String,
     title: String,
     /// Whether the page can show a photo of this Recipe.

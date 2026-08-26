@@ -23,6 +23,7 @@ pub mod theme;
 pub mod upload;
 pub mod web;
 pub mod web_discussions;
+pub mod web_edit;
 pub mod web_recipes;
 pub mod web_sharing;
 

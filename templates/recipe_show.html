@@ -18,6 +18,9 @@
       </h1>
       <div class="flex flex-wrap items-center gap-2 self-start">
         {# Recipe actions. Edit goes before this link, Share after it. #}
+        {% if layout.signed_in %}
+        <a class="nav-pill whitespace-nowrap" href="/recipes/{{ owner }}/{{ slug }}/edit">Edit</a>
+        {% endif %}
         <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
         {# Sharing sits at the address of this page plus /sharing. #}
         <a class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap" href="{{ layout.path }}/sharing">Share</a>

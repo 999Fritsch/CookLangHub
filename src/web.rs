@@ -53,6 +53,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::web_recipes::router())
         .merge(crate::theme::router())
         .merge(crate::web_discussions::router())
+        .merge(crate::web_edit::router())
         .merge(crate::web_sharing::router())
         .nest_service("/static", ServeDir::new(static_dir))
         .layer(SetResponseHeaderLayer::overriding(

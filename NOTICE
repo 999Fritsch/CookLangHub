@@ -33,7 +33,18 @@ close adaptations:
     templates/*.html             the class names, the markup shape, and
                                  the component structure follow CookCLI
 
+The Recipe editor is the other high-value reuse. CookCLI wrote the
+CodeMirror 6 Cooklang mode, and this project uses it:
+
+    static/js/src/cooklang-mode.js  copied
+    static/js/src/editor.js         adapted
+    static/js/editor.js             GENERATED from the two files above by
+                                    scripts/build-editor.mjs
+
 Each adapted file carries the CookCLI copyright notice in its own header.
+
+static/js/editor.js also carries CodeMirror 6, which is copyright Marijn
+Haverbeke and others and is licensed under the MIT License.
 
 
 Changes made
@@ -43,3 +54,13 @@ CookLangHub is a different product with a different backend, so the
 templates carry different data and different actions. The design language,
 the palette, the component classes, and the layout come from CookCLI
 unchanged.
+
+The editor differs in four places, and each one is recorded in the header of
+the file. CookCLI reads Cooklang messages and completions from a language
+server, which this project does not have. The preview here is
+server-rendered, because this project has exactly one Cooklang parser and a
+second parser in the browser would drift from it. The palette of the editor
+comes from the class that the server wrote on the page, to match how the
+rest of CookLangHub picks light or dark. And the editor lives in a shadow
+root, so that the CSS of CodeMirror is adopted rather than put inside the
+page, which keeps the Content Security Policy at `default-src 'self'`.

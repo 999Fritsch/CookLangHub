@@ -1,0 +1,119 @@
+{#
+  The rendered Recipe, as the editor shows it while a person types.
+
+  This is the same view model and the same markup that the Recipe page
+  uses, so the preview and the published page cannot drift apart. The
+  editor asks for this fragment; the page carries it from the first byte.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% if !parse_errors.is_empty() %}
+<div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-4" role="alert">
+  <h3 class="font-bold mb-2">This Recipe cannot be published yet</h3>
+  <ul class="list-disc pl-5 space-y-1">
+    {% for error in parse_errors %}
+    <li>{{ error }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if !warnings.is_empty() %}
+<div class="bg-yellow-50 border border-yellow-400 text-yellow-900 rounded-xl p-4 mb-4">
+  <h3 class="font-bold mb-2">Worth a look</h3>
+  <ul class="list-disc pl-5 space-y-1">
+    {% for warning in warnings %}
+    <li>{{ warning }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<h2 class="text-2xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent mb-4">
+  {{ preview_title }}
+</h2>
+
+{% if !cooked.tags.is_empty() %}
+<div class="flex flex-wrap gap-2 mb-4">
+  {% for tag in cooked.tags %}
+  <span class="tag">#{{ tag }}</span>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="flex flex-wrap gap-2 mb-6">
+  {% if let Some(servings) = cooked.servings %}
+  <span class="metadata-pill metadata-servings"><span aria-hidden="true">👥</span> {{ servings }} servings</span>
+  {% endif %}
+  {% for fact in cooked.facts %}
+  <span class="metadata-pill metadata-custom">{{ fact.label }}: {{ fact.value }}</span>
+  {% endfor %}
+</div>
+
+{% if cooked.is_empty() %}
+<p class="text-gray-600">This Recipe has a title and nothing else yet.</p>
+{% else %}
+
+{% if !cooked.ingredients.is_empty() %}
+<h3 class="text-lg font-bold mb-3 text-orange-600"><span aria-hidden="true">🥘</span> Ingredients</h3>
+<ul class="space-y-2 mb-6">
+  {% for item in cooked.ingredients %}
+  <li class="flex justify-between items-center bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg px-3 py-2">
+    <div class="flex-1 flex items-center">
+      <span class="font-medium">{{ item.name }}</span>
+      {% if let Some(note) = item.note %}
+      <span class="text-sm text-gray-600 italic ml-1 break-words">({{ note }})</span>
+      {% endif %}
+    </div>
+    {% if let Some(quantity) = item.quantity %}
+    <span class="text-orange-700 font-semibold ml-2">{{ quantity }}</span>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if !cooked.cookware.is_empty() %}
+<h3 class="text-lg font-bold mb-3 text-green-600"><span aria-hidden="true">🍳</span> Cookware</h3>
+<ul class="space-y-2 mb-6">
+  {% for item in cooked.cookware %}
+  <li class="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg px-3 py-2 flex justify-between items-center">
+    <span class="font-medium">{{ item.name }}</span>
+    {% if let Some(quantity) = item.quantity %}
+    <span class="text-green-700 font-semibold ml-2">{{ quantity }}</span>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% for section in cooked.sections %}
+{% if let Some(name) = section.name %}
+<h3 class="text-lg font-semibold mt-6 mb-3 text-orange-700 border-b-2 border-orange-200 pb-2">{{ name }}</h3>
+{% endif %}
+<ol class="space-y-3">
+  {% for block in section.blocks %}
+  {% if block.is_step() %}
+  <li class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-3">
+    <div class="flex gap-3">
+      <div class="step-number">{{ block.number }}</div>
+      <div class="flex-1 text-gray-700 leading-8">
+        {%- for piece in block.pieces -%}
+        {%- if piece.kind.is_text() -%}
+        {{ piece.text }}
+        {%- else -%}
+        <span class="{{ piece.kind.css_class() }}"><span class="sr-only">{{ piece.kind.label() }}: </span>{{ piece.text }}{% if let Some(quantity) = piece.quantity %} {{ quantity }}{% endif %}</span>
+        {%- endif -%}
+        {%- endfor -%}
+      </div>
+    </div>
+  </li>
+  {% else %}
+  <li class="text-gray-600 italic border-l-2 border-orange-300 pl-4">
+    {%- for piece in block.pieces -%}{{ piece.text }}{%- endfor -%}
+  </li>
+  {% endif %}
+  {% endfor %}
+</ol>
+{% endfor %}
+{% endif %}

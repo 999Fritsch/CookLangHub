@@ -1,0 +1,90 @@
+{#
+  The Recipe editor: the Cooklang source beside the Recipe a cook reads.
+
+  The layout, the pills, and the panels are CookCLI's, so the editor reads
+  as the same product as the Recipe page.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+
+  The page works with no script at all. The text area carries the source and
+  the preview arrives with the page. The bundled CodeMirror only makes the
+  text area a highlighted editor and keeps the preview current while a
+  person types.
+#}
+{% extends "base.html" %}
+
+{% block title %}Edit {{ recipe_title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div>
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+    <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
+      Edit {{ recipe_title }}
+    </h1>
+    <div class="flex flex-wrap items-center gap-2 self-start">
+      <a class="nav-pill" href="/recipes/{{ owner }}/{{ slug }}">Back to the Recipe</a>
+      <a class="nav-pill" href="{{ forgejo_url }}">Open in Forgejo</a>
+    </div>
+  </div>
+
+  {% if !publish_errors.is_empty() %}
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-6" role="alert">
+    <h2 class="font-bold mb-2">This Version was not published</h2>
+    <ul class="list-disc pl-5 space-y-1">
+      {% for error in publish_errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+    <p class="mt-2">Your text is below. Nothing changed in the published Recipe.</p>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/recipes/{{ owner }}/{{ slug }}/edit">
+    <input type="hidden" name="base_version" value="{{ base_version }}">
+
+    <div class="grid lg:grid-cols-2 gap-8 mb-8 items-start">
+      <div class="bg-white rounded-2xl shadow-lg p-6">
+        <label for="recipe-source" class="block font-medium mb-2">Recipe source</label>
+
+        <textarea id="recipe-source" name="source" rows="24" spellcheck="false"
+                  data-label="Recipe source"
+                  class="search-input w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-gray-900 font-mono text-sm focus:outline-hidden">{{ source }}</textarea>
+        <div id="recipe-editor" hidden data-preview-url="/recipes/preview"
+             class="border-2 border-gray-200 rounded-xl overflow-hidden"></div>
+
+        <p class="text-sm text-gray-600 mt-2">
+          Mark an ingredient with <code>@</code>, cookware with <code>#</code>, and a
+          time with <code>~</code>. CookLangHub keeps your text as you wrote it.
+        </p>
+      </div>
+
+      {# The preview changes with every keystroke, so it is a region a
+         person can reach and never one that announces itself. #}
+      <section class="bg-white rounded-2xl shadow-lg p-6" aria-labelledby="preview-heading">
+        <h2 id="preview-heading" class="sr-only">Preview</h2>
+        <div id="recipe-preview">
+          {% include "recipe_preview.html" %}
+        </div>
+      </section>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-lg p-6">
+      <label for="note" class="block font-medium mb-2">Change note (optional)</label>
+      <input id="note" name="note" type="text" value="{{ note }}" maxlength="200" autocomplete="off"
+             placeholder="Less salt, more garlic"
+             class="search-input w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-hidden">
+      <p class="text-sm text-gray-600 mt-1">
+        The note becomes the description of the new Version. If you write no note,
+        CookLangHub writes one for you.
+      </p>
+
+      <div class="flex flex-wrap gap-3 mt-6">
+        <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Publish Version</button>
+        <a href="/recipes/{{ owner }}/{{ slug }}" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</a>
+      </div>
+    </div>
+  </form>
+</div>
+
+<script src="/static/js/editor.js" defer></script>
+{% endblock %}
