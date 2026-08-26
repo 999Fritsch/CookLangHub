@@ -327,6 +327,44 @@ impl RepositoryPermission {
     }
 }
 
+/// One published Version, as the Forgejo commit endpoints report it.
+///
+/// Git holds History and Forgejo reads it out. The application keeps no copy
+/// of any part of it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Commit {
+    /// The identifier of this Version.
+    #[serde(default)]
+    pub sha: String,
+    /// The Forgejo account behind the author, when Forgejo knows one. A
+    /// Version written outside this application can name somebody that
+    /// Forgejo has no account for.
+    #[serde(default)]
+    pub author: Option<ForgejoUser>,
+    #[serde(default)]
+    pub commit: CommitDetail,
+}
+
+/// What Git itself records about one Version.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CommitDetail {
+    /// What the person wrote about the change.
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub author: Option<CommitIdentity>,
+}
+
+/// The name and the moment that Git holds for one Version.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CommitIdentity {
+    #[serde(default)]
+    pub name: String,
+    /// RFC 3339, as Git writes it.
+    #[serde(default)]
+    pub date: String,
+}
+
 /// A client for one Forgejo instance.
 #[derive(Debug, Clone)]
 pub struct ForgejoClient {
@@ -1335,6 +1373,80 @@ impl ForgejoClient {
         .await?;
 
         Ok(())
+    }
+
+    /// List the Versions that a reference holds, newest first.
+    ///
+    /// `reference` says where the list starts. The published branch of a
+    /// Recipe therefore gives the published Versions and nothing else: work
+    /// that sits on another branch never appears in this answer.
+    ///
+    /// The token can be absent, because a public Recipe is readable without
+    /// a session. Forgejo applies the permissions of whoever asks, so the
+    /// application computes no permission of its own.
+    pub async fn list_commits(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        reference: &str,
+        limit: u32,
+    ) -> Result<Vec<Commit>, ForgejoError> {
+        let limit = limit.to_string();
+        let mut request = self
+            .http
+            .get(format!(
+                "{}/api/v1/repos/{owner}/{repository}/commits",
+                self.api_url
+            ))
+            .query(&[
+                ("sha", reference),
+                ("limit", limit.as_str()),
+                // The page needs the author, the moment, and the
+                // description. Asking for nothing else keeps the answer
+                // small on a Recipe with a long History.
+                ("stat", "false"),
+                ("verification", "false"),
+                ("files", "false"),
+            ]);
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        match self.send(request).await {
+            Ok(response) => read_json(response).await,
+            // Forgejo answers 409 for a repository that holds nothing yet.
+            // A Recipe without a Version is an answer, not a fault.
+            Err(ForgejoError::Status { status: 409, .. }) => Ok(Vec::new()),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Read one Version by its identifier.
+    pub async fn commit(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        sha: &str,
+    ) -> Result<Commit, ForgejoError> {
+        let mut request = self
+            .http
+            .get(format!(
+                "{}/api/v1/repos/{owner}/{repository}/git/commits/{}",
+                self.api_url,
+                urlencode(sha)
+            ))
+            .query(&[
+                ("stat", "false"),
+                ("verification", "false"),
+                ("files", "false"),
+            ]);
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        read_json(self.send(request).await?).await
     }
 }
 

@@ -1,0 +1,111 @@
+{#
+  The History area of a Recipe. CookCLI has no screen like this, so the page
+  is built from its parts: the orange gradient title, the navigation pills,
+  the white rounded cards, the gradient rows, and the orange button.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+
+  The comparison control is a plain form that sends two names in the
+  address. The page needs no script, which is what lets the Content Security
+  Policy stay at default-src 'self'.
+#}
+{% extends "base.html" %}
+
+{% block title %}History &middot; {{ title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div>
+  <div class="mb-8">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
+        {{ title }}
+      </h1>
+      <div class="flex flex-wrap items-center gap-2 self-start">
+        <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
+      </div>
+    </div>
+
+    <p class="text-gray-600">Owned by {{ owner }}</p>
+  </div>
+
+  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Recipe">
+    <a class="nav-pill" href="/recipes/{{ owner }}/{{ slug }}">Recipe</a>
+    {% for area in areas %}
+    {% if area.name == "History" %}
+    <span class="nav-pill active" aria-current="page">{{ area.name }}</span>
+    {% else %}
+    {% if let Some(href) = area.href %}
+    <a class="nav-pill" href="{{ href }}">{{ area.name }}</a>
+    {% else %}
+    <span class="nav-pill opacity-50" aria-disabled="true">{{ area.name }}</span>
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+  </nav>
+
+  {% if !errors.is_empty() %}
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-8" role="alert">
+    <h2 class="font-bold mb-2">This did not work</h2>
+    <ul class="list-disc pl-5 space-y-1">
+      {% for error in errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">History</h2>
+    <p class="text-gray-600 mb-4">History holds the published Versions of this Recipe. The newest Version is first.</p>
+
+    {% if versions.is_empty() %}
+    <p class="text-gray-600">This Recipe has no Version yet.</p>
+    {% else %}
+    <ol class="space-y-3">
+      {% for version in versions %}
+      <li class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <a class="font-medium text-gray-900 hover:text-orange-700" href="/recipes/{{ owner }}/{{ slug }}/history/{{ version.id }}">{{ version.description }}</a>
+          {% if version.published %}
+          <span class="metadata-pill metadata-cuisine">Published now</span>
+          {% endif %}
+        </div>
+        <p class="text-sm text-gray-600 mt-1">By {{ version.author }} on {{ version.moment }}</p>
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+  </div>
+
+  {% if versions.len() > 1 %}
+  <div class="bg-white rounded-2xl shadow-lg p-6">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Compare two Versions</h2>
+    <p class="text-gray-600 mb-4">Select two Versions. CookLangHub shows the Changes in cooking words.</p>
+
+    <form method="get" action="/recipes/{{ owner }}/{{ slug }}/changes" class="flex flex-wrap items-end gap-4">
+      <div>
+        <label for="from" class="block font-medium mb-2">Earlier Version</label>
+        <select id="from" name="from"
+                class="px-3 py-2 max-w-full bg-white text-gray-900 border border-gray-300 rounded-lg">
+          {% for version in versions %}
+          <option value="{{ version.id }}" {% if version.id == earlier %}selected{% endif %}>{{ version.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label for="to" class="block font-medium mb-2">Later Version</label>
+        <select id="to" name="to"
+                class="px-3 py-2 max-w-full bg-white text-gray-900 border border-gray-300 rounded-lg">
+          {% for version in versions %}
+          <option value="{{ version.id }}" {% if version.id == later %}selected{% endif %}>{{ version.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Show Changes</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

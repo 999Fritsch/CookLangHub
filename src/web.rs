@@ -61,6 +61,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::web_browse::router())
         .merge(crate::web_discussions::router())
         .merge(crate::web_edit::router())
+        .merge(crate::web_history::router())
         .merge(crate::web_sharing::router())
         .merge(crate::webhook::router())
         // A page holds somebody's Recipes, and some of them are private.
