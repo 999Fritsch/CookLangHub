@@ -151,18 +151,49 @@ async fn serve() -> anyhow::Result<()> {
         );
     }
 
+    // The automation account is the author of every Version that a Cookbook
+    // gets from following a Recipe. Forgejo is asked who the credential
+    // belongs to, so a wrong name cannot be recorded. An installation with
+    // no Cookbook that follows a Recipe needs none of this.
+    if let Some(token) = &config.automation_token {
+        match cooklanghub::automation::record(&pool, &cipher, &forgejo, token).await {
+            Ok(automation) => {
+                tracing::info!(login = %automation.login, "the automation account answers")
+            }
+            Err(error) => tracing::warn!(
+                %error,
+                "cannot register the automation account; a Cookbook that follows a Recipe stays where it is"
+            ),
+        }
+    }
+
     // The Recipe index and the Cookbook index are caches, and a restart is
     // when they can be behind: anything that changed while this process was
     // stopped arrived nowhere. The sweeps read Forgejo and Git, write to
     // neither, and run beside the server so that a slow Forgejo never delays
     // the first page.
+    //
+    // The same is true of a Cookbook that follows a Recipe. A Recipe that
+    // gained a Version while this application was stopped reported it to
+    // nobody, so the sweep asks Git for every Recipe that a reachable
+    // Cookbook follows and moves the Cookbooks that are behind.
     {
         let pool = pool.clone();
         let cipher = cipher.clone();
         let forgejo = forgejo.clone();
+        let noreply_domain = config.forgejo_noreply_domain.clone();
         tokio::spawn(async move {
             cooklanghub::index::reconcile(&pool, &cipher, &forgejo).await;
             cooklanghub::cookbook::reconcile(&pool, &cipher, &forgejo).await;
+            cooklanghub::automation::advance(
+                &pool,
+                &cipher,
+                &forgejo,
+                &cooklanghub::git::SystemGit,
+                &noreply_domain,
+                None,
+            )
+            .await;
         });
     }
 

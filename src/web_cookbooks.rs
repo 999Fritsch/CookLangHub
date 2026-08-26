@@ -40,6 +40,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/cookbooks", get(list))
         .route("/cookbooks/new", get(new_form).post(create))
         .route("/cookbooks/{owner}/{slug}", get(show))
+        .route("/cookbooks/{owner}/{slug}/history", get(history))
         .route(
             "/cookbooks/{owner}/{slug}/recipes",
             get(add_form).post(add_recipe),
@@ -47,6 +48,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/cookbooks/{owner}/{slug}/recipes/remove",
             post(remove_recipe),
+        )
+        .route(
+            "/cookbooks/{owner}/{slug}/recipes/holding",
+            post(set_holding),
         )
         .route("/explore/cookbooks", get(explore))
 }
@@ -533,6 +538,9 @@ struct ShowTemplate {
     /// States that this interface cannot show properly. Each one is named
     /// and none of them is repaired.
     problems: Vec<String>,
+    /// Why a Recipe of this Cookbook does not follow, when one does not.
+    /// The application names the state and repairs none of it.
+    follow_problems: Vec<String>,
     /// Why the last action did not happen, when it did not.
     errors: Vec<String>,
 }
@@ -643,6 +651,8 @@ async fn draw(
     let recipes =
         cookbook::held_recipes(&state.pool, &state.forgejo, book.token.as_ref(), &contents).await;
 
+    let follow_problems = follow_problems(state, &book.repository, &contents.references).await;
+
     let description = cookbook::render(&readme.description);
 
     respond(ShowTemplate {
@@ -657,8 +667,45 @@ async fn draw(
         can_change: book.can_change,
         forgejo_url: state.forgejo.web_url(&book.repository.full_name),
         problems: readme.problems,
+        follow_problems,
         errors,
     })
+}
+
+/// Why the Recipes of this Cookbook do not follow, when they do not.
+///
+/// A Cookbook that follows nothing needs no automation, so it is asked
+/// nothing. One that does follow something is asked twice: whether this
+/// installation has an automation account at all, and whether Forgejo still
+/// lets that account write here. Each answer names the state and repairs
+/// none of it, so an administrator who took the access away in Forgejo does
+/// not get it back by opening a page.
+async fn follow_problems(
+    state: &AppState,
+    repository: &crate::forgejo::Repository,
+    references: &[cookbook::Reference],
+) -> Vec<String> {
+    if !crate::automation::follows_anything(references) {
+        return Vec::new();
+    }
+
+    let Some(automation) = crate::automation::of(&state.pool, &state.cipher).await else {
+        return vec![crate::automation::NO_CREDENTIAL_MESSAGE.to_string()];
+    };
+
+    let allowed = crate::automation::can_write(
+        &state.forgejo,
+        &automation,
+        &repository.owner.login,
+        &repository.name,
+    )
+    .await;
+
+    if allowed {
+        Vec::new()
+    } else {
+        vec![crate::automation::NO_ACCESS_MESSAGE.to_string()]
+    }
 }
 
 async fn show(
@@ -971,6 +1018,7 @@ async fn add_recipe(
                 path = %added.path,
                 "a Cookbook holds one more Recipe"
             );
+            align(&state, &actor.token, &book.repository, &added.references).await;
             Redirect::to(&format!("/cookbooks/{owner}/{slug}")).into_response()
         }
         Err(error) => {
@@ -978,6 +1026,31 @@ async fn add_recipe(
             again(vec![reason(&error)]).await
         }
     }
+}
+
+/// Give the automation the access this Cookbook needs, and no other access.
+///
+/// The automation gets write access to a Cookbook that follows a Recipe,
+/// and loses it when the Cookbook follows none. Forgejo decides whether the
+/// person who asked may give it: a refusal changes nothing here, because
+/// Git already holds what the person asked for, and the Cookbook page then
+/// reports that the automation cannot run.
+async fn align(
+    state: &AppState,
+    actor: &Secret<String>,
+    repository: &crate::forgejo::Repository,
+    references: &[cookbook::Reference],
+) {
+    let automation = crate::automation::of(&state.pool, &state.cipher).await;
+
+    crate::automation::align(
+        &state.forgejo,
+        actor,
+        repository,
+        references,
+        automation.as_ref(),
+    )
+    .await;
 }
 
 /// What the remove form sends.
@@ -1037,11 +1110,12 @@ async fn remove_recipe(
     .await;
 
     match result {
-        Ok(_) => {
+        Ok(removed) => {
             tracing::info!(
                 cookbook = %book.repository.full_name,
                 "a Cookbook holds one Recipe less"
             );
+            align(&state, &actor.token, &book.repository, &removed.references).await;
             Redirect::to(&format!("/cookbooks/{owner}/{slug}")).into_response()
         }
         Err(error) => {
@@ -1055,6 +1129,265 @@ async fn remove_recipe(
             )
             .await
         }
+    }
+}
+
+// -------------------------------------------------- Pinned and Following
+
+/// What the form that changes Pinned and Following sends.
+#[derive(Debug, Clone, Default, Deserialize)]
+struct HoldingForm {
+    /// Where the Recipe sits inside the Cookbook.
+    #[serde(default)]
+    path: String,
+    /// `pinned` or `following`. Anything else keeps the Version.
+    #[serde(default)]
+    holding: String,
+}
+
+/// Change one Recipe of this Cookbook between Pinned and Following.
+///
+/// Only the Cookbook changes. Following moves it to the Version the Recipe
+/// has now and keeps it moving; Pinned keeps the Version the Cookbook holds.
+async fn set_holding(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    jar: CookieJar,
+    MaybeUser(current): MaybeUser,
+    Path((owner, slug)): Path<(String, String)>,
+    Form(form): Form<HoldingForm>,
+) -> Response {
+    let book = match book(&state, &jar, &owner, &slug).await {
+        Ok(book) => book,
+        Err(refusal) => return refusal,
+    };
+
+    if !book.can_change {
+        return refuse_change(current.is_some());
+    }
+
+    let Some(actor) = crate::web_recipes::actor(&state, &jar).await else {
+        return Redirect::to("/auth/sign-in").into_response();
+    };
+
+    let path = form.path.trim();
+    let holding = cookbook::Holding::parse(&form.holding);
+
+    // History reads better with the Recipe title in it, and the title is a
+    // fact about the Recipe rather than about the Cookbook.
+    let contents = cookbook::references(&state.forgejo, Some(&actor.token), &book.repository).await;
+    let held =
+        cookbook::held_recipes(&state.pool, &state.forgejo, Some(&actor.token), &contents).await;
+    let title = held
+        .iter()
+        .find(|recipe| recipe.available && recipe.path == path)
+        .map(|recipe| recipe.title.clone())
+        .unwrap_or_else(|| path.to_string());
+
+    let result = cookbook::set_holding(
+        &state.forgejo,
+        state.git.as_ref(),
+        &actor.token,
+        &actor.user,
+        cookbook::SetHolding {
+            cookbook: &book.repository,
+            path,
+            holding,
+            title: &title,
+            noreply_domain: &state.forgejo_noreply_domain,
+        },
+    )
+    .await;
+
+    match result {
+        Ok(switched) => {
+            tracing::info!(
+                cookbook = %book.repository.full_name,
+                %path,
+                holding = holding.as_str(),
+                "a Cookbook holds a Recipe another way"
+            );
+            align(&state, &actor.token, &book.repository, &switched.references).await;
+            Redirect::to(&format!("/cookbooks/{owner}/{slug}")).into_response()
+        }
+        Err(error) => {
+            tracing::info!(%error, "a Recipe of a Cookbook was not changed");
+            draw(
+                &state,
+                &headers,
+                current.as_ref(),
+                &book,
+                vec![reason(&error)],
+            )
+            .await
+        }
+    }
+}
+
+// ------------------------------------------------ the History of one Cookbook
+
+/// How many Versions of a Cookbook one page shows.
+const HISTORY_SIZE: u32 = 50;
+
+/// One Version of a Cookbook, as a person reads it.
+#[derive(Debug, Clone)]
+pub struct CookbookVersion {
+    /// What was written about the change.
+    pub description: String,
+    pub author: String,
+    pub moment: String,
+    /// Whether the automation of this installation made this Version. A
+    /// Version that a person made carries the name of that person.
+    pub automatic: bool,
+}
+
+#[derive(Template)]
+#[template(path = "cookbook_history.html")]
+struct HistoryTemplate {
+    layout: Layout,
+    owner: String,
+    slug: String,
+    title: String,
+    /// The Versions of this Cookbook, the newest first.
+    versions: Vec<CookbookVersion>,
+    forgejo_url: String,
+    /// A message about the state of the list, when there is one to give.
+    notice: Option<String>,
+}
+
+/// Shown when Forgejo cannot report the History of a Cookbook.
+const NO_HISTORY: &str = "CookLangHub cannot read the History of this Cookbook now. Open the Cookbook in Forgejo to read it.";
+
+/// The History of one Cookbook.
+///
+/// Git holds it and Forgejo reads it out, so nothing here comes from the
+/// index. Every Version is shown, and the ones that the automation made
+/// carry less weight than the ones that a person made.
+async fn history(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    jar: CookieJar,
+    MaybeUser(current): MaybeUser,
+    Path((owner, slug)): Path<(String, String)>,
+) -> Response {
+    let book = match book(&state, &jar, &owner, &slug).await {
+        Ok(book) => book,
+        Err(refusal) => return refusal,
+    };
+
+    let automation = crate::automation::of(&state.pool, &state.cipher).await;
+
+    let (versions, notice) = match state
+        .forgejo
+        .list_commits(
+            book.token.as_ref(),
+            &owner,
+            &slug,
+            book.repository.branch(),
+            HISTORY_SIZE,
+        )
+        .await
+    {
+        Ok(commits) => (
+            commits
+                .iter()
+                .map(|commit| version_row(commit, automation.as_ref()))
+                .collect(),
+            None,
+        ),
+        Err(error) => {
+            tracing::info!(%error, %owner, %slug, "cannot read the History of this Cookbook");
+            (Vec::new(), Some(NO_HISTORY.to_string()))
+        }
+    };
+
+    let bytes = state
+        .forgejo
+        .raw_file(
+            book.token.as_ref(),
+            &owner,
+            &slug,
+            book.repository.branch(),
+            cookbook::README_FILE,
+        )
+        .await
+        .unwrap_or_default();
+
+    respond(HistoryTemplate {
+        layout: Layout::new(current.as_ref())
+            .on(&headers, &format!("/cookbooks/{owner}/{slug}/history")),
+        title: cookbook::read_readme(&bytes)
+            .title
+            .unwrap_or_else(|| slug.clone()),
+        owner,
+        slug,
+        versions,
+        forgejo_url: state.forgejo.web_url(&book.repository.full_name),
+        notice,
+    })
+}
+
+/// One Version of a Cookbook, as the page needs it.
+fn version_row(
+    commit: &crate::forgejo::Commit,
+    automation: Option<&crate::automation::Automation>,
+) -> CookbookVersion {
+    let written = commit
+        .commit
+        .author
+        .as_ref()
+        .map(|identity| identity.name.trim().to_string())
+        .unwrap_or_default();
+
+    let account = commit
+        .author
+        .as_ref()
+        .map(|user| user.login.clone())
+        .unwrap_or_default();
+
+    // The Forgejo account decides it. A Version made outside this
+    // application can name somebody Forgejo has no account for, and then
+    // the name that Git holds is the best there is.
+    let automatic = automation.is_some_and(|automation| {
+        account.eq_ignore_ascii_case(&automation.login)
+            || (account.is_empty() && written == automation.name)
+    });
+
+    let author = match commit
+        .author
+        .as_ref()
+        .map(|user| user.display_name().trim())
+    {
+        Some(name) if !name.is_empty() => name.to_string(),
+        _ if !written.is_empty() => written,
+        _ => "Somebody".to_string(),
+    };
+
+    let description = commit
+        .commit
+        .message
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+
+    CookbookVersion {
+        description: if description.is_empty() {
+            "No description".to_string()
+        } else {
+            description
+        },
+        author,
+        moment: crate::web_history::moment(
+            commit
+                .commit
+                .author
+                .as_ref()
+                .map(|identity| identity.date.as_str())
+                .unwrap_or_default(),
+        ),
+        automatic,
     }
 }
 

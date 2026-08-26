@@ -15,6 +15,7 @@
   <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">{{ title }}</h1>
   <div class="flex flex-wrap items-center gap-2 self-start">
     <a class="nav-pill" href="/cookbooks">All Cookbooks</a>
+    <a class="nav-pill" href="/cookbooks/{{ owner }}/{{ slug }}/history">History</a>
     <a class="nav-pill" href="{{ forgejo_url }}">Open in Forgejo</a>
   </div>
 </div>
@@ -42,6 +43,21 @@
   <h2 class="font-bold mb-2">CookLangHub cannot show all of this Cookbook</h2>
   <ul class="list-disc pl-5 space-y-1 mb-2">
     {% for problem in problems %}
+    <li>{{ problem }}</li>
+    {% endfor %}
+  </ul>
+  <a class="text-blue-600 hover:text-blue-800 hover:underline" href="{{ forgejo_url }}">Open in Forgejo</a>
+</div>
+{% endif %}
+
+{% if !follow_problems.is_empty() %}
+{# A Recipe here follows updates and CookLangHub cannot move the Cookbook.
+   The state is named and none of it is repaired: an access that somebody
+   took away in Forgejo is never given again by this page. #}
+<div class="bg-white rounded-2xl shadow-lg p-4 mb-6 text-gray-700" role="status">
+  <h2 class="font-bold mb-2">CookLangHub cannot follow every Recipe in this Cookbook</h2>
+  <ul class="list-disc pl-5 space-y-1 mb-2">
+    {% for problem in follow_problems %}
     <li>{{ problem }}</li>
     {% endfor %}
   </ul>
@@ -88,12 +104,35 @@
         <span class="metadata-pill metadata-custom"><span aria-hidden="true">📌</span> This version</span>
         {% endif %}
         {% if can_change %}
+        {# One form for each way round. Following moves the Cookbook to the
+           Version the Recipe has now and keeps it moving. This version
+           keeps the Version that the Cookbook holds. #}
+        <form method="post" action="/cookbooks/{{ owner }}/{{ slug }}/recipes/holding" class="m-0">
+          <input type="hidden" name="path" value="{{ recipe.path }}">
+          {% if recipe.following %}
+          <input type="hidden" name="holding" value="pinned">
+          <button type="submit" aria-label="Keep this version of {{ recipe.title }}"
+                  class="px-3 py-1 rounded-full text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Keep this version</button>
+          {% else %}
+          <input type="hidden" name="holding" value="following">
+          <button type="submit" aria-label="Follow updates to {{ recipe.title }}"
+                  class="px-3 py-1 rounded-full text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Follow updates</button>
+          {% endif %}
+        </form>
         <form method="post" action="/cookbooks/{{ owner }}/{{ slug }}/recipes/remove" class="m-0">
           <input type="hidden" name="path" value="{{ recipe.path }}">
-          <button type="submit" class="px-3 py-1 rounded-full text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Remove</button>
+          <button type="submit" aria-label="Remove {{ recipe.title }}" class="px-3 py-1 rounded-full text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Remove</button>
         </form>
         {% endif %}
       </span>
+      {% if !recipe.warning.is_empty() %}
+      {# The Recipe is there and readable, and CookLangHub cannot follow it
+         any more. The state is named and nothing is repaired. #}
+      <p class="w-full text-sm text-gray-700 m-0" role="status">
+        <span aria-hidden="true">⚠️</span> {{ recipe.warning }}
+        <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}">Open the Recipe</a>
+      </p>
+      {% endif %}
       {% else %}
       {# Nothing here says which Recipe this is. The title, the owner, and
          the name are exactly what this person may not have. #}

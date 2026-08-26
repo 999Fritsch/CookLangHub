@@ -5,6 +5,7 @@
 //! rebuildable.
 
 pub mod auth;
+pub mod automation;
 pub mod bootstrap;
 pub mod config;
 pub mod cookbook;

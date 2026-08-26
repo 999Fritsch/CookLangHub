@@ -59,6 +59,12 @@ services:
       # A shared instance needs its own key. Set this in a .env file before
       # anybody else uses the installation.
       COOKLANGHUB_SESSION_SECRET: "${COOKLANGHUB_SESSION_SECRET:-development-secret-change-before-you-share-this-instance}"
+      # An access token of the ordinary Forgejo account that this
+      # installation automates with. It is the author of every Version that
+      # a Cookbook gets from following a Recipe, so that nobody has their
+      # name on a change they did not make. See the README. An installation
+      # with no Cookbook that follows a Recipe needs none of this.
+      COOKLANGHUB_AUTOMATION_TOKEN: "${COOKLANGHUB_AUTOMATION_TOKEN:-}"
       COOKLANGHUB_LOG_FORMAT: "${COOKLANGHUB_LOG_FORMAT:-json}"
       # The session cookie carries Secure by default. Turn it off only for a
       # plain-HTTP deployment on a name that is not localhost, where a

@@ -342,6 +342,14 @@ async fn apply(state: &AppState, event: &str, action: &str, repository: &Message
         %event, %action, %owner, %slug, ?recipe, ?cookbook,
         "the indexes followed Forgejo"
     );
+
+    // A Recipe that gained a Version is exactly what a Cookbook that
+    // follows it waits for. Forgejo reports that here, so this is where the
+    // Cookbook moves. The message is a speed improvement and never the only
+    // way: the sweep at the next start covers a message that was lost.
+    if event == "push" {
+        crate::automation::follow_recipe(state, owner, slug).await;
+    }
 }
 
 /// The credential of the person who owns a repository, when they have one.

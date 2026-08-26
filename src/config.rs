@@ -49,6 +49,12 @@ pub struct Config {
     /// session secret, so an installation needs no second setting, and a
     /// deployment that wants its own value can still give one.
     pub webhook_secret: Secret<String>,
+    /// A Forgejo access token of the automation account, when this
+    /// installation has one. The automation is the author of every Version
+    /// that a Cookbook gets from following a Recipe, so that nobody has
+    /// their name on a change they did not make. Without it a Cookbook that
+    /// follows a Recipe stays where it is, and the Cookbook page says so.
+    pub automation_token: Option<Secret<String>>,
     /// Whether the session cookie carries the `Secure` attribute. It stays
     /// on unless a deployment serves plain HTTP on a name that is not
     /// `localhost`, where a browser would then drop the cookie.
@@ -96,6 +102,13 @@ impl Config {
             })?;
         let webhook_secret = Secret::new(var_or("WEBHOOK_SECRET", &derived)?);
 
+        // Optional. An installation with no Cookbook that follows a Recipe
+        // needs no automation account, so a missing value is not a fault.
+        let automation_token = match var_or("AUTOMATION_TOKEN", "")? {
+            value if value.is_empty() => None,
+            value => Some(Secret::new(value)),
+        };
+
         let cookie_secure = flag("COOKIE_SECURE", true)?;
 
         let log_format = match var_or("LOG_FORMAT", "json")?.as_str() {
@@ -119,6 +132,7 @@ impl Config {
             forgejo_noreply_domain,
             session_secret,
             webhook_secret,
+            automation_token,
             cookie_secure,
             log_format,
         })
@@ -198,6 +212,7 @@ mod tests {
             forgejo_noreply_domain: "noreply.localhost".to_string(),
             session_secret: Secret::new("super-secret-key".to_string()),
             webhook_secret: Secret::new("a-webhook-secret".to_string()),
+            automation_token: Some(Secret::new("an-automation-token".to_string())),
             cookie_secure: true,
             log_format: LogFormat::Json,
         }
@@ -216,6 +231,12 @@ mod tests {
     fn debug_output_hides_the_webhook_secret() {
         let rendered = format!("{:?}", sample());
         assert!(!rendered.contains("a-webhook-secret"));
+    }
+
+    #[test]
+    fn debug_output_hides_the_automation_credential() {
+        let rendered = format!("{:?}", sample());
+        assert!(!rendered.contains("an-automation-token"));
     }
 
     #[test]
