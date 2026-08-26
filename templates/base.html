@@ -9,7 +9,7 @@
   it loads. And the navigation carries the actions of this product.
 #}
 <!DOCTYPE html>
-<html lang="en" class="{{ layout.theme.css_class() }}">
+<html lang="en" class="{{ layout.html_class() }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -83,7 +83,10 @@
                     class="nav-pill {% if layout.theme.is("dark") %}active{% endif %}">Dark</button>
           </fieldset>
         </form>
-        <p class="m-0">CookLangHub {{ layout.version }} &middot; AGPL-3.0-or-later &middot; design from CookCLI (MIT)</p>
+        <p class="m-0">
+          <a href="/preferences" class="text-blue-600 hover:text-blue-800 hover:underline">Preferences</a>
+          &middot; CookLangHub {{ layout.version }} &middot; AGPL-3.0-or-later &middot; design from CookCLI (MIT)
+        </p>
       </footer>
     </div>
   </body>

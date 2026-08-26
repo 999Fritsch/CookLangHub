@@ -1,0 +1,77 @@
+{#
+  Preferences: what a person chooses about how a page looks.
+
+  Built from the CookCLI preferences screen: a card for each choice, with a
+  gradient ground and a border of the same colour, and a row of buttons where
+  the one in use carries the orange gradient.
+
+  Every choice here is a plain form. The page needs no script, and each
+  choice returns the person to this page.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}Preferences &middot; CookLangHub{% endblock %}
+
+{% macro choice(name, value, label, current) %}
+<button type="submit" name="{{ name }}" value="{{ value }}"
+        aria-pressed="{% if current %}true{% else %}false{% endif %}"
+        class="px-4 py-2 rounded-lg font-medium transition-all duration-200 border-2 {% if current %}bg-gradient-to-r from-orange-500 to-orange-600 text-white border-orange-600 shadow-lg{% else %}bg-white text-gray-700 border-gray-300 hover:border-orange-400 hover:bg-orange-50{% endif %}">{{ label }}</button>
+{% endmacro %}
+
+{% block content %}
+<div>
+  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent mb-2">Preferences</h1>
+  <p class="text-gray-600 mb-8">These choices belong to this browser. They change nothing in a Recipe.</p>
+
+  <div class="space-y-6">
+
+    <section class="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-2xl border-2 border-blue-200">
+      <h2 class="text-lg font-semibold mb-2 text-blue-900">Appearance</h2>
+      <p class="text-sm text-gray-600 mb-4">
+        Select <strong>System</strong> to follow the setting of your computer.
+      </p>
+      <form method="post" action="/preferences/theme" class="flex flex-wrap gap-3">
+        <input type="hidden" name="return_to" value="/preferences">
+        <fieldset class="flex flex-wrap gap-3 border-0 m-0 p-0">
+          <legend class="sr-only">Appearance</legend>
+          {% call choice("theme", "system", "System", layout.theme.is("system")) %}{% endcall %}
+          {% call choice("theme", "light", "Light", layout.theme.is("light")) %}{% endcall %}
+          {% call choice("theme", "dark", "Dark", layout.theme.is("dark")) %}{% endcall %}
+        </fieldset>
+      </form>
+    </section>
+
+    <section class="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-2xl border-2 border-purple-200">
+      <h2 class="text-lg font-semibold mb-2 text-purple-900">Colour on Recipe facts</h2>
+      <p class="text-sm text-gray-600 mb-4">
+        A Recipe shows facts as pills: a preparation time, a cooking time, a
+        difficulty. Select <strong>Coloured</strong> to give each kind its own
+        colour. Select <strong>Plain</strong> to show them all in one grey.
+      </p>
+
+      <form method="post" action="/preferences/facts" class="flex flex-wrap gap-3 mb-5">
+        <input type="hidden" name="return_to" value="/preferences">
+        <fieldset class="flex flex-wrap gap-3 border-0 m-0 p-0">
+          <legend class="sr-only">Colour on Recipe facts</legend>
+          {% call choice("facts", "plain", "Plain", layout.facts.is("plain")) %}{% endcall %}
+          {% call choice("facts", "coloured", "Coloured", layout.facts.is("coloured")) %}{% endcall %}
+        </fieldset>
+      </form>
+
+      {# The choice, shown with the pills themselves. #}
+      <p class="text-sm font-medium text-gray-700 mb-2">This is how the facts look now:</p>
+      <div class="flex flex-wrap gap-2">
+        <span class="metadata-pill metadata-servings"><span aria-hidden="true">👥</span> 4 servings</span>
+        <span class="metadata-pill metadata-prep"><span aria-hidden="true">⏱️</span> Prep Time: 25 minutes</span>
+        <span class="metadata-pill metadata-cook"><span aria-hidden="true">🔥</span> Cook Time: 1 hour</span>
+        <span class="metadata-pill metadata-difficulty"><span aria-hidden="true">📊</span> Difficulty: Einfach</span>
+        <span class="metadata-pill metadata-cuisine"><span aria-hidden="true">🌍</span> Cuisine: Deutsch</span>
+        <span class="metadata-pill metadata-custom">Calories: 610 kcal</span>
+      </div>
+    </section>
+
+  </div>
+</div>
+{% endblock %}

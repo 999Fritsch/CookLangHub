@@ -223,3 +223,28 @@
         @apply bg-blue-800/50!;
     }
 }
+
+/* ------------------------------------------------------------------
+   Not from CookCLI. A colour for each kind of Recipe fact.
+
+   CookCLI gives a difficulty, a preparation time and a cooking time each
+   their own colour, in the eleven classes above. Those colours have never
+   reached a page, in CookCLI or here: they sit inside `@layer components`,
+   while `.metadata-pill` in custom-styles.css sits in no layer at all, and
+   an unlayered rule beats every layer whatever its specificity. So every
+   pill draws in the one grey that `.metadata-pill` sets.
+
+   These rules are outside the layer on purpose, so they can win, and they
+   apply only when a person asks for them. The colours are the same ones,
+   written once above and once here; nothing new is invented.
+   ------------------------------------------------------------------ */
+html.fact-colour .metadata-servings   { @apply text-gray-600   border-gray-300; }
+html.fact-colour .metadata-time       { @apply text-blue-600   border-blue-300; }
+html.fact-colour .metadata-difficulty { @apply text-yellow-600 border-yellow-300; }
+html.fact-colour .metadata-course     { @apply text-orange-600 border-orange-300; }
+html.fact-colour .metadata-prep       { @apply text-indigo-600 border-indigo-300; }
+html.fact-colour .metadata-cook       { @apply text-red-600    border-red-300; }
+html.fact-colour .metadata-cuisine    { @apply text-green-600  border-green-300; }
+html.fact-colour .metadata-diet       { @apply text-lime-600   border-lime-300; }
+html.fact-colour .metadata-author     { @apply text-pink-600   border-pink-300; }
+html.fact-colour .metadata-custom     { @apply text-purple-600 border-purple-300; }

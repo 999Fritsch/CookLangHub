@@ -15,6 +15,7 @@ pub mod forgejo;
 pub mod git;
 pub mod health;
 pub mod index;
+pub mod preferences;
 pub mod recipe;
 pub mod render;
 pub mod scale;

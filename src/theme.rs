@@ -117,7 +117,7 @@ async fn choose(
 /// A value that comes from a form can name another site. Following it would
 /// let somebody use this application to send a person somewhere else, so
 /// only a plain path on this host is accepted.
-fn safe_return(value: &str) -> String {
+pub fn safe_return(value: &str) -> String {
     let trimmed = value.trim();
 
     let acceptable = trimmed.starts_with('/')

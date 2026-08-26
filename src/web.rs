@@ -54,6 +54,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::auth::router())
         .merge(crate::web_recipes::router())
         .merge(crate::theme::router())
+        .merge(crate::preferences::router())
         .merge(crate::web_browse::router())
         .merge(crate::web_discussions::router())
         .merge(crate::web_edit::router())
@@ -166,6 +167,8 @@ pub struct Layout {
     pub user_avatar: String,
     /// The palette this person chose.
     pub theme: crate::theme::Theme,
+    /// Whether this person asked for a colour on each kind of Recipe fact.
+    pub facts: crate::preferences::FactColour,
     /// Where the person is, so the theme control returns them here.
     pub path: String,
 }
@@ -178,6 +181,7 @@ impl Layout {
             user_name: user.map(|u| u.display_name.clone()).unwrap_or_default(),
             user_avatar: user.map(|u| u.avatar_url.clone()).unwrap_or_default(),
             theme: crate::theme::Theme::default(),
+            facts: crate::preferences::FactColour::default(),
             path: "/".to_string(),
         }
     }
@@ -185,8 +189,22 @@ impl Layout {
     /// Add what the request itself carries.
     pub fn on(mut self, headers: &axum::http::HeaderMap, path: &str) -> Self {
         self.theme = crate::theme::from_headers(headers);
+        self.facts = crate::preferences::from_headers(headers);
         self.path = path.to_string();
         self
+    }
+
+    /// The classes the page carries on its root element.
+    ///
+    /// Built here rather than in the template so that a choice left at its
+    /// default adds nothing at all, and the attribute never carries a
+    /// stray space.
+    pub fn html_class(&self) -> String {
+        [self.theme.css_class(), self.facts.css_class()]
+            .into_iter()
+            .filter(|class| !class.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 
