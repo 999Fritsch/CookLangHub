@@ -13,6 +13,12 @@ COPY templates ./templates
 COPY src ./src
 RUN npm run build
 
+# The stylesheets and the bundled editor must both exist, or the image ships
+# a page that cannot style or edit a Recipe.
+RUN test -s static/css/styles.css \
+ && test -s static/css/theme.css \
+ && test -s static/js/editor.js
+
 # Build stage.
 FROM rust:1.97-slim-bookworm AS builder
 

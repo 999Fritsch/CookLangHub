@@ -6,10 +6,18 @@
     "build-css": "tailwindcss -i ./static/css/input.css -o ./static/css/styles.css --minify",
     "watch-css": "tailwindcss -i ./static/css/input.css -o ./static/css/styles.css --watch",
     "build-theme": "node scripts/build-theme-css.mjs",
-    "build": "npm run build-theme && npm run build-css"
+    "build-editor": "node scripts/build-editor.mjs",
+    "build": "npm run build-theme && npm run build-editor && npm run build-css"
   },
   "devDependencies": {
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/search": "^6.7.1",
+    "@codemirror/state": "^6.5.4",
+    "@codemirror/view": "^6.39.11",
+    "@lezer/highlight": "^1.2.1",
     "@tailwindcss/cli": "^4.3.3",
+    "esbuild": "^0.28.2",
     "tailwindcss": "^4.3.3"
   }
 }

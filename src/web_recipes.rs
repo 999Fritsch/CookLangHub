@@ -197,6 +197,8 @@ async fn create(
 struct ShowTemplate {
     layout: Layout,
     owner: String,
+    /// The technical name of the Recipe, for an action that links to it.
+    slug: String,
     title: String,
     /// The Recipe as a cook reads it.
     cooked: RenderedRecipe,
@@ -283,6 +285,7 @@ async fn show(
     respond(ShowTemplate {
         layout: Layout::new(current.as_ref()).on(&headers, &here),
         owner,
+        slug,
         title: parsed.title.unwrap_or_else(|| repository.name.clone()),
         cooked,
         source,

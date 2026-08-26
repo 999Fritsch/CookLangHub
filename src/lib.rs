@@ -20,6 +20,7 @@ pub mod session;
 pub mod telemetry;
 pub mod theme;
 pub mod web;
+pub mod web_edit;
 pub mod web_recipes;
 
 pub use config::Config;

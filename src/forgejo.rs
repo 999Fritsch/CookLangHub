@@ -530,6 +530,47 @@ impl ForgejoClient {
         read_json(response).await
     }
 
+    /// Whether the token holder may write to a repository.
+    ///
+    /// Forgejo decides this and this application only reads the answer.
+    /// Forgejo reports the permissions it computed for the token holder on
+    /// the repository itself, which covers the owner, an organization team,
+    /// a collaborator, and an administrator in one value.
+    pub async fn can_write(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<bool, ForgejoError> {
+        #[derive(Deserialize)]
+        struct WithPermissions {
+            #[serde(default)]
+            permissions: Permissions,
+        }
+
+        #[derive(Deserialize, Default)]
+        struct Permissions {
+            #[serde(default)]
+            admin: bool,
+            #[serde(default)]
+            push: bool,
+        }
+
+        let response = self
+            .send(
+                self.http
+                    .get(format!(
+                        "{}/api/v1/repos/{owner}/{repository}",
+                        self.api_url
+                    ))
+                    .bearer_auth(token.expose()),
+            )
+            .await?;
+
+        let answer: WithPermissions = read_json(response).await?;
+        Ok(answer.permissions.push || answer.permissions.admin)
+    }
+
     /// Send a request and turn a non-success status into an error.
     ///
     /// The body of a failed answer goes into the error so that an
