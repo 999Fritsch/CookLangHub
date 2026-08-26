@@ -52,6 +52,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .route("/health", get(health_endpoint))
         .merge(crate::auth::router())
         .merge(crate::web_recipes::router())
+        .merge(crate::theme::router())
         .nest_service("/static", ServeDir::new(static_dir))
         .layer(SetResponseHeaderLayer::overriding(
             header::CONTENT_SECURITY_POLICY,
@@ -110,6 +111,10 @@ pub struct Layout {
     pub signed_in: bool,
     pub user_name: String,
     pub user_avatar: String,
+    /// The palette this person chose.
+    pub theme: crate::theme::Theme,
+    /// Where the person is, so the theme control returns them here.
+    pub path: String,
 }
 
 impl Layout {
@@ -119,7 +124,16 @@ impl Layout {
             signed_in: user.is_some(),
             user_name: user.map(|u| u.display_name.clone()).unwrap_or_default(),
             user_avatar: user.map(|u| u.avatar_url.clone()).unwrap_or_default(),
+            theme: crate::theme::Theme::default(),
+            path: "/".to_string(),
         }
+    }
+
+    /// Add what the request itself carries.
+    pub fn on(mut self, headers: &axum::http::HeaderMap, path: &str) -> Self {
+        self.theme = crate::theme::from_headers(headers);
+        self.path = path.to_string();
+        self
     }
 }
 
@@ -142,6 +156,7 @@ struct IndexTemplate {
 
 async fn index(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     jar: axum_extra::extract::CookieJar,
     MaybeUser(user): MaybeUser,
 ) -> Response {
@@ -151,7 +166,7 @@ async fn index(
     };
 
     let template = IndexTemplate {
-        layout: Layout::new(user.as_ref()),
+        layout: Layout::new(user.as_ref()).on(&headers, "/"),
         forgejo_url: state.forgejo.public_url().to_string(),
         recipes,
     };

@@ -18,6 +18,7 @@ pub mod render;
 pub mod secret;
 pub mod session;
 pub mod telemetry;
+pub mod theme;
 pub mod web;
 pub mod web_recipes;
 

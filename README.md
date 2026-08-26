@@ -141,9 +141,17 @@ address, because History is readable by anybody who can read the Recipe.
 The Recipe page shows the cooked Recipe: what to gather, then what to do.
 The layout follows CookCLI, so a cook who knows that interface can read
 this one. The gather lists put the name on the left and the amount in bold
-on the right. Inside a step each Cooklang entity keeps its own color, and
-the step repeats the amounts it needs. The Cooklang source stays one click
+on the right. Inside a step each Cooklang entity keeps its own color and
+carries its own amount, so the sentence reads straight through and the eye
+never leaves it to look an amount up. The Cooklang source stays one click
 away.
+
+## Appearance
+
+A page follows the operating system until a person chooses otherwise. The
+control in the footer offers System, Light, and Dark. The choice lives in a
+cookie and the server writes it onto the page, so the right palette is in
+the first byte of HTML and nothing flashes. It needs no JavaScript.
 
 Everything a person wrote reaches the page as text, and the template
 escapes it, so a Recipe that contains markup shows those characters and

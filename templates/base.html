@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"{% if !layout.theme.attribute().is_empty() %} data-theme="{{ layout.theme.attribute() }}"{% endif %}>
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -31,6 +31,18 @@
       {% block content %}{% endblock %}
     </main>
     <footer class="site-footer">
+      <form class="theme-choice" method="post" action="/preferences/theme">
+        <input type="hidden" name="return_to" value="{{ layout.path }}">
+        <fieldset>
+          <legend>Appearance</legend>
+          <button type="submit" name="theme" value="system"
+                  {% if layout.theme.is("system") %}aria-pressed="true" class="is-chosen"{% else %}aria-pressed="false"{% endif %}>System</button>
+          <button type="submit" name="theme" value="light"
+                  {% if layout.theme.is("light") %}aria-pressed="true" class="is-chosen"{% else %}aria-pressed="false"{% endif %}>Light</button>
+          <button type="submit" name="theme" value="dark"
+                  {% if layout.theme.is("dark") %}aria-pressed="true" class="is-chosen"{% else %}aria-pressed="false"{% endif %}>Dark</button>
+        </fieldset>
+      </form>
       <p>CookLangHub {{ layout.version }} &middot; AGPL-3.0-or-later</p>
     </footer>
   </body>

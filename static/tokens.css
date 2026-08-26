@@ -50,19 +50,19 @@
   --ingredient-ink:    #92400e;  /* 6.37:1 on --ingredient-bg             */
   /* The row fill of a gather-list. CookCLI tints each row, which is what
      makes a long list scannable. */
-  --ingredient-row:    #fef3c7;  /* body text 13.85:1, amount 6.37:1      */
+  --ingredient-row:    #fef3c7;  /* ink 13.85:1, amount 6.37:1 on this    */
 
   --cookware-bg:       #dcfce7;
   --cookware-line:     #4ade80;
   --cookware-ink:      #14532d;  /* 8.30:1 on --cookware-bg               */
-  --cookware-row:      #dcfce7;  /* body text 14.05:1, amount 8.30:1      */
+  --cookware-row:      #dcfce7;  /* ink 14.05:1, amount 8.30:1 on this    */
 
   --timer-bg:          #fee2e2;
   --timer-line:        #f87171;
   --timer-ink:         #7f1d1d;  /* 8.20:1 on --timer-bg                  */
 
   /* The card a step sits on. Warm, so the method reads as cooking. */
-  --step-card:         #fffbeb;  /* body text 14.88:1                     */
+  --step-card:         #fffbeb;  /* ink 14.88:1 on this                   */
 
   /* ---- Status -------------------------------------------------------- */
   --ok-ink:      #14532d;
@@ -147,18 +147,19 @@
 
     --ingredient-bg:   #292524;
     --ingredient-line: #fbbf24;
-    --ingredient-ink:  #fcd34d;
-    --ingredient-row:  #332a1c;  /* body 11.24:1, amount 9.78:1 */  /* 10.52:1 on --ingredient-bg            */
+    --ingredient-ink:  #fcd34d;  /* 10.52:1 on --ingredient-bg            */
+    --ingredient-row:  #332a1c;  /* ink 11.24:1, amount 9.78:1 on this    */
 
     --cookware-bg:     #292524;
     --cookware-line:   #4ade80;
-    --cookware-ink:    #86efac;
-    --cookware-row:    #1e2e24;  /* body 11.37:1, amount 10.16:1 */  /* 10.80:1 on --cookware-bg              */
+    --cookware-ink:    #86efac;  /* 10.80:1 on --cookware-bg              */
+    --cookware-row:    #1e2e24;  /* ink 11.37:1, amount 10.16:1 on this   */
 
     --timer-bg:        #292524;
     --timer-line:      #f87171;
-    --timer-ink:       #fca5a5;
-    --step-card:       #231f1c;  /* body 13.02:1 */  /*  7.99:1 on --timer-bg                 */
+    --timer-ink:       #fca5a5;  /*  7.99:1 on --timer-bg                 */
+
+    --step-card:       #231f1c;  /* ink 13.02:1 on this                   */
 
     --ok-ink:     #86efac;  --ok-bg:     #292524;
     --warn-ink:   #fcd34d;  --warn-bg:   #292524;
@@ -188,17 +189,17 @@
   --ingredient-bg:   #292524;
   --ingredient-line: #fbbf24;
   --ingredient-ink:  #fcd34d;
-  --ingredient-row:  #332a1c;  /* body 11.24:1, amount 9.78:1 */
+  --ingredient-row:  #332a1c;  /* ink 11.24:1, amount 9.78:1 on this    */
 
   --cookware-bg:     #292524;
   --cookware-line:   #4ade80;
   --cookware-ink:    #86efac;
-  --cookware-row:    #1e2e24;  /* body 11.37:1, amount 10.16:1 */
+  --cookware-row:    #1e2e24;  /* ink 11.37:1, amount 10.16:1 on this   */
 
   --timer-bg:        #292524;
   --timer-line:      #f87171;
   --timer-ink:       #fca5a5;
-  --step-card:       #231f1c;  /* body 13.02:1 */
+  --step-card:       #231f1c;  /* ink 13.02:1 on this                   */
 
   --ok-ink:     #86efac;  --ok-bg:     #292524;
   --warn-ink:   #fcd34d;  --warn-bg:   #292524;

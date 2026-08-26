@@ -69,14 +69,18 @@ struct NewTemplate {
     errors: Vec<String>,
 }
 
-async fn new_form(State(state): State<Arc<AppState>>, MaybeUser(user): MaybeUser) -> Response {
+async fn new_form(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    MaybeUser(user): MaybeUser,
+) -> Response {
     if user.is_none() {
         return Redirect::to("/auth/sign-in").into_response();
     }
     let _ = &state;
 
     respond(NewTemplate {
-        layout: Layout::new(user.as_ref()),
+        layout: Layout::new(user.as_ref()).on(&headers, "/recipes/new"),
         title: String::new(),
         source: String::new(),
         // Public is the default.
@@ -99,6 +103,7 @@ struct CreateForm {
 
 async fn create(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     jar: CookieJar,
     MaybeUser(current): MaybeUser,
     Form(form): Form<CreateForm>,
@@ -145,7 +150,7 @@ async fn create(
             tracing::info!(%error, "a Recipe was not created");
 
             respond(NewTemplate {
-                layout: Layout::new(current.as_ref()),
+                layout: Layout::new(current.as_ref()).on(&headers, "/recipes/new"),
                 title: form.title,
                 source: form.source,
                 private,
@@ -173,10 +178,12 @@ struct ShowTemplate {
 
 async fn show(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     jar: CookieJar,
     MaybeUser(current): MaybeUser,
     Path((owner, slug)): Path<(String, String)>,
 ) -> Response {
+    let here = format!("/recipes/{owner}/{slug}");
     // A public Recipe is readable without a session. Forgejo applies the
     // permissions, so a private one needs the credential of somebody who
     // may see it.
@@ -240,7 +247,7 @@ async fn show(
         .unwrap_or_default();
 
     respond(ShowTemplate {
-        layout: Layout::new(current.as_ref()),
+        layout: Layout::new(current.as_ref()).on(&headers, &here),
         owner,
         title: parsed.title.unwrap_or_else(|| repository.name.clone()),
         cooked,

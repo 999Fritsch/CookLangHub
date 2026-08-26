@@ -562,32 +562,6 @@ input[type="text"]:focus, textarea:focus {
   padding: 0 0 0 var(--space-3);
 }
 
-/* The amounts this one step needs. */
-.step-needs {
-  grid-column: 2;
-  margin: var(--space-3) 0 0;
-  padding-left: var(--space-3);
-  border-left: 2px solid var(--ingredient-line);
-  color: var(--ink-muted);
-  font-size: var(--text-sm);
-}
-
-.step-need-name { color: var(--ink-muted); }
-
-.step-need-amount {
-  color: var(--ingredient-ink);
-  font-weight: var(--weight-medium);
-  font-variant-numeric: tabular-nums;
-}
-
-.step-text { margin: 0; }
-
-/* The amount inside an entity badge. */
-.badge-amount {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
-}
-
 /* ---- Source, folded away by default ------------------------------------- */
 
 .source-details { margin-bottom: var(--space-4); }
@@ -615,3 +589,53 @@ input[type="text"]:focus, textarea:focus {
 /* A Recipe that is being cooked needs two columns, so it gets more room
    than the comfortable reading width used elsewhere. */
 main.main--wide { max-width: var(--measure-wide); }
+
+/* ---- Appearance control ------------------------------------------------- */
+/* A form, not a script. The server writes the palette onto the page, so the
+ * first byte of HTML already carries the right one and nothing flashes. */
+
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.site-footer p { margin: 0; }
+
+.theme-choice fieldset {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.theme-choice legend {
+  float: left;
+  margin-right: var(--space-2);
+  padding: 0;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+.theme-choice button {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.theme-choice button:hover { color: var(--ink); }
+
+.theme-choice button.is-chosen {
+  background: var(--brand-fill);
+  border-color: var(--brand-fill);
+  color: var(--brand-on-fill);
+}

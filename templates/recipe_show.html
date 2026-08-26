@@ -144,14 +144,6 @@
             {%- endif -%}
             {%- endfor -%}
           </p>
-          {% if !block.components.is_empty() %}
-          <p class="step-needs">
-            {%- for item in block.components -%}
-            {%- if !loop.first %}, {% endif -%}
-            <span class="step-need"><span class="step-need-name">{{ item.name }}</span>{% if let Some(quantity) = item.quantity %} <span class="step-need-amount">{{ quantity }}</span>{% endif %}</span>
-            {%- endfor -%}
-          </p>
-          {% endif %}
         </li>
         {% else %}
         <li class="step step--note">

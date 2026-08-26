@@ -69,6 +69,11 @@ Five rules:
    first. History, Suggestions, and Variations use quiet neutral chrome,
    never the visual language of a source control tool.
 
+A page follows the operating system until a person chooses otherwise. The
+server writes `data-theme` onto the page from a cookie, so the palette is
+correct in the first byte and nothing flashes. Never move that choice into
+a script.
+
 Accessibility is a shipping requirement, not a later ticket: semantic HTML,
 a label on every control, a visible focus ring, full keyboard operation,
 and a working mobile viewport.

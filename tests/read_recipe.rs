@@ -62,8 +62,16 @@ async fn the_page_shows_ingredients_cookware_timings_and_steps() {
     assert!(body.contains("gather-list--cookware"), "no cookware list");
     assert!(body.contains("gather-amount"), "an amount must stand on its own");
 
-    // Each step names what it needs, so a cook does not look back.
-    assert!(body.contains("step-needs"), "a step must name its amounts");
+    // The amount sits inside the badge, next to the thing it belongs to,
+    // so the eye never leaves the sentence to find it.
+    assert!(
+        !body.contains("step-needs"),
+        "a separate amount line would repeat what the badge already says"
+    );
+    assert!(
+        body.contains("badge-amount"),
+        "an amount must sit inside the badge"
+    );
 
     // Metadata a cook cares about.
     assert!(body.contains("Servings"));
@@ -333,4 +341,76 @@ async fn a_title_only_recipe_says_so_instead_of_showing_nothing() {
         body.contains("title and nothing else yet"),
         "an empty Recipe must explain itself"
     );
+}
+
+#[tokio::test]
+async fn a_person_can_choose_light_or_dark_and_it_sticks() {
+    let (_forgejo, app, session) = ready().await;
+    support::create_recipe(&app, &session, "Themed", GERMAN_RECIPE, false).await;
+
+    // A new visitor gets no attribute at all, so the operating system
+    // decides which palette to use.
+    let first = support::client()
+        .get(app.url("/"))
+        .send()
+        .await
+        .expect("cannot reach the index page")
+        .text()
+        .await
+        .expect("cannot read the body");
+    assert!(!first.contains("data-theme="), "the default must follow the system");
+    assert!(first.contains("Appearance"), "the control must be on the page");
+
+    // Choosing dark returns the person to where they were.
+    let chosen = support::client()
+        .post(app.url("/preferences/theme"))
+        .form(&[("theme", "dark"), ("return_to", "/recipes/sam/themed")])
+        .send()
+        .await
+        .expect("cannot choose a theme");
+
+    assert_eq!(chosen.status(), 303);
+    assert_eq!(
+        chosen.headers().get("location").and_then(|v| v.to_str().ok()),
+        Some("/recipes/sam/themed")
+    );
+
+    let cookie = support::set_cookie(&chosen, "cooklanghub_theme")
+        .expect("the choice must be remembered");
+    let value = support::cookie_value(&cookie);
+    assert_eq!(value, "dark");
+
+    // And the next page carries it in the markup, not in a script.
+    let page = support::client()
+        .get(app.url("/recipes/sam/themed"))
+        .header("cookie", format!("cooklanghub_theme={value}"))
+        .send()
+        .await
+        .expect("cannot reach the Recipe page")
+        .text()
+        .await
+        .expect("cannot read the body");
+
+    assert!(page.contains("data-theme=\"dark\""), "the page must carry the choice");
+    assert!(!page.contains("<script"), "the choice must need no script");
+}
+
+#[tokio::test]
+async fn a_theme_form_cannot_send_a_person_to_another_site() {
+    let (_forgejo, app, _session) = ready().await;
+
+    for hostile in ["https://evil.test", "//evil.test", r"/\evil.test"] {
+        let response = support::client()
+            .post(app.url("/preferences/theme"))
+            .form(&[("theme", "dark"), ("return_to", hostile)])
+            .send()
+            .await
+            .expect("cannot choose a theme");
+
+        assert_eq!(
+            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            Some("/"),
+            "`{hostile}` must not be followed"
+        );
+    }
 }
