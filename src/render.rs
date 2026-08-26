@@ -210,6 +210,106 @@ impl RenderedRecipe {
     }
 }
 
+/// What to gather, with a thing named twice brought together once.
+///
+/// A Recipe that uses oil in two steps names it twice. A cook reading the
+/// list before starting needs one line with the total, not two lines to add
+/// up. CookCLI does the same.
+///
+/// The amounts are added only when every mention writes the same unit. The
+/// unit a person wrote is kept exactly: `2 EL` and `2 EL` make `4 EL`, never
+/// `4 tbsp`. Mentions in units that do not match stay side by side, because
+/// this application must not decide that a cup of oil and 50 g of oil are
+/// the same amount.
+fn gather<'a>(
+    items: impl Iterator<Item = (&'a str, Option<&'a Quantity>, Option<&'a str>)>,
+) -> Vec<Component> {
+    let mut out: Vec<Component> = Vec::new();
+    let mut amounts: Vec<Vec<&Quantity>> = Vec::new();
+
+    for (name, quantity, note) in items {
+        match out.iter().position(|held| held.name == name) {
+            Some(at) => {
+                if let Some(quantity) = quantity {
+                    amounts[at].push(quantity);
+                }
+                // The first note that a Recipe gives is the one shown. A
+                // later mention rarely repeats it and never contradicts it.
+                if out[at].note.is_none() {
+                    out[at].note = note.map(str::to_string);
+                }
+            }
+            None => {
+                out.push(Component {
+                    name: name.to_string(),
+                    quantity: None,
+                    note: note.map(str::to_string),
+                });
+                amounts.push(quantity.into_iter().collect());
+            }
+        }
+    }
+
+    for (component, amounts) in out.iter_mut().zip(amounts) {
+        component.quantity = total(&amounts);
+    }
+
+    out
+}
+
+/// The words for the amounts of one thing.
+fn total(amounts: &[&Quantity]) -> Option<String> {
+    match amounts {
+        [] => None,
+        // One mention is written out exactly as it stands, so a fraction
+        // stays a fraction and a word stays a word.
+        [only] => Some(only.to_string()),
+        many => {
+            let unit = many[0].unit();
+            let same_unit = many.iter().all(|q| q.unit() == unit);
+
+            let numbers: Option<Vec<f64>> = many
+                .iter()
+                .map(|q| match q.value() {
+                    Value::Number(number) => Some(number.value()),
+                    _ => None,
+                })
+                .collect();
+
+            match (same_unit, numbers) {
+                (true, Some(numbers)) => {
+                    let sum: f64 = numbers.iter().sum();
+                    Some(match unit {
+                        Some(unit) => format!("{} {unit}", number_text(sum)),
+                        None => number_text(sum),
+                    })
+                }
+                // Units that do not match, or an amount that is not a
+                // number. Show what the Recipe says and add nothing up.
+                _ => {
+                    let mut seen: Vec<String> = Vec::new();
+                    for quantity in many {
+                        let text = quantity.to_string();
+                        if !seen.contains(&text) {
+                            seen.push(text);
+                        }
+                    }
+                    Some(seen.join(", "))
+                }
+            }
+        }
+    }
+}
+
+/// A number as a cook would write it: `4`, not `4.0`.
+fn number_text(value: f64) -> String {
+    if (value - value.round()).abs() < f64::EPSILON {
+        return format!("{}", value.round() as i64);
+    }
+    let text = format!("{value:.3}");
+    text.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
 /// Metadata keys that the page shows on its own, so the fact list skips them.
 const HANDLED_KEYS: [&str; 3] = ["title", "tags", "servings"];
 
@@ -227,25 +327,25 @@ pub fn render_with(recipe: &Recipe, view: &View, converter: &Converter) -> Rende
     let scaled = scale::apply(recipe, view, converter);
     let recipe = &scaled.recipe;
 
-    let ingredients: Vec<Component> = recipe
-        .ingredients
-        .iter()
-        .map(|i| Component {
-            name: i.name.clone(),
-            quantity: i.quantity.as_ref().map(ToString::to_string),
-            note: i.note.clone(),
-        })
-        .collect();
+    // A Recipe that uses the same thing in two steps names it twice. What a
+    // cook needs before starting is one line with the total, not two lines
+    // to add up, so the amounts of every mention are grouped here. This is
+    // what CookCLI shows, and `cooklang-rs` does the adding, including the
+    // part this application must not guess: two amounts in units that do
+    // not combine stay side by side rather than becoming a wrong total.
+    let ingredients = gather(
+        recipe
+            .ingredients
+            .iter()
+            .map(|i| (i.name.as_str(), i.quantity.as_ref(), i.note.as_deref())),
+    );
 
-    let cookware: Vec<Component> = recipe
-        .cookware
-        .iter()
-        .map(|c| Component {
-            name: c.name.clone(),
-            quantity: c.quantity.as_ref().map(ToString::to_string),
-            note: c.note.clone(),
-        })
-        .collect();
+    let cookware = gather(
+        recipe
+            .cookware
+            .iter()
+            .map(|c| (c.name.as_str(), c.quantity.as_ref(), c.note.as_deref())),
+    );
 
     let sections = recipe
         .sections
@@ -559,6 +659,94 @@ mod tests {
         assert_eq!(names, vec!["flour", "water"]);
         assert_eq!(r.ingredients[0].quantity.as_deref(), Some("500 g"));
         assert_eq!(r.cookware[0].name, "bowl");
+    }
+
+    #[test]
+    fn a_thing_used_twice_is_gathered_once_with_the_total() {
+        // The fault this fixes: a person shopping from the list saw `2 EL`
+        // twice and bought half the oil the Recipe needs.
+        let r = render(&parse(
+            "Heat @oil{2%EL}.
+
+Add more @oil{2%EL}.",
+        ));
+
+        assert_eq!(r.ingredients.len(), 1, "one line, not two");
+        assert_eq!(r.ingredients[0].name, "oil");
+        assert_eq!(r.ingredients[0].quantity.as_deref(), Some("4 EL"));
+    }
+
+    #[test]
+    fn adding_up_never_rewrites_the_unit_a_person_wrote() {
+        // `EL` is a German spoon. It must not become `tbsp` on the way.
+        let r = render(&parse(
+            "Nimm @Öl{2%EL}.
+
+Nimm noch @Öl{1%EL}.",
+        ));
+        assert_eq!(r.ingredients[0].quantity.as_deref(), Some("3 EL"));
+
+        let r = render(&parse(
+            "Nimm @Mehl{250%g}.
+
+Nimm @Mehl{250%g}.",
+        ));
+        assert_eq!(r.ingredients[0].quantity.as_deref(), Some("500 g"));
+    }
+
+    #[test]
+    fn amounts_that_do_not_match_are_shown_and_not_added() {
+        // A cup of oil and 50 g of oil are not the same amount, and this
+        // application must not decide that they are.
+        let r = render(&parse(
+            "Heat @oil{1%cup}.
+
+Add @oil{50%g}.",
+        ));
+        let shown = r.ingredients[0].quantity.as_deref().unwrap();
+
+        assert!(shown.contains("1 cup"), "got `{shown}`");
+        assert!(shown.contains("50 g"), "got `{shown}`");
+    }
+
+    #[test]
+    fn one_mention_is_written_out_exactly_as_it_stands() {
+        // A single amount goes through untouched, so a fraction stays one.
+        let r = render(&parse("Add @salt{1/2%TL}."));
+        assert_eq!(r.ingredients[0].quantity.as_deref(), Some("1/2 TL"));
+
+        let r = render(&parse("Add @pepper{}."));
+        assert_eq!(r.ingredients[0].quantity, None);
+    }
+
+    #[test]
+    fn a_thing_with_no_amount_beside_one_with_an_amount_still_gathers() {
+        let r = render(&parse(
+            "Add @salt{1%TL}.
+
+Add more @salt{}.",
+        ));
+        assert_eq!(r.ingredients.len(), 1);
+        assert_eq!(r.ingredients[0].quantity.as_deref(), Some("1 TL"));
+    }
+
+    #[test]
+    fn cookware_named_twice_is_gathered_too() {
+        let r = render(&parse(
+            "Use a #pot{1}.
+
+Use another #pot{1}.",
+        ));
+        assert_eq!(r.cookware.len(), 1);
+        assert_eq!(r.cookware[0].quantity.as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn a_total_reads_as_a_cook_would_write_it() {
+        assert_eq!(number_text(4.0), "4");
+        assert_eq!(number_text(0.5), "0.5");
+        assert_eq!(number_text(1.25), "1.25");
+        assert_eq!(number_text(500.0), "500");
     }
 
     #[test]

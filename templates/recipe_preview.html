@@ -45,8 +45,13 @@
   {% if let Some(servings) = cooked.servings %}
   <span class="metadata-pill metadata-servings"><span aria-hidden="true">👥</span> {{ servings }} servings</span>
   {% endif %}
+  {# The same markup the Recipe page uses, so the preview is a preview. #}
   {% for fact in cooked.facts %}
-  <span class="metadata-pill metadata-custom">{{ fact.label }}: {{ fact.value }}</span>
+  {% if let Some(link) = fact.link %}
+  <span class="metadata-pill {{ fact.pill }}">{% if let Some(icon) = fact.icon %}<span aria-hidden="true">{{ icon }}</span> {% endif %}{{ fact.label }}</span>
+  {% else %}
+  <span class="metadata-pill {{ fact.pill }}">{% if let Some(icon) = fact.icon %}<span aria-hidden="true">{{ icon }}</span> {% endif %}{{ fact.label }}: {{ fact.value }}</span>
+  {% endif %}
   {% endfor %}
 </div>
 

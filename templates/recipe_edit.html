@@ -42,8 +42,13 @@
   <form method="post" action="/recipes/{{ owner }}/{{ slug }}/edit">
     <input type="hidden" name="base_version" value="{{ base_version }}">
 
+    {#
+      `min-w-0` on both columns is what keeps this inside a telephone
+      screen. A grid item is `min-width: auto` by default, so it refuses to
+      be narrower than its content, and the editor asks for a wide one.
+    #}
     <div class="grid lg:grid-cols-2 gap-8 mb-8 items-start">
-      <div class="bg-white rounded-2xl shadow-lg p-6">
+      <div class="min-w-0 bg-white rounded-2xl shadow-lg p-6">
         <label for="recipe-source" class="block font-medium mb-2">Recipe source</label>
 
         <textarea id="recipe-source" name="source" rows="24" spellcheck="false"
@@ -60,7 +65,7 @@
 
       {# The preview changes with every keystroke, so it is a region a
          person can reach and never one that announces itself. #}
-      <section class="bg-white rounded-2xl shadow-lg p-6" aria-labelledby="preview-heading">
+      <section class="min-w-0 bg-white rounded-2xl shadow-lg p-6" aria-labelledby="preview-heading">
         <h2 id="preview-heading" class="sr-only">Preview</h2>
         <div id="recipe-preview">
           {% include "recipe_preview.html" %}

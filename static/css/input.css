@@ -248,3 +248,23 @@ html.fact-colour .metadata-cuisine    { @apply text-green-600  border-green-300;
 html.fact-colour .metadata-diet       { @apply text-lime-600   border-lime-300; }
 html.fact-colour .metadata-author     { @apply text-pink-600   border-pink-300; }
 html.fact-colour .metadata-custom     { @apply text-purple-600 border-purple-300; }
+
+/* ------------------------------------------------------------------
+   Not from CookCLI. A fact pill that is too long for the screen.
+
+   CookCLI sets `white-space: nowrap` on `.metadata-pill`, so one long
+   value — a source address, say — makes the whole page scroll sideways on
+   a telephone. CookCLI has the same behaviour; this is a correction, not a
+   copy. A pill stays on one line while it fits and gives way when it does
+   not, so the page never moves sideways.
+   ------------------------------------------------------------------ */
+.metadata-pill {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+@media (width < 40rem) {
+    .metadata-pill {
+        white-space: normal;
+    }
+}
