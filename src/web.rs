@@ -62,6 +62,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::web_discussions::router())
         .merge(crate::web_edit::router())
         .merge(crate::web_history::router())
+        .merge(crate::web_profile::router())
         .merge(crate::web_sharing::router())
         .merge(crate::webhook::router())
         // A page holds somebody's Recipes, and some of them are private.
@@ -351,8 +352,19 @@ async fn avatar(State(state): State<Arc<AppState>>, MaybeUser(user): MaybeUser) 
         return StatusCode::NOT_FOUND.into_response();
     };
 
+    serve_avatar(&state, &user.avatar_url).await
+}
+
+/// Fetch one avatar from Forgejo and pass it on from this origin.
+///
+/// The profile page serves the picture of another person through here, so
+/// that one guard and one fetch cover every avatar this application shows.
+/// Deciding who may be seen is not this function: the caller asks Forgejo
+/// about the person first and comes here only with an address that Forgejo
+/// gave it for that viewer.
+pub(crate) async fn serve_avatar(state: &AppState, avatar_url: &str) -> Response {
     let Some(address) = avatar_address(
-        &user.avatar_url,
+        avatar_url,
         state.forgejo.public_url(),
         state.forgejo.api_url(),
     ) else {

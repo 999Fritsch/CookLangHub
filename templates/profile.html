@@ -1,0 +1,116 @@
+{#
+  The profile of one cook.
+
+  Everything on this page comes from Forgejo. When Forgejo hides the
+  profile, the page holds a diagnosis and Forgejo, and no name, no picture,
+  and no count.
+
+  The Recipe cards are the cards of every other list, so a Recipe looks the
+  same wherever a cook meets it. The Cookbook cards are built from the same
+  CookCLI classes.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}{% if let Some(person) = person %}{{ person.name }}{% else %}This profile is not available{% endif %} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+{% if let Some(person) = person %}
+<div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div class="flex items-center gap-4">
+      {#
+        The picture is served by this application. The policy allows an
+        image from this origin only, and Forgejo still decides who may be
+        seen, so a profile that Forgejo hides has no picture here either.
+      #}
+      {% if person.avatar %}
+      <img class="h-16 w-16 rounded-full" src="/cooks/{{ person.login }}/avatar" alt="" width="64" height="64">
+      {% endif %}
+      <div>
+        <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
+          {{ person.name }}
+        </h1>
+        <p class="text-gray-600 m-0">{{ person.login }}</p>
+      </div>
+    </div>
+    <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap self-start" href="{{ person.url }}">Open in Forgejo</a>
+  </div>
+
+  <div class="flex flex-wrap gap-2 mt-4">
+    {% if recipes.len() == 1 %}
+    <span class="metadata-pill metadata-custom"><span aria-hidden="true">🍽️</span> 1 Recipe</span>
+    {% else %}
+    <span class="metadata-pill metadata-custom"><span aria-hidden="true">🍽️</span> {{ recipes.len() }} Recipes</span>
+    {% endif %}
+    {% if cookbooks.len() == 1 %}
+    <span class="metadata-pill metadata-custom"><span aria-hidden="true">📚</span> 1 Cookbook</span>
+    {% else %}
+    <span class="metadata-pill metadata-custom"><span aria-hidden="true">📚</span> {{ cookbooks.len() }} Cookbooks</span>
+    {% endif %}
+  </div>
+</div>
+
+<h2 class="text-2xl font-bold text-gray-900 mb-4">Recipes</h2>
+{% include "browse_cards.html" %}
+
+<h2 class="text-2xl font-bold text-gray-900 mt-10 mb-4">Cookbooks</h2>
+
+{% if let Some(message) = cookbook_notice %}
+<div class="bg-white rounded-2xl shadow-lg p-4 mb-6 text-gray-700" role="status">
+  {{ message }}
+</div>
+{% endif %}
+
+{% if cookbooks.is_empty() %}
+<div class="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-600">
+  {{ cookbook_empty }}
+</div>
+{% else %}
+<ul class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 list-none p-0 m-0">
+  {% for cookbook in cookbooks %}
+  <li>
+    <a href="{{ cookbook.url }}"
+       class="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all hover:scale-105 recipe-card flex flex-col h-full">
+      <div class="p-6">
+        <div class="flex items-center justify-center w-16 h-16 bg-gradient-to-br from-orange-400 to-pink-500 rounded-full mb-4">
+          <span class="text-2xl" aria-hidden="true">📚</span>
+        </div>
+
+        <h3 class="font-bold text-lg mb-2 text-gray-800">{{ cookbook.name }}</h3>
+
+        <div class="flex flex-wrap gap-2 mb-3">
+          <span class="metadata-pill metadata-custom"><span aria-hidden="true">📖</span> Open in Forgejo</span>
+          {% if cookbook.private %}
+          <span class="metadata-pill metadata-custom"><span aria-hidden="true">🔒</span> Private</span>
+          {% endif %}
+        </div>
+
+        <p class="text-sm text-gray-600 mt-3 mb-0">Owned by {{ cookbook.owner }}</p>
+      </div>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% else %}
+{#
+  Forgejo gives the same answer for a cook who is not there and for a cook
+  it hides. The page repeats that answer and adds nothing to it.
+#}
+<div class="bg-white rounded-2xl shadow-lg p-6" role="alert">
+  <h1 class="text-2xl md:text-3xl font-bold mb-4 text-gray-900">This profile is not available</h1>
+
+  {% if let Some(message) = message %}
+  <p class="text-gray-700 mb-6">{{ message }}</p>
+  {% endif %}
+
+  <div class="flex flex-wrap gap-3">
+    <a class="btn-primary px-5 py-2 rounded-full font-medium text-white" href="{{ forgejo_url }}">Open in Forgejo</a>
+    <a class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50" href="/explore">Explore</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
