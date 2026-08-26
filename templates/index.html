@@ -18,6 +18,10 @@
   {% for recipe in recipes %}
   <a href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}"
      class="recipe-card bg-white rounded-2xl shadow-lg p-6 hover:shadow-xl transition-shadow">
+    {% if recipe.thumbnail %}
+    <img src="/recipes/{{ recipe.owner }}/{{ recipe.slug }}/thumbnail" alt=""
+         class="w-full h-40 object-cover rounded-xl mb-4">
+    {% endif %}
     <h2 class="text-lg font-bold text-gray-900 mb-1">{{ recipe.title }}</h2>
     <p class="text-sm text-gray-600 m-0">
       Owned by {{ recipe.owner }}{% if recipe.private %} &middot; Private{% endif %}

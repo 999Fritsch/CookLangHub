@@ -2,3 +2,6 @@ target/
 data/
 .env
 node_modules/
+
+# Worktrees that background agents run in.
+.claude/worktrees/

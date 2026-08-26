@@ -15,6 +15,7 @@ use crate::forgejo::{ForgejoClient, ForgejoError, ForgejoUser, Repository};
 use crate::git::{GitAdapter, GitError, Identity, InitialCommit};
 use crate::recipe::{self, MAX_SOURCE_BYTES, RECIPE_FILE, RECIPE_TOPICS};
 use crate::secret::Secret;
+use crate::upload::{MAX_THUMBNAIL_BYTES, Thumbnail};
 
 /// The branch that holds the published Recipe.
 pub const MAIN_BRANCH: &str = "main";
@@ -46,12 +47,40 @@ pub fn commit_email(
     }
 }
 
+/// Ask Forgejo who this person is, in a shape that History can carry.
+///
+/// Forgejo is authoritative for the address and for whether it may be
+/// shown. A failure to read the setting is treated as "hide", because an
+/// address that is published by accident cannot be taken back.
+pub async fn identity_of(
+    forgejo: &ForgejoClient,
+    token: &Secret<String>,
+    user: &ForgejoUser,
+    noreply_domain: &str,
+) -> Identity {
+    let hide_email = match forgejo.user_settings(token).await {
+        Ok(settings) => settings.hide_email,
+        Err(error) => {
+            tracing::warn!(%error, "cannot read the privacy setting; using the no-reply address");
+            true
+        }
+    };
+
+    Identity {
+        name: user.display_name().to_string(),
+        email: commit_email(&user.login, &user.email, hide_email, noreply_domain),
+    }
+}
+
 /// What the person filled in.
 #[derive(Debug, Clone)]
 pub struct NewRecipe {
     pub title: String,
     pub source: String,
     pub private: bool,
+    /// The photo the person chose, when they chose one. A Recipe carries
+    /// zero or one.
+    pub thumbnail: Option<Thumbnail>,
     /// The domain Forgejo uses for a hidden address.
     pub noreply_domain: String,
 }
@@ -75,6 +104,8 @@ pub enum CreateError {
     MissingTitle,
     #[error("the Recipe source is larger than 1 MB")]
     TooLarge,
+    #[error("the photo is larger than 5 MB")]
+    ThumbnailTooLarge,
     /// The parser refused the source. The messages are for the person.
     #[error("the Cooklang source has an error")]
     Invalid { errors: Vec<String> },
@@ -108,6 +139,14 @@ pub async fn create(
         return Err(CreateError::TooLarge);
     }
 
+    // The web layer checks this too. It is checked again here so that the
+    // limit belongs to the Recipe model and not to one form.
+    if let Some(thumbnail) = &input.thumbnail
+        && thumbnail.bytes.len() > MAX_THUMBNAIL_BYTES
+    {
+        return Err(CreateError::ThumbnailTooLarge);
+    }
+
     let parsed = recipe::parse(&source);
     if !parsed.is_valid() {
         return Err(CreateError::Invalid {
@@ -117,24 +156,16 @@ pub async fn create(
 
     let repository = create_repository(forgejo, token, &title, input.private).await?;
 
-    // Ask Forgejo whether this person hides their address. A failure here
-    // is treated as "hide", because publishing an address by accident
-    // cannot be undone.
-    let hide_email = match forgejo.user_settings(token).await {
-        Ok(settings) => settings.hide_email,
-        Err(error) => {
-            tracing::warn!(%error, "cannot read the privacy setting; using the no-reply address");
-            true
-        }
-    };
-
-    let identity = Identity {
-        name: user.display_name().to_string(),
-        email: commit_email(&user.login, &user.email, hide_email, &input.noreply_domain),
-    };
+    let identity = identity_of(forgejo, token, user, &input.noreply_domain).await;
 
     let mut files = BTreeMap::new();
     files.insert(RECIPE_FILE.to_string(), source.into_bytes());
+
+    // The photo goes into the first Version beside the Recipe, exactly as
+    // it arrived. The application converts nothing and compresses nothing.
+    if let Some(thumbnail) = input.thumbnail {
+        files.insert(thumbnail.format.path().to_string(), thumbnail.bytes);
+    }
 
     let version = git
         .create_initial_commit(InitialCommit {
@@ -268,6 +299,7 @@ mod tests {
             title: "   ".to_string(),
             source: "Chop the @onion{1}.".to_string(),
             private: false,
+            thumbnail: None,
             noreply_domain: DEFAULT_NOREPLY_DOMAIN.to_string(),
         };
         assert!(input.title.trim().is_empty());

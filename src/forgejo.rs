@@ -505,6 +505,47 @@ impl ForgejoClient {
             .map_err(|error| ForgejoError::Body(error.to_string()))
     }
 
+    /// List the file names at the top of a repository.
+    ///
+    /// This is how the application learns which photo a Recipe carries,
+    /// instead of guessing at a name. Forgejo applies the permissions of
+    /// the token, so a private Recipe answers only somebody who may see it.
+    pub async fn list_root_files(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        reference: &str,
+    ) -> Result<Vec<String>, ForgejoError> {
+        #[derive(Deserialize)]
+        struct Entry {
+            #[serde(default)]
+            name: String,
+            #[serde(rename = "type", default)]
+            kind: String,
+        }
+
+        let mut request = self
+            .http
+            .get(format!(
+                "{}/api/v1/repos/{owner}/{repository}/contents",
+                self.api_url
+            ))
+            .query(&[("ref", reference)]);
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        let response = self.send(request).await?;
+        let entries: Vec<Entry> = read_json(response).await?;
+
+        Ok(entries
+            .into_iter()
+            .filter(|entry| entry.kind == "file")
+            .map(|entry| entry.name)
+            .collect())
+    }
+
     /// Read the account settings of the token holder.
     ///
     /// `/api/v1/user` gives the real address to the person it belongs to,

@@ -10,7 +10,7 @@ repository = "https://github.com/999Fritsch/CookLangHub"
 anyhow = "1"
 askama = "0.16"
 async-trait = "0.1"
-axum = "0.8"
+axum = { version = "0.8", features = ["multipart"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
 base64 = "0.22"
 chacha20poly1305 = "0.10"
@@ -37,7 +37,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "http2", "form", "cookies", "query"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "http2", "form", "cookies", "multipart", "query"] }
 serde_json = "1"
 tempfile = "3"
 testcontainers = "0.28"

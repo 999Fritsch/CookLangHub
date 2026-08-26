@@ -144,6 +144,9 @@ pub struct RecipeCard {
     pub slug: String,
     pub title: String,
     pub private: bool,
+    /// Whether the card can show a photo. The image itself comes from this
+    /// application, so a private Recipe keeps its photo private.
+    pub thumbnail: bool,
 }
 
 #[derive(Template)]
@@ -241,16 +244,35 @@ async fn mine(state: &AppState, jar: &axum_extra::extract::CookieJar) -> Vec<Rec
     }))
     .await;
 
+    // Whether a card can show a photo costs one more request each, for the
+    // same reason the title does.
+    let thumbnails = futures::future::join_all(repositories.iter().map(|repository| {
+        let forgejo = state.forgejo.clone();
+        let token = token.clone();
+        let owner = repository.owner.login.clone();
+        let name = repository.name.clone();
+        let branch = crate::upload::branch_of(repository);
+
+        async move {
+            crate::upload::photos(&forgejo, Some(&token), &owner, &name, &branch)
+                .await
+                .is_some()
+        }
+    }))
+    .await;
+
     repositories
         .into_iter()
         .zip(titles)
-        .map(|(repository, title)| RecipeCard {
+        .zip(thumbnails)
+        .map(|((repository, title), thumbnail)| RecipeCard {
             owner: repository.owner.login,
             // A Recipe with no readable title falls back to its slug rather
             // than showing nothing.
             title: title.unwrap_or_else(|| repository.name.clone()),
             slug: repository.name,
             private: repository.private,
+            thumbnail,
         })
         .collect()
 }

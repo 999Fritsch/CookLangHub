@@ -3,14 +3,12 @@
 use std::sync::Arc;
 
 use askama::Template;
-use axum::Form;
 use axum::Router;
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
 use axum_extra::extract::CookieJar;
-use serde::Deserialize;
 
 use crate::create_recipe::{self, CreateError, NewRecipe};
 use crate::forgejo::{ForgejoUser, Repository};
@@ -18,6 +16,7 @@ use crate::recipe::{self, RECIPE_FILE};
 use crate::render::{self, RenderedRecipe};
 use crate::secret::Secret;
 use crate::session::{self, COOKIE_NAME};
+use crate::upload::{self, SourceMode};
 use crate::web::{AppState, Layout, MaybeUser};
 
 /// One area of a Recipe page.
@@ -67,21 +66,29 @@ const NOT_TEXT_MESSAGE: &str = "This Recipe is not UTF-8 text. Each character th
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/recipes/new", get(new_form).post(create))
+        .route(
+            "/recipes/new",
+            // The create form carries files now, so the request is larger
+            // than the ordinary limit of the framework allows.
+            get(new_form)
+                .post(create)
+                .layer(DefaultBodyLimit::max(upload::MAX_REQUEST_BYTES)),
+        )
         .route("/recipes/{owner}/{slug}", get(show))
+        .merge(crate::upload::router())
 }
 
 /// A signed-in person plus the credential to act as them in Forgejo.
-struct Actor {
-    user: ForgejoUser,
-    token: Secret<String>,
+pub(crate) struct Actor {
+    pub user: ForgejoUser,
+    pub token: Secret<String>,
 }
 
 /// Read the session and fetch the Forgejo identity behind it.
 ///
 /// The identity comes from Forgejo rather than from the session row so that
 /// the address obeys the current privacy setting of that person.
-async fn actor(state: &AppState, jar: &CookieJar) -> Option<Actor> {
+pub(crate) async fn actor(state: &AppState, jar: &CookieJar) -> Option<Actor> {
     let cookie = jar.get(COOKIE_NAME)?;
     let token = session::access_token(&state.pool, &state.cipher, cookie.value())
         .await
@@ -96,6 +103,8 @@ async fn actor(state: &AppState, jar: &CookieJar) -> Option<Actor> {
 struct NewTemplate {
     layout: Layout,
     title: String,
+    /// Which of the two sources the person selected.
+    mode: SourceMode,
     source: String,
     private: bool,
     errors: Vec<String>,
@@ -114,6 +123,8 @@ async fn new_form(
     respond(NewTemplate {
         layout: Layout::new(user.as_ref()).on(&headers, "/recipes/new"),
         title: String::new(),
+        // Writing the Recipe here is the default.
+        mode: SourceMode::default(),
         source: String::new(),
         // Public is the default.
         private: false,
@@ -121,35 +132,42 @@ async fn new_form(
     })
 }
 
-/// What the create form sends.
-#[derive(Debug, Deserialize)]
-struct CreateForm {
-    title: String,
-    #[serde(default)]
-    source: String,
-    /// Absent means public, because the form sends this only when the
-    /// person picks Private.
-    #[serde(default)]
-    visibility: Option<String>,
-}
-
 async fn create(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
     jar: CookieJar,
     MaybeUser(current): MaybeUser,
-    Form(form): Form<CreateForm>,
+    multipart: Multipart,
 ) -> Response {
     let Some(actor) = actor(&state, &jar).await else {
         return Redirect::to("/auth/sign-in").into_response();
     };
 
-    let private = form.visibility.as_deref() == Some("private");
+    // The form carries files, so it arrives as multipart. Reading it never
+    // fails: a body the application cannot read becomes a reason that the
+    // form shows.
+    let form = upload::read_create_form(multipart).await;
+    let private = form.private;
+
+    let content = match form.content() {
+        Ok(content) => content,
+        Err(refusals) => {
+            return respond(NewTemplate {
+                layout: Layout::new(current.as_ref()).on(&headers, "/recipes/new"),
+                title: form.title,
+                mode: form.mode,
+                source: form.typed,
+                private,
+                errors: refusals.iter().map(ToString::to_string).collect(),
+            });
+        }
+    };
 
     let input = NewRecipe {
         title: form.title.clone(),
-        source: form.source.clone(),
+        source: content.source,
         private,
+        thumbnail: content.thumbnail,
         noreply_domain: state.forgejo_noreply_domain.clone(),
     };
 
@@ -184,7 +202,8 @@ async fn create(
             respond(NewTemplate {
                 layout: Layout::new(current.as_ref()).on(&headers, "/recipes/new"),
                 title: form.title,
-                source: form.source,
+                mode: form.mode,
+                source: form.typed,
                 private,
                 errors,
             })
@@ -197,7 +216,12 @@ async fn create(
 struct ShowTemplate {
     layout: Layout,
     owner: String,
+    slug: String,
     title: String,
+    /// Whether the page can show a photo of this Recipe.
+    photo: bool,
+    /// Whether this person can put a photo on this Recipe.
+    can_change_photo: bool,
     /// The Recipe as a cook reads it.
     cooked: RenderedRecipe,
     /// The Cooklang behind it, kept for anybody who wants to look.
@@ -271,6 +295,25 @@ async fn show(
     let parsed = recipe::parse(&source);
     errors.extend(parsed.errors.iter().map(|d| d.message.clone()));
 
+    let mut warnings: Vec<String> = parsed.warnings.iter().map(|d| d.message.clone()).collect();
+
+    let photos = upload::photos(
+        &state.forgejo,
+        token.as_ref(),
+        &owner,
+        &slug,
+        &upload::branch_of(&repository),
+    )
+    .await;
+
+    // A Recipe with two photos is a state that Git allows and this
+    // interface cannot resolve. Say so, and leave it to a person.
+    if photos == upload::Photos::Several {
+        warnings.push(upload::SEVERAL_PHOTOS_MESSAGE.to_string());
+    }
+
+    let can_change_photo = current.as_ref().is_some_and(|person| person.login == owner);
+
     // A Recipe the parser refused cannot be cooked, so the page shows the
     // diagnosis and the source instead of a broken rendering.
     let cooked = recipe::parse_recipe(&source)
@@ -283,12 +326,15 @@ async fn show(
     respond(ShowTemplate {
         layout: Layout::new(current.as_ref()).on(&headers, &here),
         owner,
+        slug,
         title: parsed.title.unwrap_or_else(|| repository.name.clone()),
+        photo: photos.is_some(),
+        can_change_photo,
         cooked,
         source,
         forgejo_url: state.forgejo.web_url(&repository.full_name),
         areas,
-        warnings: parsed.warnings.iter().map(|d| d.message.clone()).collect(),
+        warnings,
         errors,
     })
 }

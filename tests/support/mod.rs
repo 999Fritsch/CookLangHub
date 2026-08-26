@@ -528,6 +528,10 @@ fn hidden_field(html: &str, name: &str) -> Option<String> {
 }
 
 /// Post the create-Recipe form as the holder of a session cookie.
+///
+/// The form carries files, so a browser sends it as multipart and so does
+/// this. A test that needs a file builds its own form and posts it with
+/// [`post_form`].
 pub async fn create_recipe(
     app: &TestApp,
     session: &str,
@@ -537,20 +541,65 @@ pub async fn create_recipe(
 ) -> reqwest::Response {
     let visibility = if private { "private" } else { "public" };
 
+    let form = reqwest::multipart::Form::new()
+        .text("title", title.to_string())
+        .text("mode", "text")
+        .text("source", source.to_string())
+        .text("visibility", visibility.to_string());
+
+    post_form(app, session, "/recipes/new", form).await
+}
+
+/// Post a multipart form as the holder of a session cookie.
+pub async fn post_form(
+    app: &TestApp,
+    session: &str,
+    path: &str,
+    form: reqwest::multipart::Form,
+) -> reqwest::Response {
     client()
-        .post(app.url("/recipes/new"))
+        .post(app.url(path))
         .header(
             "cookie",
             format!("{}={session}", cooklanghub::session::COOKIE_NAME),
         )
-        .form(&[
-            ("title", title),
-            ("source", source),
-            ("visibility", visibility),
-        ])
+        .multipart(form)
         .send()
         .await
-        .expect("cannot post the create form")
+        .expect("cannot post the form")
+}
+
+/// One file, as a browser sends it.
+pub fn file_part(file_name: &str, bytes: Vec<u8>) -> reqwest::multipart::Part {
+    reqwest::multipart::Part::bytes(bytes)
+        .file_name(file_name.to_string())
+        .mime_str("application/octet-stream")
+        .expect("cannot build the file part")
+}
+
+/// Read one file of a Recipe straight out of Forgejo, as bytes.
+///
+/// A test that checks what actually landed there uses this, so that no
+/// step of the application can hide a change to the bytes.
+pub async fn forgejo_raw(
+    forgejo: &Forgejo,
+    token: &Secret<String>,
+    path: &str,
+) -> (reqwest::StatusCode, Vec<u8>) {
+    let response = reqwest::Client::new()
+        .get(format!("{}/api/v1/repos{path}", forgejo.base_url))
+        .header("Authorization", format!("token {}", token.expose()))
+        .send()
+        .await
+        .expect("cannot reach the Forgejo API");
+
+    let status = response.status();
+    let bytes = response
+        .bytes()
+        .await
+        .expect("cannot read the body")
+        .to_vec();
+    (status, bytes)
 }
 
 /// Ask Forgejo directly, for a test that checks what actually landed there.
