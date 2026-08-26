@@ -1,0 +1,72 @@
+{#
+  The History of one Cookbook.
+
+  Git holds it. Every Version is here, and the Versions that the automation
+  made carry less weight than the Versions that a person made: a plain card
+  instead of the warm one, quieter text, and a mark that says which is which.
+  Automation stays visible, and it does not fill the page.
+
+  CookCLI has no screen like this, so the page is built from the parts that
+  the Recipe History uses: the orange gradient title, the navigation pills,
+  the white rounded cards, and the gradient rows.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}History &middot; {{ title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">{{ title }}</h1>
+  <div class="flex flex-wrap items-center gap-2 self-start">
+    <a class="nav-pill" href="/cookbooks/{{ owner }}/{{ slug }}">Cookbook</a>
+    <span class="nav-pill active" aria-current="page">History</span>
+    <a class="nav-pill" href="{{ forgejo_url }}">Open in Forgejo</a>
+  </div>
+</div>
+
+<div class="flex flex-wrap gap-2 mb-6">
+  <span class="metadata-pill metadata-servings"><span aria-hidden="true">👤</span> Owned by {{ owner }}</span>
+</div>
+
+{% if let Some(message) = notice %}
+<div class="bg-white rounded-2xl shadow-lg p-4 mb-6 text-gray-700" role="status">
+  {{ message }}
+</div>
+{% endif %}
+
+<section class="bg-white rounded-2xl shadow-lg p-6" aria-labelledby="history-heading">
+  <h2 id="history-heading" class="text-lg font-bold mb-3 text-orange-600"><span aria-hidden="true">🕘</span> Versions</h2>
+  <p class="text-gray-600 mb-4">
+    History holds the Versions of this Cookbook. The newest Version is first.
+    A Recipe that follows updates gives this Cookbook one Version each time
+    the Recipe gets a new one.
+  </p>
+
+  {% if versions.is_empty() %}
+  <p class="text-gray-600 m-0">This Cookbook has no Version yet.</p>
+  {% else %}
+  <ol class="space-y-3 list-none p-0 m-0">
+    {% for version in versions %}
+    {% if version.automatic %}
+    <li class="bg-gray-50 rounded-xl p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span class="text-gray-600">{{ version.description }}</span>
+        <span class="metadata-pill metadata-custom"><span aria-hidden="true">🔄</span> Automatic</span>
+      </div>
+      <p class="text-sm text-gray-600 mt-1 m-0">By {{ version.author }} on {{ version.moment }}</p>
+    </li>
+    {% else %}
+    <li class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span class="font-medium text-gray-900">{{ version.description }}</span>
+      </div>
+      <p class="text-sm text-gray-600 mt-1 m-0">By {{ version.author }} on {{ version.moment }}</p>
+    </li>
+    {% endif %}
+    {% endfor %}
+  </ol>
+  {% endif %}
+</section>
+{% endblock %}

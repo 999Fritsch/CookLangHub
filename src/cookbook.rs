@@ -784,6 +784,10 @@ pub struct Held {
     pub following: bool,
     /// Why the Recipe is not available, when it is not.
     pub problem: String,
+    /// What is wrong with a Recipe that is there and readable, when
+    /// something is. A Cookbook that follows a Recipe which no longer holds
+    /// the Versions it follows says so here. Nothing is repaired.
+    pub warning: String,
 }
 
 impl Held {
@@ -797,6 +801,7 @@ impl Held {
             title: String::new(),
             following: false,
             problem: message.to_string(),
+            warning: String::new(),
         }
     }
 }
@@ -874,6 +879,7 @@ pub async fn held_recipes(
                     title,
                     following: reference.holding() == Holding::Following,
                     problem: String::new(),
+                    warning: still_follows(forgejo, token, &repository, reference).await,
                 });
             }
             Err(message) => hidden.push(Held::hidden(message)),
@@ -891,6 +897,40 @@ pub async fn held_recipes(
     available
 }
 
+/// What is wrong with one Recipe that a Cookbook follows, when something is.
+///
+/// A Pinned Recipe follows nothing, so nothing here can be wrong with it.
+/// A Following one names what it follows, and Forgejo answers whether the
+/// Recipe still holds it. Only the answer "there is no such thing" reports a
+/// state: an outage must never become a diagnostic about a Recipe.
+async fn still_follows(
+    forgejo: &ForgejoClient,
+    token: Option<&Secret<String>>,
+    repository: &Repository,
+    reference: &Reference,
+) -> String {
+    let Some(branch) = reference.follow.as_deref() else {
+        return String::new();
+    };
+
+    match forgejo
+        .branch_exists(token, &repository.owner.login, &repository.name, branch)
+        .await
+    {
+        Ok(true) => String::new(),
+        Ok(false) => crate::automation::NOTHING_TO_FOLLOW_MESSAGE.to_string(),
+        Err(error) => {
+            tracing::info!(
+                %error,
+                owner = %repository.owner.login,
+                slug = %repository.name,
+                "cannot ask Forgejo what this Recipe holds"
+            );
+            String::new()
+        }
+    }
+}
+
 // ------------------------------------------- adding and removing a Recipe
 
 #[derive(Debug, thiserror::Error)]
@@ -905,6 +945,12 @@ pub enum HoldError {
     NoFreePath,
     #[error("this Cookbook does not hold that Recipe")]
     NotHeld,
+    #[error("this Cookbook holds no Version of that Recipe")]
+    NoHeldVersion,
+    #[error("that Recipe has no Versions to follow")]
+    NothingToFollow,
+    #[error("that Recipe is not available")]
+    Unavailable,
     #[error(transparent)]
     Forgejo(#[from] ForgejoError),
     #[error(transparent)]
@@ -934,6 +980,10 @@ pub struct Added {
     pub version: String,
     /// The Version of the Cookbook that this made.
     pub cookbook_version: String,
+    /// What the Cookbook holds now, for every Recipe in it. The caller
+    /// gives the automation the access this Cookbook needs from it, and
+    /// asks Forgejo nothing a second time.
+    pub references: Vec<Reference>,
 }
 
 /// Add a Recipe to a Cookbook.
@@ -1000,10 +1050,159 @@ pub async fn add_recipe(
         })
         .await?;
 
+    let mut references = held;
+    references.push(Reference {
+        path: path.clone(),
+        url: address,
+        follow: follow.map(str::to_string),
+        version: Some(version.clone()),
+    });
+
     Ok(Added {
         path,
         version,
         cookbook_version,
+        references,
+    })
+}
+
+// -------------------------------------------------- Pinned and Following
+
+/// What a person asked for when they changed how a Cookbook holds a Recipe.
+#[derive(Debug, Clone)]
+pub struct SetHolding<'a> {
+    /// The Cookbook that changes. The Recipe does not change at all.
+    pub cookbook: &'a Repository,
+    /// Where the Recipe sits inside the Cookbook.
+    pub path: &'a str,
+    /// How the Cookbook is to hold it from now on.
+    pub holding: Holding,
+    /// The title that History records for the Recipe.
+    pub title: &'a str,
+    /// The domain Forgejo uses for a hidden address.
+    pub noreply_domain: &'a str,
+}
+
+/// What the change came to.
+#[derive(Debug, Clone)]
+pub struct Switched {
+    /// The Version of the Recipe that the Cookbook holds now.
+    pub version: String,
+    /// The Version of the Cookbook that this made. There is none when the
+    /// Cookbook already held the Recipe this way.
+    pub cookbook_version: Option<String>,
+    /// What the Cookbook holds now, for every Recipe in it.
+    pub references: Vec<Reference>,
+}
+
+/// Change one Recipe of a Cookbook between Pinned and Following.
+///
+/// Only the Cookbook changes. The Recipe repository is not written to, and
+/// every other Cookbook that holds the same Recipe is left exactly as it is.
+///
+/// Following means current and future, so a Recipe that starts to follow
+/// moves to the Version that the Recipe has now. Pinned means stop where
+/// this Cookbook is, so a Recipe that stops following keeps the Version the
+/// Cookbook holds and never reads the Recipe at all.
+pub async fn set_holding(
+    forgejo: &ForgejoClient,
+    git: &dyn GitAdapter,
+    token: &Secret<String>,
+    user: &ForgejoUser,
+    input: SetHolding<'_>,
+) -> Result<Switched, HoldError> {
+    let held = references(forgejo, Some(token), input.cookbook)
+        .await
+        .references;
+
+    let Some(current) = held
+        .iter()
+        .find(|reference| reference.path == input.path)
+        .cloned()
+    else {
+        return Err(HoldError::NotHeld);
+    };
+
+    if current.url.trim().is_empty() {
+        return Err(HoldError::Unavailable);
+    }
+
+    let Some(recorded) = current.version.clone() else {
+        return Err(HoldError::NoHeldVersion);
+    };
+
+    // The Cookbook holds it this way already, so nothing is written. A
+    // Version that changes nothing must never reach History.
+    if current.holding() == input.holding {
+        return Ok(Switched {
+            version: recorded,
+            cookbook_version: None,
+            references: held,
+        });
+    }
+
+    let (follow, version) = match input.holding {
+        Holding::Following => {
+            let Some((owner, slug)) = recipe_named_by(forgejo, &current.url) else {
+                return Err(HoldError::Unavailable);
+            };
+
+            // Forgejo says whether this person may read the Recipe, and it
+            // says which Versions the Recipe publishes.
+            let repository = forgejo
+                .repository_as(Some(token), &owner, &slug)
+                .await
+                .map_err(|_| HoldError::Unavailable)?;
+            let branch = repository.branch().to_string();
+
+            let head = git
+                .branch_head(&forgejo.git_url(&repository.full_name), token, &branch)
+                .await?
+                .ok_or(HoldError::NothingToFollow)?;
+
+            (Some(branch), head)
+        }
+        // The Version that the Cookbook holds now is the Version it keeps.
+        // The Recipe is not read for this.
+        Holding::Pinned => (None, recorded),
+    };
+
+    let identity = create_recipe::identity_of(forgejo, token, user, input.noreply_domain).await;
+
+    let message = match input.holding {
+        Holding::Following => format!("Follow {}", input.title),
+        Holding::Pinned => format!("Keep this Version of {}", input.title),
+    };
+
+    let cookbook_version = git
+        .write_reference(crate::git::WriteReference {
+            remote_url: &forgejo.git_url(&input.cookbook.full_name),
+            token,
+            identity: &identity,
+            branch: input.cookbook.branch(),
+            message: &message,
+            path: input.path,
+            url: &current.url,
+            version: &version,
+            follow: follow.as_deref(),
+        })
+        .await?;
+
+    let references = held
+        .into_iter()
+        .map(|mut reference| {
+            if reference.path == input.path {
+                reference.follow = follow.clone();
+                reference.version = Some(version.clone());
+            }
+            reference
+        })
+        .collect();
+
+    Ok(Switched {
+        version,
+        cookbook_version: Some(cookbook_version),
+        references,
     })
 }
 
@@ -1020,6 +1219,15 @@ pub struct RemoveRecipe<'a> {
     pub noreply_domain: &'a str,
 }
 
+/// A Recipe that a Cookbook no longer holds.
+#[derive(Debug, Clone)]
+pub struct Removed {
+    /// The Version of the Cookbook that this made.
+    pub cookbook_version: String,
+    /// What the Cookbook holds now, for every Recipe left in it.
+    pub references: Vec<Reference>,
+}
+
 /// Take a Recipe out of a Cookbook.
 ///
 /// Only the Cookbook changes. The Recipe repository is not written to, so
@@ -1031,7 +1239,7 @@ pub async fn remove_recipe(
     token: &Secret<String>,
     user: &ForgejoUser,
     input: RemoveRecipe<'_>,
-) -> Result<String, HoldError> {
+) -> Result<Removed, HoldError> {
     let held = references(forgejo, Some(token), input.cookbook)
         .await
         .references;
@@ -1042,7 +1250,7 @@ pub async fn remove_recipe(
 
     let identity = create_recipe::identity_of(forgejo, token, user, input.noreply_domain).await;
 
-    let version = git
+    let cookbook_version = git
         .remove_reference(crate::git::RemoveReference {
             remote_url: &forgejo.git_url(&input.cookbook.full_name),
             token,
@@ -1053,7 +1261,15 @@ pub async fn remove_recipe(
         })
         .await?;
 
-    Ok(version)
+    let references = held
+        .into_iter()
+        .filter(|reference| reference.path != input.path)
+        .collect();
+
+    Ok(Removed {
+        cookbook_version,
+        references,
+    })
 }
 
 // -------------------------------------------------------------- the index

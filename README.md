@@ -68,6 +68,33 @@ issues a new client secret, so Forgejo never collects duplicates.
 Add more people with `forgejo admin user create`, or turn registration on in
 Forgejo.
 
+## Prepare the automation account
+
+A Cookbook can follow a Recipe. It then moves to each new Version of that
+Recipe, and each move makes one Version of the Cookbook. A dedicated Forgejo
+account is the author of those Versions, so that nobody has their name on a
+change they did not make.
+
+Make one ordinary account and give CookLangHub one access token for it:
+
+```sh
+docker compose exec -u git forgejo forgejo admin user create \
+  --username cooklanghub-bot --email bot@example.com
+docker compose exec -u git forgejo forgejo admin user \
+  generate-access-token --username cooklanghub-bot --scopes all --raw
+```
+
+Put the token in `.env` as `COOKLANGHUB_AUTOMATION_TOKEN` and start the
+application again. It asks Forgejo who the token belongs to and records the
+answer.
+
+The account is an ordinary one. It gets write access to a Cookbook only when
+a Recipe in that Cookbook follows updates, and it loses the access when the
+last one stops. If you take the access away in Forgejo, the automation stops
+and the Cookbook page says so. CookLangHub does not give the access again.
+
+An installation with no Cookbook that follows a Recipe needs none of this.
+
 ## Health
 
 `GET /health` reports each component separately, so an administrator can tell
@@ -110,6 +137,7 @@ Environment variables, all with the `COOKLANGHUB_` prefix:
 | `FORGEJO_NOREPLY_DOMAIN` | `noreply.localhost` | Address domain for a person who hides their email |
 | `SESSION_SECRET` | none, required | Signs session cookies and encrypts stored credentials |
 | `WEBHOOK_SECRET` | derived from `SESSION_SECRET` | Signs each Forgejo webhook body |
+| `AUTOMATION_TOKEN` | none | Access token of the automation account, for a Cookbook that follows a Recipe |
 | `COOKIE_SECURE` | `true` | Whether the session cookie carries `Secure` |
 | `LOG_FORMAT` | `json` | `json` or `pretty` |
 | `LOG` | `info,cooklanghub=debug` | Log filter |

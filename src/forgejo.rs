@@ -1802,6 +1802,35 @@ impl ForgejoClient {
 
         read_json(self.send(request).await?).await
     }
+
+    /// Whether a repository holds a branch of this name.
+    ///
+    /// A Cookbook that follows a Recipe names the branch it follows, and
+    /// that branch can be removed in Forgejo afterwards. Only the answer
+    /// Forgejo gives for "there is no such branch" reports that state, so an
+    /// outage never becomes a diagnostic about a Recipe.
+    pub async fn branch_exists(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        branch: &str,
+    ) -> Result<bool, ForgejoError> {
+        let mut request = self.http.get(format!(
+            "{}/api/v1/repos/{owner}/{repository}/branches/{}",
+            self.api_url,
+            urlencode(branch)
+        ));
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        match self.send(request).await {
+            Ok(_) => Ok(true),
+            Err(ForgejoError::Status { status: 404, .. }) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
 }
 
 /// One entry at the top of a repository.
