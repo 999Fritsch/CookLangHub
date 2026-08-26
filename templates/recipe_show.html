@@ -66,9 +66,9 @@
         {% endif %}
         {% for fact in cooked.facts %}
         {% if let Some(link) = fact.link %}
-        <span class="metadata-pill metadata-custom"><span aria-hidden="true">🔗</span> <a href="{{ link }}" rel="noopener noreferrer nofollow" class="text-blue-600 hover:text-blue-800 hover:underline">{{ fact.label }}</a></span>
+        <span class="metadata-pill {{ fact.pill }}">{% if let Some(icon) = fact.icon %}<span aria-hidden="true">{{ icon }}</span> {% endif %}<a href="{{ link }}" rel="noopener noreferrer nofollow" class="hover:underline">{{ fact.label }}</a></span>
         {% else %}
-        <span class="metadata-pill metadata-custom">{{ fact.label }}: {{ fact.value }}</span>
+        <span class="metadata-pill {{ fact.pill }}">{% if let Some(icon) = fact.icon %}<span aria-hidden="true">{{ icon }}</span> {% endif %}{{ fact.label }}: {{ fact.value }}</span>
         {% endif %}
         {% endfor %}
       </div>

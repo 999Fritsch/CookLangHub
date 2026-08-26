@@ -140,6 +140,12 @@ pub struct Fact {
     pub value: String,
     /// Set only when the value is an address that is safe to follow.
     pub link: Option<String>,
+    /// The CookCLI pill class for this kind of fact. CookCLI gives a time
+    /// a different colour from a difficulty, and the stylesheet copied
+    /// from CookCLI already carries every one of these classes.
+    pub pill: &'static str,
+    /// The mark CookCLI puts in front of this kind of fact.
+    pub icon: Option<&'static str>,
 }
 
 /// What the serving and units control shows.
@@ -375,6 +381,34 @@ fn servings(recipe: &Recipe) -> Option<String> {
     (!text.trim().is_empty()).then_some(text)
 }
 
+/// The CookCLI pill and mark for one metadata key.
+///
+/// CookCLI gives each kind of fact its own colour, and the stylesheet taken
+/// from CookCLI holds all of these classes already. Without this map every
+/// fact fell into `metadata-custom`, so the whole row showed as one purple.
+/// That is not how CookCLI looks.
+///
+/// A key that CookCLI has no colour for keeps `metadata-custom`, which is
+/// what CookCLI does with it as well.
+fn pill_for(key: &str) -> (&'static str, Option<&'static str>) {
+    let key = key.trim().to_ascii_lowercase().replace(['_', '-'], " ");
+
+    match key.as_str() {
+        "difficulty" => ("metadata-difficulty", Some("📊")),
+        "prep time" | "preptime" | "prep" => ("metadata-prep", Some("⏱️")),
+        "cook time" | "cooktime" | "cooking time" => ("metadata-cook", Some("🔥")),
+        "time" | "total time" | "duration" => ("metadata-time", Some("⏰")),
+        "course" | "category" | "meal" => ("metadata-course", Some("🍽️")),
+        "cuisine" => ("metadata-cuisine", Some("🌍")),
+        "diet" => ("metadata-diet", Some("🥗")),
+        "author" | "source author" => ("metadata-author", Some("✍️")),
+        // CookCLI writes this class and gives it no colour of its own, so
+        // the pill shows plain. Kept the same on purpose.
+        "source" => ("metadata-source", Some("📖")),
+        _ => ("metadata-custom", None),
+    }
+}
+
 /// Collect the metadata worth showing, as text.
 fn facts(recipe: &Recipe) -> Vec<Fact> {
     let mut facts = Vec::new();
@@ -393,10 +427,14 @@ fn facts(recipe: &Recipe) -> Vec<Fact> {
             continue;
         }
 
+        let (pill, icon) = pill_for(key);
+
         facts.push(Fact {
             label: humanize(key),
             link: safe_link(&text),
             value: text,
+            pill,
+            icon,
         });
     }
 
@@ -531,6 +569,33 @@ mod tests {
 
         assert_eq!(r.ingredients[0].name, "Öl");
         assert_eq!(r.ingredients[0].quantity.as_deref(), Some("2 EL"));
+    }
+
+    #[test]
+    fn each_kind_of_fact_gets_the_colour_cookcli_gives_it() {
+        // The stylesheet from CookCLI carries a colour for each of these.
+        // Before this map every fact was `metadata-custom`, so the row of
+        // pills was one purple instead of CookCLI's several colours.
+        for (key, expected) in [
+            ("difficulty", "metadata-difficulty"),
+            ("Prep Time", "metadata-prep"),
+            ("prep_time", "metadata-prep"),
+            ("cook time", "metadata-cook"),
+            ("Total Time", "metadata-time"),
+            ("cuisine", "metadata-cuisine"),
+            ("diet", "metadata-diet"),
+            ("author", "metadata-author"),
+            ("course", "metadata-course"),
+        ] {
+            assert_eq!(pill_for(key).0, expected, "`{key}` has the wrong pill");
+        }
+    }
+
+    #[test]
+    fn a_fact_cookcli_has_no_colour_for_stays_the_plain_one() {
+        for key in ["calories", "protein", "whatever a person wrote"] {
+            assert_eq!(pill_for(key), ("metadata-custom", None));
+        }
     }
 
     #[test]
