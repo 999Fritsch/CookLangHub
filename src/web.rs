@@ -67,6 +67,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::web_history::router())
         .merge(crate::web_profile::router())
         .merge(crate::web_sharing::router())
+        .merge(crate::web_variations::router())
         .merge(crate::webhook::router())
         // A page holds somebody's Recipes, and some of them are private.
         // Without this the browser keeps the page, so after a person signs

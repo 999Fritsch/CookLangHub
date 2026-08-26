@@ -1,0 +1,132 @@
+{#
+  The Variations area of a Recipe. CookCLI has no screen like this, so the
+  page is built from its parts: the orange gradient title, the navigation
+  pills, the white rounded cards, the gradient rows, the orange button, and
+  the Recipe card grid that every list of Recipes uses.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+
+  Every action is a form that posts. The page needs no script, which is what
+  lets the Content Security Policy stay at default-src 'self'.
+#}
+{% extends "base.html" %}
+
+{% block title %}Variations &middot; {{ title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div>
+  <div class="mb-8">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
+        {{ title }}
+      </h1>
+      <div class="flex flex-wrap items-center gap-2 self-start">
+        <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
+      </div>
+    </div>
+
+    <p class="text-gray-600">Owned by {{ owner }}</p>
+  </div>
+
+  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Recipe">
+    <a class="nav-pill" href="/recipes/{{ owner }}/{{ slug }}">Recipe</a>
+    {% for area in areas %}
+    {% if area.name == "Variations" %}
+    <span class="nav-pill active" aria-current="page">{{ area.name }}</span>
+    {% else %}
+    {% if let Some(href) = area.href %}
+    <a class="nav-pill" href="{{ href }}">{{ area.name }}</a>
+    {% else %}
+    <span class="nav-pill opacity-50" aria-disabled="true">{{ area.name }}</span>
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+  </nav>
+
+  {% if !errors.is_empty() %}
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-8" role="alert">
+    <h2 class="font-bold mb-2">This did not work</h2>
+    <ul class="list-disc pl-5 space-y-1">
+      {% for error in errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {#
+    Where this Recipe comes from. Forgejo holds the answer, so the card is
+    here only while Forgejo names a source Recipe.
+  #}
+  {% if let Some(from) = source %}
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Where this Recipe comes from</h2>
+    <div class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4">
+      <p class="text-gray-700 m-0">
+        This Recipe is a Variation of
+        <a class="font-medium text-gray-900 hover:text-orange-700" href="{{ from.href() }}">{{ from.title }}</a>,
+        which {{ from.owner }} owns.
+      </p>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if source_unavailable %}
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Where this Recipe comes from</h2>
+    <div class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4">
+      <p class="text-gray-700 m-0">
+        This Recipe is a Variation, and the source Recipe is not available.
+        It is private now, or it is gone. This Recipe holds everything that it
+        held before, and you can read it and cook it.
+      </p>
+    </div>
+    <p class="text-gray-600 mt-4 mb-0">
+      <a class="font-medium text-gray-900 hover:text-orange-700" href="{{ forgejo_url }}">Open in Forgejo</a>
+      to see what Forgejo holds.
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Make a Variation</h2>
+    <p class="text-gray-600 mb-4">
+      A Variation is your own Recipe. It starts with this Recipe and its
+      History. A change that you make in it does not change this Recipe.
+    </p>
+
+    {% if layout.signed_in %}
+    {% if let Some(version) = start %}
+    <div class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4 mb-4">
+      <p class="text-gray-700 m-0">
+        This Variation starts at the Version of {{ version.moment }}:
+        {{ version.description }}
+      </p>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/recipes/{{ owner }}/{{ slug }}/variations">
+      {% if let Some(version) = start %}
+      <input type="hidden" name="version" value="{{ version.id }}">
+      {% endif %}
+      <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Create variation</button>
+    </form>
+
+    {% if start.is_some() %}
+    <p class="text-gray-600 mt-4 mb-0">
+      <a class="font-medium text-gray-900 hover:text-orange-700" href="/recipes/{{ owner }}/{{ slug }}/variations">Start at the published Version</a>
+      instead.
+    </p>
+    {% endif %}
+    {% else %}
+    <p class="text-gray-600 mb-0">
+      <a class="font-medium text-gray-900 hover:text-orange-700" href="/auth/sign-in">Sign in</a>
+      to make a Variation of this Recipe.
+    </p>
+    {% endif %}
+  </div>
+
+  <h2 class="text-xl font-bold mb-4 text-gray-900">Variations of this Recipe</h2>
+  {% include "browse_cards.html" %}
+</div>
+{% endblock %}

@@ -54,7 +54,7 @@ pub fn areas(owner: &str, slug: &str, repository: &Repository) -> Vec<RecipeArea
         },
         RecipeArea {
             name: "Variations",
-            href: None,
+            href: Some(crate::web_variations::area_href(owner, slug)),
         },
         RecipeArea {
             name: "Sharing",
