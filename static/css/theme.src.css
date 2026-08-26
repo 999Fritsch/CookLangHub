@@ -91,6 +91,24 @@
             border: 1px solid #374151;
         }
 
+        /* Not from CookCLI. The Preferences page uses two of their
+           coloured cards, and their dark rules cover neither, so one card
+           stayed white on a dark page and the other kept a heading too dark
+           to read. Written in their shape, from their palette. */
+        .dark .bg-gradient-to-r.from-blue-50.to-indigo-50,
+        .dark .bg-gradient-to-r.from-purple-50.to-pink-50 {
+            background: linear-gradient(to right, #1f2937, #111827);
+            border-color: #374151;
+        }
+
+        .dark .text-blue-900 {
+            color: #93c5fd;
+        }
+
+        .dark .text-purple-900 {
+            color: #d8b4fe;
+        }
+
         .dark .bg-gradient-to-r.from-gray-50.to-orange-50 {
             background: linear-gradient(to right, #1f2937, #111827);
             border: 1px solid #374151;

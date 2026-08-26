@@ -194,6 +194,22 @@ impl Layout {
         self
     }
 
+    /// Whether the navigation should mark an area as the one in use.
+    ///
+    /// The mark said Recipes on every page that was not Explore, so it said
+    /// Recipes while a person stood on Preferences or on New Recipe. It now
+    /// answers for the page the person is actually on, and answers for none
+    /// of them on a page that belongs to no area.
+    pub fn area_is(&self, area: &str) -> bool {
+        let path = self.path.as_str();
+        match area {
+            "explore" => path == "/explore" || path.starts_with("/explore/"),
+            "new" => path == "/recipes/new",
+            "recipes" => path == "/" || (path.starts_with("/recipes/") && path != "/recipes/new"),
+            _ => false,
+        }
+    }
+
     /// The classes the page carries on its root element.
     ///
     /// Built here rather than in the template so that a choice left at its
@@ -388,6 +404,33 @@ fn avatar_address(avatar_url: &str, public_url: &str, api_url: &str) -> Option<S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_navigation_marks_the_area_a_person_is_in() {
+        let at = |path: &str| {
+            let mut layout = Layout::new(None);
+            layout.path = path.to_string();
+            layout
+        };
+
+        assert!(at("/").area_is("recipes"));
+        assert!(at("/recipes/sam/chili").area_is("recipes"));
+        assert!(at("/recipes/sam/chili/sharing").area_is("recipes"));
+        assert!(at("/explore").area_is("explore"));
+
+        // New Recipe is its own place, not a Recipe.
+        assert!(at("/recipes/new").area_is("new"));
+        assert!(!at("/recipes/new").area_is("recipes"));
+
+        // Preferences belongs to no area, so nothing is marked. The mark
+        // used to say Recipes here, which named the wrong place.
+        for area in ["recipes", "explore", "new"] {
+            assert!(
+                !at("/preferences").area_is(area),
+                "Preferences must not be marked as `{area}`"
+            );
+        }
+    }
 
     #[test]
     fn an_avatar_is_checked_in_public_and_fetched_inside() {
