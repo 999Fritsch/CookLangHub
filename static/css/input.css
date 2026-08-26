@@ -268,3 +268,20 @@ html.fact-colour .metadata-custom     { @apply text-purple-600 border-purple-300
         white-space: normal;
     }
 }
+
+/* ------------------------------------------------------------------
+   Not from CookCLI. The navigation panel on a telephone.
+
+   CookCLI opens its panel from an `onclick` attribute and closes it from
+   an inline script. The policy here refuses both, so the panel is a
+   `<details>` and needs no script. These two rules only remove the marker
+   that a browser draws beside a `<summary>`, so the control looks like the
+   pill it sits beside.
+   ------------------------------------------------------------------ */
+.menu > summary {
+    list-style: none;
+}
+
+.menu > summary::-webkit-details-marker {
+    display: none;
+}

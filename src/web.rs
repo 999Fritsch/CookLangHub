@@ -47,7 +47,10 @@ pub struct AppState {
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 pub fn router(state: AppState, static_dir: &str) -> Router {
-    Router::new()
+    // Every page a person sees. These carry the no-store rule below; the
+    // files under /static do not, because they are the same for everybody
+    // and a browser should keep them.
+    let pages = Router::new()
         .route("/", get(index))
         .route("/health", get(health_endpoint))
         .route("/avatar", get(avatar))
@@ -60,6 +63,21 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::web_edit::router())
         .merge(crate::web_sharing::router())
         .merge(crate::webhook::router())
+        // A page holds somebody's Recipes, and some of them are private.
+        // Without this the browser keeps the page, so after a person signs
+        // out the Back button still shows what they were reading. That
+        // matters most on a computer that people share.
+        //
+        // `if_not_present` rather than `overriding`, so a route that has
+        // already answered with its own rule keeps it. The photo route and
+        // the avatar route both do.
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        ));
+
+    Router::new()
+        .merge(pages)
         .nest_service("/static", ServeDir::new(static_dir))
         .layer(SetResponseHeaderLayer::overriding(
             header::CONTENT_SECURITY_POLICY,

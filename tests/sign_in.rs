@@ -147,7 +147,10 @@ async fn sign_out_ends_the_session_and_the_old_cookie_stops_working() {
         .await
         .expect("cannot sign out");
 
-    assert_eq!(signed_out.status(), 303);
+    // Signing out answers with a page rather than a jump, because this
+    // application cannot end the permission that Forgejo holds and has to
+    // say so. See tests/signing_out.rs.
+    assert_eq!(signed_out.status(), 200);
 
     // The same cookie must not work again.
     let page = support::client()

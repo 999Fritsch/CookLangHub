@@ -14,10 +14,11 @@
 
 use std::sync::Arc;
 
+use askama::Template;
 use axum::Router;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Redirect, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
@@ -27,7 +28,7 @@ use sqlx::sqlite::SqlitePool;
 use crate::crypto::{Cipher, digest, pkce_challenge, random_token};
 use crate::secret::Secret;
 use crate::session::{self, COOKIE_NAME, SESSION_LIFETIME_SECONDS};
-use crate::web::AppState;
+use crate::web::{AppState, Layout};
 
 /// How long a started sign-in stays valid.
 const ATTEMPT_LIFETIME_SECONDS: i64 = 60 * 10;
@@ -222,11 +223,35 @@ async fn callback(
     Ok((jar, Redirect::to("/")))
 }
 
-/// End the session and clear the cookie.
+/// The Forgejo page where a person can withdraw the permission.
+///
+/// Forgejo 15 offers no way for this application to end a grant: its OpenID
+/// configuration names no revocation address, and its API has no operation
+/// for one grant. Only a person can do it, and only there.
+pub fn forgejo_applications_url(public_url: &str) -> String {
+    format!(
+        "{}/user/settings/applications",
+        public_url.trim_end_matches('/')
+    )
+}
+
+#[derive(Template)]
+#[template(path = "signed_out.html")]
+struct SignedOutTemplate {
+    layout: Layout,
+    forgejo_applications_url: String,
+}
+
+/// End the session, clear the cookie, and say what Forgejo still holds.
+///
+/// A person who signs out on a shared computer needs to know that the
+/// permission did not go with the sign-in. This application cannot take it
+/// back, so it says so and shows the way to the page that can.
 async fn sign_out(
     State(app): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     jar: CookieJar,
-) -> Result<(CookieJar, Redirect), AuthError> {
+) -> Result<(CookieJar, Response), AuthError> {
     if let Some(cookie) = jar.get(COOKIE_NAME) {
         session::destroy(&app.pool, cookie.value()).await?;
     }
@@ -234,7 +259,22 @@ async fn sign_out(
     // Overwrite with an expired cookie so the browser drops it.
     let jar = jar.add(session_cookie(String::new(), 0, app.cookie_secure));
 
-    Ok((jar, Redirect::to("/")))
+    // The person is signed out from this line on, so the page is drawn for
+    // somebody with no account.
+    let template = SignedOutTemplate {
+        layout: Layout::new(None).on(&headers, "/auth/sign-out"),
+        forgejo_applications_url: forgejo_applications_url(app.forgejo.public_url()),
+    };
+
+    let page = match template.render() {
+        Ok(body) => Html(body).into_response(),
+        Err(error) => {
+            tracing::error!(%error, "cannot render the sign-out page");
+            Redirect::to("/").into_response()
+        }
+    };
+
+    Ok((jar, page))
 }
 
 /// Build the session cookie.

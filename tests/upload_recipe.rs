@@ -610,6 +610,21 @@ async fn the_recipe_page_and_the_card_show_the_photo() {
             .and_then(|value| value.to_str().ok()),
         Some("image/webp")
     );
+
+    // A photo follows the permission of its Recipe, so this route answers
+    // with its own rule. Every page carries `no-store` so that a browser
+    // keeps nothing after a sign-out, and that blanket rule must not
+    // overwrite the answer a route already gave.
+    let rule = response
+        .headers()
+        .get("cache-control")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    assert!(
+        rule.contains("private"),
+        "the photo keeps its own rule, got `{rule}`"
+    );
+    assert_ne!(rule, "no-store");
     let served = response
         .bytes()
         .await

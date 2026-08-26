@@ -32,29 +32,77 @@
             </a>
 
             {#
-              On a narrow screen the actions take a row of their own, which
-              is what CookCLI does with `w-full md:w-auto`. Without it the
-              row runs past the edge of a telephone and the whole page
-              scrolls sideways.
+              CookCLI keeps its navigation to one row on a telephone by
+              hiding every word and leaving one button that opens a panel.
+              Their button is an `onclick` attribute and their close is an
+              inline script, and the policy here refuses both, so the panel
+              opens with `<details>` instead. It needs no script at all, and
+              a `<summary>` is reachable and operable by keyboard on its own.
+
+              The panel markup is theirs. Only the trigger differs.
+
+              One difference from CookCLI: a panel opened this way stays open
+              until it is closed again, because closing on a click outside
+              needs a script. That is a small price for a control that works
+              with scripts off.
             #}
-            <div class="w-full md:w-auto flex flex-wrap items-center gap-1 lg:gap-2">
+            <div class="md:w-auto flex items-center gap-1 lg:gap-2">
               {% if layout.signed_in %}
-              <a href="/" class="nav-pill {% if layout.area_is("recipes") %}active{% endif %}">Recipes</a>
-              <a href="/explore" class="nav-pill {% if layout.area_is("explore") %}active{% endif %}">Explore</a>
-              <a href="/recipes/new" class="nav-pill {% if layout.area_is("new") %}active{% endif %}">New Recipe</a>
+              {# Wide enough for words. #}
+              <div class="hidden md:flex items-center gap-1 lg:gap-2">
+                <a href="/" class="nav-pill {% if layout.area_is("recipes") %}active{% endif %}">Recipes</a>
+                <a href="/explore" class="nav-pill {% if layout.area_is("explore") %}active{% endif %}">Explore</a>
+                <a href="/recipes/new" class="nav-pill {% if layout.area_is("new") %}active{% endif %}">New Recipe</a>
 
-              <span class="hidden md:inline-flex items-center gap-2 ml-2 text-sm text-gray-600">
-                {% if !layout.user_avatar.is_empty() %}
-                <img class="h-6 w-6 rounded-full" src="/avatar" alt="" width="24" height="24">
-                {% endif %}
-                {{ layout.user_name }}
-              </span>
+                <span class="inline-flex items-center gap-2 ml-2 text-sm text-gray-600">
+                  {% if !layout.user_avatar.is_empty() %}
+                  <img class="h-6 w-6 rounded-full" src="/avatar" alt="" width="24" height="24">
+                  {% endif %}
+                  {{ layout.user_name }}
+                </span>
 
-              <form method="post" action="/auth/sign-out" class="ml-1">
-                <button type="submit" class="nav-pill">Sign out</button>
-              </form>
+                <form method="post" action="/auth/sign-out" class="ml-1">
+                  <button type="submit" class="nav-pill">Sign out</button>
+                </form>
+              </div>
+
+              {# Narrow. One control, and the same places inside it. #}
+              <details class="menu relative md:hidden ml-auto">
+                <summary class="nav-pill cursor-pointer" aria-label="Menu">Menu</summary>
+                <div class="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl z-50 py-1">
+                  <a href="/" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors {% if layout.area_is("recipes") %}font-semibold text-orange-600{% endif %}">
+                    <span aria-hidden="true">🍳</span> <span>Recipes</span>
+                  </a>
+                  <a href="/explore" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors {% if layout.area_is("explore") %}font-semibold text-orange-600{% endif %}">
+                    <span aria-hidden="true">🌍</span> <span>Explore</span>
+                  </a>
+                  <a href="/recipes/new" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors {% if layout.area_is("new") %}font-semibold text-orange-600{% endif %}">
+                    <span aria-hidden="true">➕</span> <span>New Recipe</span>
+                  </a>
+                  <a href="/preferences" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors">
+                    <span aria-hidden="true">⚙️</span> <span>Preferences</span>
+                  </a>
+
+                  <div class="border-t border-gray-100 my-1"></div>
+
+                  <span class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600">
+                    {% if !layout.user_avatar.is_empty() %}
+                    <img class="h-6 w-6 rounded-full" src="/avatar" alt="" width="24" height="24">
+                    {% endif %}
+                    {{ layout.user_name }}
+                  </span>
+
+                  {# Sign-out changes state, so it stays a form and never a link. #}
+                  <form method="post" action="/auth/sign-out">
+                    <button type="submit" class="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors text-left">
+                      <span aria-hidden="true">🚪</span> <span>Sign out</span>
+                    </button>
+                  </form>
+                </div>
+              </details>
               {% else %}
-              <a href="/explore" class="nav-pill">Explore</a>
+              {# Two controls fit on one row at any width. #}
+              <a href="/explore" class="nav-pill {% if layout.area_is("explore") %}active{% endif %}">Explore</a>
               <a href="/auth/sign-in" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">Sign in</a>
               {% endif %}
             </div>
