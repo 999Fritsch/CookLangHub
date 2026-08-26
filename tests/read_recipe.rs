@@ -433,7 +433,17 @@ async fn a_person_can_choose_light_or_dark_and_it_sticks() {
         page.contains("<html lang=\"en\" class=\"dark\">"),
         "the page must carry the choice as the class CookCLI uses"
     );
-    assert!(!page.contains("<script"), "the choice must need no script");
+    // The choice needs no script at all. A page can load a script from a
+    // file, such as the countdown on the Recipe page, but never an inline
+    // one: the policy forbids it, and an inline script is what would make
+    // the wrong colours show while the page loads.
+    for script in page.split("<script").skip(1) {
+        assert!(
+            script.starts_with(" src=\""),
+            "the page must carry no inline script, got `<script{}`",
+            &script[..script.len().min(60)]
+        );
+    }
 }
 
 #[tokio::test]

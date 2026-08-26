@@ -5,7 +5,7 @@ use std::sync::Arc;
 use askama::Template;
 use axum::Form;
 use axum::Router;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
@@ -16,6 +16,7 @@ use crate::create_recipe::{self, CreateError, NewRecipe};
 use crate::forgejo::ForgejoUser;
 use crate::recipe::{self, RECIPE_FILE};
 use crate::render::{self, RenderedRecipe};
+use crate::scale::View;
 use crate::secret::Secret;
 use crate::session::{self, COOKIE_NAME};
 use crate::web::{AppState, Layout, MaybeUser};
@@ -208,14 +209,35 @@ struct ShowTemplate {
     errors: Vec<String>,
 }
 
+/// The last value that the address gives for a name.
+///
+/// The query arrives as pairs and not as a structure, so a name that
+/// appears twice gives a page and not an error. The last value wins.
+fn query_value<'a>(query: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    query
+        .iter()
+        .rev()
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| value.as_str())
+}
+
 async fn show(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
     jar: CookieJar,
     MaybeUser(current): MaybeUser,
     Path((owner, slug)): Path<(String, String)>,
+    Query(query): Query<Vec<(String, String)>>,
 ) -> Response {
     let here = format!("/recipes/{owner}/{slug}");
+
+    // How this cook wants to read the Recipe. These options change the view
+    // and nothing else: no file is written and no Version appears.
+    let view = View::from_query(
+        query_value(&query, "servings"),
+        query_value(&query, "units"),
+    );
+
     // A public Recipe is readable without a session. Forgejo applies the
     // permissions, so a private one needs the credential of somebody who
     // may see it.
@@ -275,7 +297,7 @@ async fn show(
     // diagnosis and the source instead of a broken rendering.
     let cooked = recipe::parse_recipe(&source)
         .as_ref()
-        .map(render::render)
+        .map(|parsed| render::render_with(parsed, &view, recipe::converter()))
         .unwrap_or_default();
 
     let areas = areas(&owner, &slug);

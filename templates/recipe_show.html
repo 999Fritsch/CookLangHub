@@ -45,6 +45,52 @@
         {% endif %}
         {% endfor %}
       </div>
+
+      {#
+        How this cook reads the Recipe. The options travel in the address,
+        the server does the work, and the stored Recipe never changes. The
+        form needs no script, so it also works when scripts are blocked.
+
+        The number control follows CookCLI, which puts the same input beside
+        the title of a Recipe.
+
+        A Recipe that the parser refused, and a Recipe that holds only a
+        title, get no control: there is nothing to scale or to convert, and
+        the page says so in its own place.
+      #}
+      {% if errors.is_empty() && !cooked.is_empty() %}
+      <form method="get" action="{{ layout.path }}" class="flex flex-wrap items-center gap-x-4 gap-y-2 print:hidden">
+        {% if cooked.scale.can_scale() %}
+        <div class="flex items-center">
+          <label for="servings" class="text-sm font-medium text-gray-700 mr-2">Servings:</label>
+          <input type="number" id="servings" name="servings"
+                 value="{{ cooked.scale.value() }}"
+                 min="{{ cooked.scale.min() }}" max="{{ cooked.scale.max() }}" step="1"
+                 class="px-3 py-2 w-20 text-center bg-white text-gray-900 border border-gray-300 rounded-lg">
+        </div>
+        {% endif %}
+
+        <div class="flex items-center">
+          <label for="units" class="text-sm font-medium text-gray-700 mr-2">Units:</label>
+          <select id="units" name="units"
+                  class="px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-lg">
+            {% for choice in cooked.scale.choices() %}
+            <option value="{{ choice.as_str() }}" {% if cooked.scale.units.is(choice.as_str()) %}selected{% endif %}>{{ choice.label() }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Show</button>
+
+        {% if cooked.scale.changed %}
+        <a href="{{ layout.path }}" class="nav-pill">Reset</a>
+        {% endif %}
+      </form>
+
+      {% if let Some(note) = cooked.scale.note %}
+      <p class="text-sm text-gray-600 m-0">{{ note }}</p>
+      {% endif %}
+      {% endif %}
     </div>
   </div>
 
@@ -149,7 +195,12 @@
                   {%- if piece.kind.is_text() -%}
                   {{ piece.text }}
                   {%- else -%}
-                  <span class="{{ piece.kind.css_class() }}"><span class="sr-only">{{ piece.kind.label() }}: </span>{{ piece.text }}{% if let Some(quantity) = piece.quantity %} {{ quantity }}{% endif %}</span>
+                  {#-
+                    A timer carries its length, so that timer.js can count it
+                    down. With the script blocked, the badge stays the words
+                    that the author wrote.
+                  -#}
+                  <span{% if let Some(seconds) = piece.timer_seconds %} data-timer-seconds="{{ seconds }}" data-timer-label="{{ piece.badge_text() }}"{% endif %} class="{{ piece.kind.css_class() }}"><span class="sr-only">{{ piece.kind.label() }}: </span>{{ piece.badge_text() }}</span>
                   {%- endif -%}
                   {%- endfor -%}
                 </div>
@@ -175,4 +226,10 @@
     <pre class="mt-4 bg-gray-50 rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words text-sm"><code>{{ source }}</code></pre>
   </details>
 </div>
+
+{#
+  The countdown. A served file and not an inline script, because the
+  Content Security Policy is `default-src 'self'`.
+#}
+<script src="/static/js/timer.js" defer></script>
 {% endblock %}
