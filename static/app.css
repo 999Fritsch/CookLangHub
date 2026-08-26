@@ -391,3 +391,184 @@ input[type="text"]:focus, textarea:focus {
   padding-top: var(--space-4);
   border-top: 1px solid var(--line);
 }
+
+/* ---- Accessibility helper ---------------------------------------------- */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- Recipe tabs -------------------------------------------------------- */
+/* Quiet neutral chrome. A Recipe page is culinary first, and these areas
+   must not read like the navigation of a source control tool. */
+
+.recipe-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: var(--space-5) 0;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: var(--space-2);
+}
+
+.recipe-tab {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-muted);
+}
+
+.recipe-tab.is-current {
+  background: var(--brand-tint);
+  color: var(--brand-ink);
+}
+
+.recipe-tab.is-later {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ---- Tags --------------------------------------------------------------- */
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+}
+
+.tag {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+/* ---- Facts -------------------------------------------------------------- */
+
+.recipe-facts { margin: var(--space-5) 0; }
+
+/* ---- Two columns: what you need, then what you do ----------------------- */
+
+.recipe-body {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) 1fr;
+  gap: var(--space-6);
+  align-items: start;
+  margin-top: var(--space-5);
+}
+
+.recipe-aside {
+  position: sticky;
+  top: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+
+.recipe-aside h2 { margin-top: 0; font-size: var(--text-base); }
+.recipe-aside section + section { margin-top: var(--space-5); }
+
+.component-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.component-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.component-amount {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.component-note {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  font-style: italic;
+}
+
+/* ---- Steps -------------------------------------------------------------- */
+
+.recipe-steps h2 { margin-top: 0; }
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-5);
+  counter-reset: none;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.step--note {
+  grid-template-columns: 1fr;
+  color: var(--ink-muted);
+  font-style: italic;
+  border-left: 2px solid var(--line-strong);
+  padding-left: var(--space-3);
+}
+
+.step-text { margin: 0; }
+
+/* The amount inside an entity badge. */
+.badge-amount {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+/* ---- Source, folded away by default ------------------------------------- */
+
+.source-details { margin-bottom: var(--space-4); }
+
+.source-details summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  padding: var(--space-2) 0;
+}
+
+.source-details summary:hover { color: var(--brand-ink); }
+
+.recipe-footer {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+
+@media (max-width: 48rem) {
+  .recipe-body { grid-template-columns: 1fr; }
+  .recipe-aside { position: static; }
+}
+
+/* A Recipe that is being cooked needs two columns, so it gets more room
+   than the comfortable reading width used elsewhere. */
+main.main--wide { max-width: var(--measure-wide); }

@@ -15,9 +15,20 @@ use serde::Deserialize;
 use crate::create_recipe::{self, CreateError, NewRecipe};
 use crate::forgejo::ForgejoUser;
 use crate::recipe::{self, RECIPE_FILE};
+use crate::render::{self, RenderedRecipe};
 use crate::secret::Secret;
 use crate::session::{self, COOKIE_NAME};
 use crate::web::{AppState, Layout, MaybeUser};
+
+/// The other areas of a Recipe. Each one arrives in a later ticket, and the
+/// page names them so that the shape of a Recipe is clear from the start.
+const RECIPE_AREAS: [&str; 5] = [
+    "History",
+    "Suggestions",
+    "Discussions",
+    "Variations",
+    "Sharing",
+];
 
 /// Shown when the stored file is not text that the application can read.
 const NOT_TEXT_MESSAGE: &str = "This Recipe is not UTF-8 text. Each character that could not be read appears below as a replacement mark. Open the Recipe in Forgejo to see the exact content.";
@@ -64,7 +75,7 @@ async fn new_form(State(state): State<Arc<AppState>>, MaybeUser(user): MaybeUser
     }
     let _ = &state;
 
-    render(NewTemplate {
+    respond(NewTemplate {
         layout: Layout::new(user.as_ref()),
         title: String::new(),
         source: String::new(),
@@ -133,7 +144,7 @@ async fn create(
 
             tracing::info!(%error, "a Recipe was not created");
 
-            render(NewTemplate {
+            respond(NewTemplate {
                 layout: Layout::new(current.as_ref()),
                 title: form.title,
                 source: form.source,
@@ -150,8 +161,12 @@ struct ShowTemplate {
     layout: Layout,
     owner: String,
     title: String,
+    /// The Recipe as a cook reads it.
+    cooked: RenderedRecipe,
+    /// The Cooklang behind it, kept for anybody who wants to look.
     source: String,
     forgejo_url: String,
+    areas: [&'static str; 5],
     warnings: Vec<String>,
     errors: Vec<String>,
 }
@@ -217,18 +232,27 @@ async fn show(
     let parsed = recipe::parse(&source);
     errors.extend(parsed.errors.iter().map(|d| d.message.clone()));
 
-    render(ShowTemplate {
+    // A Recipe the parser refused cannot be cooked, so the page shows the
+    // diagnosis and the source instead of a broken rendering.
+    let cooked = recipe::parse_recipe(&source)
+        .as_ref()
+        .map(render::render)
+        .unwrap_or_default();
+
+    respond(ShowTemplate {
         layout: Layout::new(current.as_ref()),
         owner,
         title: parsed.title.unwrap_or_else(|| repository.name.clone()),
+        cooked,
         source,
         forgejo_url: state.forgejo.web_url(&repository.full_name),
+        areas: RECIPE_AREAS,
         warnings: parsed.warnings.iter().map(|d| d.message.clone()).collect(),
         errors,
     })
 }
 
-fn render<T: Template>(template: T) -> Response {
+fn respond<T: Template>(template: T) -> Response {
     match template.render() {
         Ok(body) => Html(body).into_response(),
         Err(error) => {

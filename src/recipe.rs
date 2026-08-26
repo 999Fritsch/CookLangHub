@@ -87,6 +87,18 @@ pub enum RecipeError {
     NoTitle,
 }
 
+/// Parse a source and give back the Recipe model itself.
+///
+/// Returns nothing when the source has an error, because a Recipe that the
+/// parser refused cannot be shown as a Recipe.
+pub fn parse_recipe(source: &str) -> Option<cooklang::Recipe> {
+    let result = PARSER.parse(source);
+    if result.report().has_errors() {
+        return None;
+    }
+    result.into_output()
+}
+
 /// Read a Cooklang source.
 pub fn parse(source: &str) -> Parsed {
     let result = PARSER.parse(source);

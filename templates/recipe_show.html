@@ -2,12 +2,29 @@
 
 {% block title %}{{ title }} &middot; CookLangHub{% endblock %}
 
+{% block main_class %}main--wide{% endblock %}
+
 {% block content %}
 <article class="recipe">
   <header class="recipe-header">
     <h1>{{ title }}</h1>
     <p class="lead">Owned by {{ owner }}</p>
+
+    {% if !cooked.tags.is_empty() %}
+    <ul class="tags" aria-label="Tags">
+      {% for tag in cooked.tags %}
+      <li class="tag">{{ tag }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
   </header>
+
+  <nav class="recipe-tabs" aria-label="Recipe">
+    <span class="recipe-tab is-current" aria-current="page">Recipe</span>
+    {% for area in areas %}
+    <span class="recipe-tab is-later" aria-disabled="true">{{ area }}</span>
+    {% endfor %}
+  </nav>
 
   {% if !errors.is_empty() %}
   <div class="notice notice--error" role="alert">
@@ -17,6 +34,7 @@
       <li>{{ error }}</li>
       {% endfor %}
     </ul>
+    <p><a href="{{ forgejo_url }}">Open in Forgejo</a></p>
   </div>
   {% endif %}
 
@@ -31,15 +49,122 @@
   </div>
   {% endif %}
 
+  {% if !errors.is_empty() %}
   <section aria-labelledby="source-heading">
-    <h2 id="source-heading">Recipe</h2>
+    <h2 id="source-heading">Recipe source</h2>
     <pre class="source"><code>{{ source }}</code></pre>
-    <p class="hint">
-      The cooked view with ingredients, cookware, and timings arrives next.
-    </p>
   </section>
+  {% else %}
+
+  {% if cooked.servings.is_some() || !cooked.facts.is_empty() %}
+  <section class="recipe-facts" aria-labelledby="facts-heading">
+    <h2 id="facts-heading" class="visually-hidden">Details</h2>
+    <dl class="facts">
+      {% if let Some(servings) = cooked.servings %}
+      <dt>Servings</dt>
+      <dd>{{ servings }}</dd>
+      {% endif %}
+      {% for fact in cooked.facts %}
+      <dt>{{ fact.label }}</dt>
+      <dd>
+        {% if let Some(link) = fact.link %}
+        <a href="{{ link }}" rel="noopener noreferrer nofollow">{{ fact.value }}</a>
+        {% else %}
+        {{ fact.value }}
+        {% endif %}
+      </dd>
+      {% endfor %}
+    </dl>
+  </section>
+  {% endif %}
+
+  {% if cooked.is_empty() %}
+  <p class="empty">
+    This Recipe has a title and nothing else yet.
+  </p>
+  {% else %}
+
+  <div class="recipe-body">
+    <aside class="recipe-aside">
+      {% if !cooked.ingredients.is_empty() %}
+      <section aria-labelledby="ingredients-heading">
+        <h2 id="ingredients-heading">Ingredients</h2>
+        <ul class="component-list">
+          {% for item in cooked.ingredients %}
+          <li>
+            <span class="ingredient">{{ item.name }}</span>
+            {% if let Some(quantity) = item.quantity %}
+            <span class="component-amount">{{ quantity }}</span>
+            {% endif %}
+            {% if let Some(note) = item.note %}
+            <span class="component-note">{{ note }}</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+
+      {% if !cooked.cookware.is_empty() %}
+      <section aria-labelledby="cookware-heading">
+        <h2 id="cookware-heading">Cookware</h2>
+        <ul class="component-list">
+          {% for item in cooked.cookware %}
+          <li>
+            <span class="cookware">{{ item.name }}</span>
+            {% if let Some(quantity) = item.quantity %}
+            <span class="component-amount">{{ quantity }}</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+    </aside>
+
+    <section class="recipe-steps" aria-labelledby="steps-heading">
+      <h2 id="steps-heading">Method</h2>
+
+      {% for section in cooked.sections %}
+      {% if let Some(name) = section.name %}
+      <h3>{{ name }}</h3>
+      {% endif %}
+
+      <ol class="steps">
+        {% for block in section.blocks %}
+        {% if block.is_step() %}
+        <li class="step">
+          <span class="step-number" aria-hidden="true">{{ block.number }}</span>
+          <p class="step-text">
+            {%- for piece in block.pieces -%}
+            {%- if piece.kind.is_text() -%}
+            {{ piece.text }}
+            {%- else -%}
+            <span class="{{ piece.kind.css_class() }}"><span class="visually-hidden">{{ piece.kind.label() }}: </span>{{ piece.text }}{% if let Some(quantity) = piece.quantity %} <span class="badge-amount">{{ quantity }}</span>{% endif %}</span>
+            {%- endif -%}
+            {%- endfor -%}
+          </p>
+        </li>
+        {% else %}
+        <li class="step step--note">
+          <p class="step-text">
+            {%- for piece in block.pieces -%}{{ piece.text }}{%- endfor -%}
+          </p>
+        </li>
+        {% endif %}
+        {% endfor %}
+      </ol>
+      {% endfor %}
+    </section>
+  </div>
+  {% endif %}
+  {% endif %}
 
   <footer class="recipe-footer">
+    <details class="source-details">
+      <summary>Recipe source</summary>
+      <pre class="source"><code>{{ source }}</code></pre>
+    </details>
     <a class="button" href="{{ forgejo_url }}">Open in Forgejo</a>
   </footer>
 </article>
