@@ -52,6 +52,8 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::auth::router())
         .merge(crate::web_recipes::router())
         .merge(crate::theme::router())
+        .merge(crate::web_browse::router())
+        .merge(crate::webhook::router())
         .nest_service("/static", ServeDir::new(static_dir))
         .layer(SetResponseHeaderLayer::overriding(
             header::CONTENT_SECURITY_POLICY,
@@ -137,12 +139,22 @@ impl Layout {
 }
 
 /// One Recipe as a card on a list.
+///
+/// A card carries culinary information only. What a cook wants to know is
+/// what the Recipe is, what it needs, and who wrote it. How Git holds it is
+/// not on the card.
 #[derive(Debug, Clone)]
 pub struct RecipeCard {
     pub owner: String,
     pub slug: String,
     pub title: String,
     pub private: bool,
+    /// How many people the Recipe cooks for, when it says.
+    pub servings: Option<String>,
+    /// The Cooklang tags of the Recipe.
+    pub tags: Vec<String>,
+    /// How many ingredients the Recipe needs.
+    pub ingredients: i64,
 }
 
 #[derive(Template)]
@@ -151,23 +163,44 @@ struct IndexTemplate {
     layout: Layout,
     forgejo_url: String,
     recipes: Vec<RecipeCard>,
+    /// Mine, and Shared with me.
+    tabs: Vec<crate::web_browse::Tab>,
+    controls: crate::web_browse::Controls,
+    notice: Option<String>,
+    empty: String,
 }
 
+/// The Recipes area: Mine, and Shared with me.
+///
+/// Forgejo says which Recipes this person may see, and the index says what
+/// each card shows. A visitor who is not signed in gets the welcome instead,
+/// and can still follow **Explore**.
 async fn index(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
     jar: axum_extra::extract::CookieJar,
     MaybeUser(user): MaybeUser,
+    axum::extract::Query(query): axum::extract::Query<crate::web_browse::BrowseQuery>,
 ) -> Response {
-    let recipes = match &user {
-        Some(_) => mine(&state, &jar).await,
-        None => Vec::new(),
-    };
+    let area = query.area();
+    let token = crate::web_browse::viewer_token(&state, &jar).await;
+
+    let listing =
+        crate::web_browse::listing(&state, user.as_ref(), token.as_ref(), area, &query).await;
 
     let template = IndexTemplate {
         layout: Layout::new(user.as_ref()).on(&headers, "/"),
         forgejo_url: state.forgejo.public_url().to_string(),
-        recipes,
+        recipes: listing.cards,
+        tabs: crate::web_browse::tabs(&query, area),
+        controls: crate::web_browse::Controls {
+            action: "/".to_string(),
+            area: area.as_str().to_string(),
+            q: query.words(),
+            sort: query.sort(),
+        },
+        notice: listing.notice,
+        empty: listing.empty,
     };
 
     match template.render() {
@@ -177,81 +210,6 @@ async fn index(
             (StatusCode::INTERNAL_SERVER_ERROR, "template error").into_response()
         }
     }
-}
-
-/// The Recipes that belong to the signed-in person.
-///
-/// This is a short list to make a new Recipe findable. Browsing, sorting,
-/// and search arrive with the index in a later ticket.
-async fn mine(state: &AppState, jar: &axum_extra::extract::CookieJar) -> Vec<RecipeCard> {
-    let Some(cookie) = jar.get(COOKIE_NAME) else {
-        return Vec::new();
-    };
-    let Ok(Some(token)) = session::access_token(&state.pool, &state.cipher, cookie.value()).await
-    else {
-        return Vec::new();
-    };
-    let Ok(user) = state.forgejo.current_user(&token).await else {
-        return Vec::new();
-    };
-
-    let repositories = match state
-        .forgejo
-        .search_repositories_by_topic(&token, "recipe", user.id, 30)
-        .await
-    {
-        Ok(repositories) => repositories,
-        Err(error) => {
-            tracing::warn!(%error, "cannot list the Recipes of this person");
-            return Vec::new();
-        }
-    };
-
-    // The title a person sees comes from the Cooklang metadata, never from
-    // the repository name. The name is a technical slug, and a Recipe that
-    // is renamed keeps it.
-    //
-    // Reading each Recipe costs one request. That is the honest cost of
-    // having no index yet, and it is why a later ticket builds one.
-    let titles = futures::future::join_all(repositories.iter().map(|repository| {
-        let forgejo = state.forgejo.clone();
-        let token = token.clone();
-        let owner = repository.owner.login.clone();
-        let name = repository.name.clone();
-        let branch = if repository.default_branch.is_empty() {
-            crate::create_recipe::MAIN_BRANCH.to_string()
-        } else {
-            repository.default_branch.clone()
-        };
-
-        async move {
-            let bytes = forgejo
-                .raw_file(
-                    Some(&token),
-                    &owner,
-                    &name,
-                    &branch,
-                    crate::recipe::RECIPE_FILE,
-                )
-                .await
-                .ok()?;
-            crate::recipe::parse(&String::from_utf8_lossy(&bytes)).title
-        }
-    }))
-    .await;
-
-    repositories
-        .into_iter()
-        .zip(titles)
-        .map(|(repository, title)| RecipeCard {
-            owner: repository.owner.login,
-            // A Recipe with no readable title falls back to its slug rather
-            // than showing nothing.
-            title: title.unwrap_or_else(|| repository.name.clone()),
-            slug: repository.name,
-            private: repository.private,
-        })
-        .collect()
 }
 
 /// Report the health of each component.

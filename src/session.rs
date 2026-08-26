@@ -131,6 +131,53 @@ pub async fn access_token(
     }
 }
 
+/// A person with a live session, and the credential to act as them.
+#[derive(Debug, Clone)]
+pub struct SignedInPerson {
+    pub forgejo_user_id: i64,
+    pub login: String,
+    pub token: Secret<String>,
+}
+
+/// Every person who is signed in, once each.
+///
+/// The reconciliation asks Forgejo what each of these people may see. It
+/// reads only, and it never reaches further than that person reaches for
+/// themselves, because it carries their credential and no other.
+pub async fn signed_in_people(
+    pool: &SqlitePool,
+    cipher: &Cipher,
+) -> Result<Vec<SignedInPerson>, SessionError> {
+    let rows: Vec<(i64, String, Vec<u8>)> = sqlx::query_as(
+        "SELECT forgejo_user_id, login, access_token
+         FROM session WHERE expires_at > ?
+         ORDER BY created_at DESC",
+    )
+    .bind(now())
+    .fetch_all(pool)
+    .await?;
+
+    let mut people: Vec<SignedInPerson> = Vec::new();
+    for (forgejo_user_id, login, encrypted) in rows {
+        // The newest session of a person comes first, so a later one adds
+        // nothing.
+        if people.iter().any(|p| p.forgejo_user_id == forgejo_user_id) {
+            continue;
+        }
+
+        match cipher.decrypt(&encrypted) {
+            Ok(token) => people.push(SignedInPerson {
+                forgejo_user_id,
+                login,
+                token: Secret::new(token),
+            }),
+            Err(error) => tracing::warn!(%error, %login, "cannot read a stored credential"),
+        }
+    }
+
+    Ok(people)
+}
+
 /// End one session. The token stops working at once.
 pub async fn destroy(pool: &SqlitePool, token: &str) -> Result<(), SessionError> {
     sqlx::query("DELETE FROM session WHERE id = ?")

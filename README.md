@@ -104,10 +104,12 @@ Environment variables, all with the `COOKLANGHUB_` prefix:
 | `BIND` | `0.0.0.0:8080` | Address of the HTTP server |
 | `DATABASE_URL` | `sqlite://data/cooklanghub.db?mode=rwc` | Operational state |
 | `PUBLIC_URL` | `http://localhost:8080` | Where a browser reaches this application |
+| `INTERNAL_URL` | same as `PUBLIC_URL` | Where Forgejo reaches this application, for the webhook |
 | `FORGEJO_URL` | `http://localhost:3000` | Base URL that the app uses for the Forgejo API |
 | `FORGEJO_PUBLIC_URL` | same as `FORGEJO_URL` | Base URL that a browser uses for Forgejo |
 | `FORGEJO_NOREPLY_DOMAIN` | `noreply.localhost` | Address domain for a person who hides their email |
 | `SESSION_SECRET` | none, required | Signs session cookies and encrypts stored credentials |
+| `WEBHOOK_SECRET` | derived from `SESSION_SECRET` | Signs each Forgejo webhook body |
 | `COOKIE_SECURE` | `true` | Whether the session cookie carries `Secure` |
 | `LOG_FORMAT` | `json` | `json` or `pretty` |
 | `LOG` | `info,cooklanghub=debug` | Log filter |
@@ -145,6 +147,44 @@ on the right. Inside a step each Cooklang entity keeps its own color and
 carries its own amount, so the sentence reads straight through and the eye
 never leaves it to look an amount up. The Cooklang source stays one click
 away.
+
+## Finding a Recipe
+
+**Recipes** holds two lists: **Mine** and **Shared with me**. **Explore**
+holds every public Recipe, and it needs no account. Each list can be
+searched by title and ordered by the most recent change or by the title.
+
+Forgejo names the Recipes that a person may see, on every request. The
+index only supplies the words on the card, so a row in the index is never
+permission to see anything.
+
+### The Recipe index
+
+The title that a person sees lives inside `recipe.cook`, so no question that
+Forgejo can answer finds a Recipe by its title. The table `recipe_index`
+holds that title and the culinary facts that a card shows.
+
+The index is a cache. You can delete it at any time, and the application
+builds it again from Forgejo and Git. Three things keep it current:
+
+- **One system webhook.** The bootstrap command registers it in Forgejo, for
+  repository events and push events. Forgejo signs each body with
+  HMAC-SHA256, and the application refuses a body whose signature does not
+  match.
+- **Reconciliation.** The application reads Forgejo again when it starts, and
+  whenever an administrator asks for it at `/admin/index`. It reads Forgejo
+  and Git, and writes to neither.
+- **The pages themselves.** A page reads a Recipe again when Forgejo reports
+  a change that the index does not hold yet.
+
+Forgejo must be able to reach this application for the webhook. Inside the
+bundled stack a browser and Forgejo use different addresses, so set
+`COOKLANGHUB_INTERNAL_URL` to the address that Forgejo uses.
+
+Forgejo 15 answers `GET /api/v1/admin/hooks` with an empty list, even after
+it made a system webhook. The application therefore records the identifier
+of the webhook that it registered, and uses `GET /api/v1/admin/hooks/{id}`
+to find it again. This is why a repeated bootstrap makes no second webhook.
 
 ## Appearance
 

@@ -1,0 +1,49 @@
+{#
+  The Recipe index, for an administrator.
+
+  The index is a cache. This page says how large it is and lets an
+  administrator build the whole of it again from Forgejo and Git.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}Recipe index &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent mb-6">Recipe index</h1>
+
+<div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
+  <p class="text-gray-600 mb-4">
+    The index makes a search of Recipe titles possible. Forgejo and Git hold
+    the Recipes. This index holds a copy of the titles, so you can delete it
+    at any time. A rebuild reads Forgejo and Git again, and changes neither.
+  </p>
+
+  <div class="flex flex-wrap gap-2 mb-4">
+    <span class="metadata-pill metadata-servings"><span aria-hidden="true">📇</span> {{ held }} Recipes in the index</span>
+  </div>
+
+  {% if let Some(message) = report %}
+  <p class="bg-green-50 border border-green-200 text-green-900 rounded-xl p-4 mb-4" role="status">{{ message }}</p>
+  {% endif %}
+
+  {% if administrator %}
+  <form method="post" action="/admin/index/rebuild">
+    <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Rebuild the index</button>
+  </form>
+  {% else if signed_in %}
+  <p class="text-gray-600 m-0">Only an administrator can rebuild the index.</p>
+  {% else %}
+  <p class="text-gray-600 m-0">
+    <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/auth/sign-in">Sign in</a>
+    to rebuild the index.
+  </p>
+  {% endif %}
+</div>
+
+<div class="text-sm text-gray-600">
+  Forgejo: <a href="{{ forgejo_url }}" class="text-blue-600 hover:text-blue-800 hover:underline">{{ forgejo_url }}</a>
+  &middot; <a href="/health" class="text-blue-600 hover:text-blue-800 hover:underline">/health</a>
+</div>
+{% endblock %}

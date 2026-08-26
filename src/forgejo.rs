@@ -85,6 +85,9 @@ pub struct UserSettings {
 /// A Forgejo repository.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Repository {
+    /// The identifier that survives a rename.
+    #[serde(default)]
+    pub id: i64,
     pub name: String,
     pub full_name: String,
     pub html_url: String,
@@ -95,12 +98,68 @@ pub struct Repository {
     pub private: bool,
     #[serde(default)]
     pub empty: bool,
+    /// The opt-in markers. A repository without them is not a Recipe.
+    #[serde(default)]
+    pub topics: Vec<String>,
+    /// When Forgejo last recorded a change, as Forgejo writes it.
+    #[serde(default)]
+    pub updated_at: String,
     pub owner: RepositoryOwner,
+}
+
+impl Repository {
+    /// The branch that holds the published Recipe.
+    ///
+    /// Forgejo can report an empty name for a repository that holds nothing
+    /// yet, and a read needs a name either way.
+    pub fn branch(&self) -> &str {
+        if self.default_branch.is_empty() {
+            crate::create_recipe::MAIN_BRANCH
+        } else {
+            &self.default_branch
+        }
+    }
+
+    /// Whether this repository carries every topic in `topics`.
+    ///
+    /// The comparison ignores case, because Forgejo stores a topic in lower
+    /// case and a person can type it either way.
+    pub fn has_topics(&self, topics: &[&str]) -> bool {
+        topics.iter().all(|wanted| {
+            self.topics
+                .iter()
+                .any(|topic| topic.eq_ignore_ascii_case(wanted))
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RepositoryOwner {
+    #[serde(default)]
+    pub id: i64,
     pub login: String,
+}
+
+/// Which repositories a search must return.
+#[derive(Debug, Clone, Copy)]
+pub enum Ownership {
+    /// Everything the credential may see. No credential means public only.
+    Anybody,
+    /// What this person owns or may work on.
+    ReachableBy(i64),
+    /// What this person owns.
+    OwnedBy(i64),
+}
+
+/// One page of a repository search.
+#[derive(Debug, Clone)]
+pub struct RepositoryQuery<'a> {
+    /// The topic that marks the kind of repository, such as `cooklang`.
+    pub topic: &'a str,
+    pub ownership: Ownership,
+    /// Counts from 1, the way Forgejo counts.
+    pub page: u32,
+    pub limit: u32,
 }
 
 /// Why a repository could not be created.
@@ -110,6 +169,37 @@ pub enum CreateRepositoryOutcome {
     NameTaken,
     /// Something else went wrong.
     Other,
+}
+
+/// A system webhook, as Forgejo reports it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SystemHook {
+    pub id: i64,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub config: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub events: Vec<String>,
+    #[serde(default)]
+    pub active: bool,
+}
+
+impl SystemHook {
+    /// Where Forgejo posts.
+    ///
+    /// Forgejo reports the address in two places, and which of the two
+    /// carries it depends on the release, so read the field first and the
+    /// older configuration map second.
+    pub fn target_url(&self) -> &str {
+        if !self.url.is_empty() {
+            return &self.url;
+        }
+        self.config
+            .get("url")
+            .map(String::as_str)
+            .unwrap_or_default()
+    }
 }
 
 /// The answer of the token endpoint.
@@ -329,18 +419,29 @@ impl ForgejoClient {
         owner: &str,
         repository: &str,
     ) -> Result<Repository, ForgejoError> {
-        let response = self
-            .send(
-                self.http
-                    .get(format!(
-                        "{}/api/v1/repos/{owner}/{repository}",
-                        self.api_url
-                    ))
-                    .bearer_auth(token.expose()),
-            )
-            .await?;
+        self.repository_as(Some(token), owner, repository).await
+    }
 
-        read_json(response).await
+    /// Read one repository, with or without a credential.
+    ///
+    /// No credential means the question is asked as an anonymous visitor,
+    /// so Forgejo answers only for a public repository. This is how the
+    /// application proves that Public really is public.
+    pub async fn repository_as(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<Repository, ForgejoError> {
+        let mut request = self.http.get(format!(
+            "{}/api/v1/repos/{owner}/{repository}",
+            self.api_url
+        ));
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        read_json(self.send(request).await?).await
     }
 
     /// Whether a repository name is already used by this person.
@@ -377,42 +478,76 @@ impl ForgejoClient {
         Ok(())
     }
 
-    /// Find the Recipe repositories of one person.
+    /// Find repositories that carry a topic.
     ///
     /// The topic is the opt-in marker, so a repository without it never
-    /// appears here. Forgejo applies the permissions of the token, so a
-    /// private Recipe reaches only somebody who may see it.
-    pub async fn search_repositories_by_topic(
+    /// appears here. Forgejo applies the permissions of the credential, and
+    /// no credential means public repositories only. This is what makes
+    /// Forgejo the authority on who sees what: the application asks this
+    /// question again on every request instead of trusting its own index.
+    ///
+    /// The newest change comes first, which is the order that the recent
+    /// sort shows.
+    pub async fn search_repositories(
         &self,
-        token: &Secret<String>,
-        topic: &str,
-        owner_id: i64,
-        limit: u32,
+        token: Option<&Secret<String>>,
+        query: &RepositoryQuery<'_>,
     ) -> Result<Vec<Repository>, ForgejoError> {
         #[derive(Deserialize)]
         struct SearchResults {
             data: Vec<Repository>,
         }
 
+        let mut parameters: Vec<(&str, String)> = vec![
+            ("q", query.topic.to_string()),
+            ("topic", "true".to_string()),
+            ("sort", "updated".to_string()),
+            ("order", "desc".to_string()),
+            ("page", query.page.to_string()),
+            ("limit", query.limit.to_string()),
+        ];
+
+        match query.ownership {
+            Ownership::Anybody => {}
+            Ownership::ReachableBy(id) => parameters.push(("uid", id.to_string())),
+            Ownership::OwnedBy(id) => {
+                parameters.push(("uid", id.to_string()));
+                parameters.push(("exclusive", "true".to_string()));
+            }
+        }
+
+        let mut request = self
+            .http
+            .get(format!("{}/api/v1/repos/search", self.api_url))
+            .query(&parameters);
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        let results: SearchResults = read_json(self.send(request).await?).await?;
+        Ok(results.data)
+    }
+
+    /// Whether the token belongs to a Forgejo administrator.
+    ///
+    /// Forgejo decides this, the same as every other permission question.
+    pub async fn is_administrator(&self, token: &Secret<String>) -> Result<bool, ForgejoError> {
+        #[derive(Deserialize)]
+        struct AdminFlag {
+            #[serde(default)]
+            is_admin: bool,
+        }
+
         let response = self
             .send(
                 self.http
-                    .get(format!("{}/api/v1/repos/search", self.api_url))
-                    .bearer_auth(token.expose())
-                    .query(&[
-                        ("q", topic),
-                        ("topic", "true"),
-                        ("uid", &owner_id.to_string()),
-                        ("exclusive", "true"),
-                        ("sort", "updated"),
-                        ("order", "desc"),
-                        ("limit", &limit.to_string()),
-                    ]),
+                    .get(format!("{}/api/v1/user", self.api_url))
+                    .bearer_auth(token.expose()),
             )
             .await?;
 
-        let results: SearchResults = read_json(response).await?;
-        Ok(results.data)
+        let flag: AdminFlag = read_json(response).await?;
+        Ok(flag.is_admin)
     }
 
     /// Read one file from a repository at its published state.
@@ -528,6 +663,124 @@ impl ForgejoClient {
             .await?;
 
         read_json(response).await
+    }
+
+    /// Read one system webhook, or nothing when Forgejo does not have it.
+    ///
+    /// This is the reliable way to find the webhook again. Forgejo 15
+    /// answers `GET /api/v1/admin/hooks` with an empty list even directly
+    /// after it created one, while this endpoint answers correctly.
+    pub async fn system_hook(
+        &self,
+        admin_token: &Secret<String>,
+        hook_id: i64,
+    ) -> Result<Option<SystemHook>, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .get(format!("{}/api/v1/admin/hooks/{hook_id}", self.api_url))
+                    .header("Authorization", format!("token {}", admin_token.expose())),
+            )
+            .await;
+
+        match response {
+            Ok(response) => read_json(response).await.map(Some),
+            Err(ForgejoError::Status { status: 404, .. }) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// List the system webhooks of this Forgejo instance.
+    pub async fn list_system_hooks(
+        &self,
+        admin_token: &Secret<String>,
+    ) -> Result<Vec<SystemHook>, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .get(format!("{}/api/v1/admin/hooks", self.api_url))
+                    .query(&[("limit", "50")])
+                    .header("Authorization", format!("token {}", admin_token.expose())),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Create one system webhook.
+    ///
+    /// The secret makes Forgejo sign every body, which is what lets this
+    /// application refuse a message that Forgejo did not send.
+    pub async fn create_system_hook(
+        &self,
+        admin_token: &Secret<String>,
+        target_url: &str,
+        secret: &Secret<String>,
+        events: &[&str],
+    ) -> Result<SystemHook, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .post(format!("{}/api/v1/admin/hooks", self.api_url))
+                    .header("Authorization", format!("token {}", admin_token.expose()))
+                    .json(&serde_json::json!({
+                        "type": "forgejo",
+                        "active": true,
+                        "events": events,
+                        "config": {
+                            "url": target_url,
+                            "content_type": "json",
+                            "secret": secret.expose(),
+                        },
+                    })),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Point an existing system webhook at this application again.
+    pub async fn update_system_hook(
+        &self,
+        admin_token: &Secret<String>,
+        hook_id: i64,
+        target_url: &str,
+        secret: &Secret<String>,
+        events: &[&str],
+    ) -> Result<SystemHook, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .patch(format!("{}/api/v1/admin/hooks/{hook_id}", self.api_url))
+                    .header("Authorization", format!("token {}", admin_token.expose()))
+                    .json(&serde_json::json!({
+                        "active": true,
+                        "events": events,
+                        "config": {
+                            "url": target_url,
+                            "content_type": "json",
+                            "secret": secret.expose(),
+                        },
+                    })),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Remove one system webhook.
+    pub async fn delete_system_hook(
+        &self,
+        admin_token: &Secret<String>,
+        hook_id: i64,
+    ) -> Result<(), ForgejoError> {
+        self.send(
+            self.http
+                .delete(format!("{}/api/v1/admin/hooks/{hook_id}", self.api_url))
+                .header("Authorization", format!("token {}", admin_token.expose())),
+        )
+        .await?;
+        Ok(())
     }
 
     /// Send a request and turn a non-success status into an error.

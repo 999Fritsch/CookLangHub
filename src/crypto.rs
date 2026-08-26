@@ -89,6 +89,22 @@ impl Cipher {
     }
 }
 
+/// Derive a second secret from the installation session secret.
+///
+/// A derived secret needs no separate setting and no separate store, and it
+/// is the same after a restart, which is what lets a repeated registration
+/// find the value that Forgejo already holds. `purpose` separates one
+/// derived secret from every other, so learning one gives nothing about the
+/// next. Changing the session secret changes all of them.
+pub fn derived_secret(session_secret: &str, purpose: &str) -> Result<String, CryptoError> {
+    let hkdf = hkdf::Hkdf::<Sha256>::new(None, session_secret.as_bytes());
+    let mut out = [0u8; 32];
+    hkdf.expand(purpose.as_bytes(), &mut out)
+        .map_err(|_| CryptoError::KeyDerivation)?;
+
+    Ok(URL_SAFE_NO_PAD.encode(out))
+}
+
 /// Make a random URL-safe token of `bytes` bytes of entropy.
 pub fn random_token(bytes: usize) -> String {
     let mut buf = vec![0u8; bytes];
@@ -166,6 +182,35 @@ mod tests {
     #[test]
     fn a_random_token_differs_every_time() {
         assert_ne!(random_token(32), random_token(32));
+    }
+
+    #[test]
+    fn a_derived_secret_is_the_same_after_a_restart() {
+        let first = derived_secret("a-test-session-secret", "webhook").unwrap();
+        let second = derived_secret("a-test-session-secret", "webhook").unwrap();
+        assert_eq!(first, second);
+        assert!(!first.is_empty());
+    }
+
+    #[test]
+    fn each_purpose_gives_its_own_secret() {
+        let webhook = derived_secret("a-test-session-secret", "webhook").unwrap();
+        let other = derived_secret("a-test-session-secret", "something-else").unwrap();
+        assert_ne!(webhook, other);
+    }
+
+    #[test]
+    fn a_derived_secret_never_contains_the_session_secret() {
+        let derived = derived_secret("super-secret-key", "webhook").unwrap();
+        assert!(!derived.contains("super-secret-key"));
+    }
+
+    #[test]
+    fn another_session_secret_derives_another_value() {
+        assert_ne!(
+            derived_secret("one", "webhook").unwrap(),
+            derived_secret("two", "webhook").unwrap()
+        );
     }
 
     #[test]

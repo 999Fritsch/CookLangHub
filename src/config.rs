@@ -26,6 +26,11 @@ pub struct Config {
     /// Base URL that a browser uses to reach this application. Forgejo
     /// sends a person back to it after a sign-in.
     pub public_url: String,
+    /// Base URL that Forgejo uses to reach this application. Inside the
+    /// bundled stack the two systems share a network, and the address that
+    /// a browser uses does not work there. It falls back to `public_url`,
+    /// which is correct for a single-host installation.
+    pub internal_url: String,
     /// SQLite connection string for the operational state.
     pub database_url: String,
     /// Base URL that the application uses to reach the Forgejo API. Inside
@@ -40,6 +45,10 @@ pub struct Config {
     pub forgejo_noreply_domain: String,
     /// Key used to sign session cookies and to encrypt stored credentials.
     pub session_secret: Secret<String>,
+    /// Secret that Forgejo signs each webhook body with. It comes from the
+    /// session secret, so an installation needs no second setting, and a
+    /// deployment that wants its own value can still give one.
+    pub webhook_secret: Secret<String>,
     /// Whether the session cookie carries the `Secure` attribute. It stays
     /// on unless a deployment serves plain HTTP on a name that is not
     /// `localhost`, where a browser would then drop the cookie.
@@ -65,6 +74,7 @@ impl Config {
             })?;
 
         let public_url = var_or("PUBLIC_URL", "http://localhost:8080")?;
+        let internal_url = var_or("INTERNAL_URL", &public_url)?;
         let database_url = var_or("DATABASE_URL", "sqlite://data/cooklanghub.db?mode=rwc")?;
         let forgejo_url = var_or("FORGEJO_URL", "http://localhost:3000")?;
         // A single-host installation needs no second URL, so the public URL
@@ -75,6 +85,17 @@ impl Config {
             crate::create_recipe::DEFAULT_NOREPLY_DOMAIN,
         )?;
         let session_secret = Secret::new(required("SESSION_SECRET")?);
+
+        // The webhook secret is derived from the session secret, so a new
+        // installation needs nothing extra and a restart derives the same
+        // value that Forgejo already holds.
+        let derived = crate::crypto::derived_secret(session_secret.expose(), WEBHOOK_PURPOSE)
+            .map_err(|error| ConfigError::Invalid {
+                name: format!("{PREFIX}SESSION_SECRET"),
+                reason: error.to_string(),
+            })?;
+        let webhook_secret = Secret::new(var_or("WEBHOOK_SECRET", &derived)?);
+
         let cookie_secure = flag("COOKIE_SECURE", true)?;
 
         let log_format = match var_or("LOG_FORMAT", "json")?.as_str() {
@@ -91,11 +112,13 @@ impl Config {
         Ok(Self {
             bind,
             public_url: trim(public_url),
+            internal_url: trim(internal_url),
             database_url,
             forgejo_url: trim(forgejo_url),
             forgejo_public_url: trim(forgejo_public_url),
             forgejo_noreply_domain,
             session_secret,
+            webhook_secret,
             cookie_secure,
             log_format,
         })
@@ -105,7 +128,16 @@ impl Config {
     pub fn redirect_uri(&self) -> String {
         format!("{}/auth/callback", self.public_url)
     }
+
+    /// The address that Forgejo posts each webhook message to.
+    pub fn webhook_url(&self) -> String {
+        format!("{}{}", self.internal_url, crate::webhook::PATH)
+    }
 }
+
+/// Separates the webhook secret from any other secret derived from the
+/// session secret.
+const WEBHOOK_PURPOSE: &str = "cooklanghub:forgejo-webhook:v1";
 
 fn trim(url: String) -> String {
     url.trim_end_matches('/').to_string()
@@ -159,11 +191,13 @@ mod tests {
         Config {
             bind: "127.0.0.1:8080".parse().unwrap(),
             public_url: "http://localhost:8080".to_string(),
+            internal_url: "http://app:8080".to_string(),
             database_url: "sqlite://:memory:".to_string(),
             forgejo_url: "http://forgejo:3000".to_string(),
             forgejo_public_url: "http://localhost:3000".to_string(),
             forgejo_noreply_domain: "noreply.localhost".to_string(),
             session_secret: Secret::new("super-secret-key".to_string()),
+            webhook_secret: Secret::new("a-webhook-secret".to_string()),
             cookie_secure: true,
             log_format: LogFormat::Json,
         }
@@ -176,6 +210,21 @@ mod tests {
         assert!(!rendered.contains("super-secret-key"));
         assert!(rendered.contains(REDACTED));
         assert!(rendered.contains("http://forgejo:3000"));
+    }
+
+    #[test]
+    fn debug_output_hides_the_webhook_secret() {
+        let rendered = format!("{:?}", sample());
+        assert!(!rendered.contains("a-webhook-secret"));
+    }
+
+    #[test]
+    fn forgejo_reaches_the_application_at_the_internal_address() {
+        // A browser and Forgejo need not share a network, and inside the
+        // bundled stack they do not.
+        let config = sample();
+        assert_eq!(config.webhook_url(), "http://app:8080/webhooks/forgejo");
+        assert!(!config.webhook_url().contains("localhost"));
     }
 
     #[test]
