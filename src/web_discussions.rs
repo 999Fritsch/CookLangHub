@@ -678,8 +678,12 @@ mod tests {
             default_branch: "main".to_string(),
             private: false,
             empty: false,
+            id: 1,
+            topics: vec!["cooklang".to_string(), "recipe".to_string()],
+            updated_at: String::new(),
             has_issues,
             owner: RepositoryOwner {
+                id: 1,
                 login: "sam".to_string(),
             },
         }

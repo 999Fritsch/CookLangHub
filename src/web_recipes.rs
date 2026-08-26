@@ -189,6 +189,20 @@ async fn create(
                 warnings = created.warnings.len(),
                 "created a Recipe"
             );
+
+            // Put the new Recipe in the index at once. Forgejo reports the
+            // Version before the topics are set, so the message that
+            // follows a creation describes a repository that is not yet a
+            // Recipe. The application made this one and knows better.
+            crate::index::refresh(
+                &state.pool,
+                &state.forgejo,
+                Some(&actor.token),
+                &created.owner,
+                &created.slug,
+            )
+            .await;
+
             Redirect::to(&format!("/recipes/{}/{}", created.owner, created.slug)).into_response()
         }
         Err(error) => {

@@ -692,6 +692,7 @@ dependencies = [
  "cooklang",
  "futures",
  "hkdf 0.12.4",
+ "hmac 0.12.1",
  "rand 0.9.5",
  "reqwest",
  "serde",

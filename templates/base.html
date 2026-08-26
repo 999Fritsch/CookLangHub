@@ -32,7 +32,8 @@
 
             <div class="flex items-center gap-1 lg:gap-2">
               {% if layout.signed_in %}
-              <a href="/" class="nav-pill active">Recipes</a>
+              <a href="/" class="nav-pill {% if !layout.path.starts_with("/explore") %}active{% endif %}">Recipes</a>
+              <a href="/explore" class="nav-pill {% if layout.path.starts_with("/explore") %}active{% endif %}">Explore</a>
               <a href="/recipes/new" class="nav-pill">New Recipe</a>
 
               <span class="hidden md:inline-flex items-center gap-2 ml-2 text-sm text-gray-600">
@@ -46,6 +47,7 @@
                 <button type="submit" class="nav-pill">Sign out</button>
               </form>
               {% else %}
+              <a href="/explore" class="nav-pill">Explore</a>
               <a href="/auth/sign-in" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">Sign in</a>
               {% endif %}
             </div>

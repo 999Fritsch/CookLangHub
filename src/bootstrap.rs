@@ -1,11 +1,13 @@
 //! The administrator bootstrap command.
 //!
-//! It registers this installation as an OAuth2 application in Forgejo and
-//! records the credential locally. The project does not build a graphical
-//! installer: one command keeps the configuration reproducible.
+//! It registers this installation in Forgejo twice over: as an OAuth2
+//! application, which is how a person signs in, and as one system webhook,
+//! which is how Forgejo reports a change. It records both credentials
+//! locally. The project does not build a graphical installer: one command
+//! keeps the configuration reproducible.
 //!
-//! The command is repeatable. Running it again finds the application that it
-//! made before and reuses it, so Forgejo never collects duplicates.
+//! The command is repeatable. Running it again finds what it made before and
+//! reuses it, so Forgejo never collects duplicates.
 
 use sqlx::sqlite::SqlitePool;
 
@@ -23,6 +25,8 @@ pub enum BootstrapError {
     Store(#[from] sqlx::Error),
     #[error(transparent)]
     Crypto(#[from] crate::crypto::CryptoError),
+    #[error(transparent)]
+    Webhook(#[from] crate::webhook::WebhookError),
     #[error("Forgejo did not return a client secret for application {0}")]
     NoSecret(i64),
 }
@@ -44,16 +48,20 @@ impl Outcome {
     }
 }
 
-/// Register the OAuth client and store it.
+/// Register the OAuth client and the system webhook, and store both.
 ///
 /// `redirect_uri` must be the callback address of this application as a
-/// browser reaches it, not as the internal network names it.
+/// browser reaches it, not as the internal network names it. `webhook_url`
+/// is the opposite: it is the address that Forgejo itself reaches, which
+/// inside the bundled stack is a name on the internal network.
 pub async fn run(
     pool: &SqlitePool,
     cipher: &Cipher,
     forgejo: &ForgejoClient,
     admin_token: &Secret<String>,
     redirect_uri: &str,
+    webhook_url: &str,
+    webhook_secret: &Secret<String>,
 ) -> Result<Outcome, BootstrapError> {
     let existing = forgejo
         .list_oauth_applications(admin_token)
@@ -109,6 +117,28 @@ pub async fn run(
     .bind(now())
     .execute(pool)
     .await?;
+
+    // One system webhook covers the whole instance. It is registered here
+    // for the same reason as the OAuth application: an administrator runs
+    // one command, and running it again changes nothing.
+    let webhook = crate::webhook::register(
+        pool,
+        cipher,
+        forgejo,
+        admin_token,
+        webhook_url,
+        webhook_secret,
+    )
+    .await?;
+
+    match &webhook {
+        crate::webhook::Registration::Created { hook_id } => {
+            tracing::info!(hook_id, %webhook_url, "registered the system webhook in Forgejo");
+        }
+        crate::webhook::Registration::Reused { hook_id } => {
+            tracing::info!(hook_id, %webhook_url, "the system webhook existed; refreshed it");
+        }
+    }
 
     Ok(outcome)
 }

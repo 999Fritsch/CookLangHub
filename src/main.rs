@@ -77,8 +77,18 @@ async fn prepare() -> anyhow::Result<(
 async fn run_bootstrap(admin_token: Secret<String>) -> anyhow::Result<()> {
     let (config, pool, cipher, forgejo) = prepare().await?;
     let redirect_uri = config.redirect_uri();
+    let webhook_url = config.webhook_url();
 
-    let outcome = bootstrap::run(&pool, &cipher, &forgejo, &admin_token, &redirect_uri).await?;
+    let outcome = bootstrap::run(
+        &pool,
+        &cipher,
+        &forgejo,
+        &admin_token,
+        &redirect_uri,
+        &webhook_url,
+        &config.webhook_secret,
+    )
+    .await?;
 
     match &outcome {
         bootstrap::Outcome::Created { .. } => {
@@ -94,6 +104,7 @@ async fn run_bootstrap(admin_token: Secret<String>) -> anyhow::Result<()> {
     println!("CookLangHub is registered with Forgejo.");
     println!("  client id:    {}", outcome.client_id());
     println!("  redirect uri: {redirect_uri}");
+    println!("  webhook url:  {webhook_url}");
     println!("Users can sign in now.");
 
     Ok(())
@@ -138,6 +149,19 @@ async fn serve() -> anyhow::Result<()> {
         tracing::warn!(
             "COOKLANGHUB_COOKIE_SECURE is off; the session cookie can travel on a plain connection"
         );
+    }
+
+    // The Recipe index is a cache, and a restart is when it can be behind:
+    // anything that changed while this process was stopped arrived nowhere.
+    // The sweep reads Forgejo and Git, writes to neither, and runs beside
+    // the server so that a slow Forgejo never delays the first page.
+    {
+        let pool = pool.clone();
+        let cipher = cipher.clone();
+        let forgejo = forgejo.clone();
+        tokio::spawn(async move {
+            cooklanghub::index::reconcile(&pool, &cipher, &forgejo).await;
+        });
     }
 
     let state = AppState {

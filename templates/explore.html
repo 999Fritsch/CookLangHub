@@ -1,0 +1,32 @@
+{#
+  Explore: the public Recipes of this installation.
+
+  It needs no account, because Public means public.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}Explore &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between flex-wrap gap-4 mb-6">
+  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">Explore</h1>
+  {% if layout.signed_in %}
+  <a href="/recipes/new" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">New Recipe</a>
+  {% else %}
+  <a href="/auth/sign-in" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">Sign in</a>
+  {% endif %}
+</div>
+
+<p class="text-gray-600 mb-6">Every public Recipe of this installation.</p>
+
+{% include "browse_controls.html" %}
+{% include "browse_cards.html" %}
+
+<div class="mt-8 text-sm text-gray-600">
+  Forgejo: <a href="{{ forgejo_url }}" class="text-blue-600 hover:text-blue-800 hover:underline">{{ forgejo_url }}</a>
+  &middot; <a href="/health" class="text-blue-600 hover:text-blue-800 hover:underline">/health</a>
+  &middot; <a href="/admin/index" class="text-blue-600 hover:text-blue-800 hover:underline">Recipe index</a>
+</div>
+{% endblock %}

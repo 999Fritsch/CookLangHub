@@ -945,7 +945,11 @@ mod tests {
             private: false,
             empty: false,
             has_issues: true,
+            id: 1,
+            topics: vec!["cooklang".to_string(), "recipe".to_string()],
+            updated_at: String::new(),
             owner: crate::forgejo::RepositoryOwner {
+                id: 1,
                 login: "sam".to_string(),
             },
         };

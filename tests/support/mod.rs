@@ -180,7 +180,8 @@ impl TestApp {
         self.url("/auth/callback")
     }
 
-    /// Register the OAuth client, the way the administrator command does.
+    /// Register the OAuth client and the system webhook, the way the
+    /// administrator command does.
     pub async fn bootstrap(&self, admin_token: &Secret<String>) -> cooklanghub::bootstrap::Outcome {
         cooklanghub::bootstrap::run(
             &self.pool,
@@ -188,11 +189,68 @@ impl TestApp {
             &self.forgejo,
             admin_token,
             &self.redirect_uri(),
+            &self.webhook_url(),
+            &self.webhook_secret(),
         )
         .await
         .expect("the bootstrap command failed")
     }
+
+    /// The address that Forgejo would post a webhook message to.
+    ///
+    /// A container cannot reach a listener that is bound to the loopback
+    /// address of the host, so no test waits for a real delivery. What the
+    /// tests assert instead is what this application controls: that Forgejo
+    /// holds exactly one webhook that points here, with the right events,
+    /// and that the handler refuses a body it did not sign.
+    pub fn webhook_url(&self) -> String {
+        self.url(cooklanghub::webhook::PATH)
+    }
+
+    /// The secret that Forgejo signs each webhook body with.
+    pub fn webhook_secret(&self) -> Secret<String> {
+        Secret::new(TEST_WEBHOOK_SECRET.to_string())
+    }
+
+    /// Post a webhook message the way Forgejo does, with a signature.
+    pub async fn deliver_webhook(&self, event: &str, body: &str) -> reqwest::Response {
+        self.deliver_signed_webhook(
+            event,
+            body,
+            &cooklanghub::webhook::sign(TEST_WEBHOOK_SECRET, body.as_bytes()),
+        )
+        .await
+    }
+
+    /// Post a webhook message with a signature of the caller's choosing.
+    pub async fn deliver_signed_webhook(
+        &self,
+        event: &str,
+        body: &str,
+        signature: &str,
+    ) -> reqwest::Response {
+        client()
+            .post(self.webhook_url())
+            .header("content-type", "application/json")
+            .header("x-forgejo-event", event)
+            .header("x-forgejo-signature", signature)
+            .body(body.to_string())
+            .send()
+            .await
+            .expect("cannot post the webhook message")
+    }
+
+    /// Read Forgejo again and make the Recipe index match.
+    ///
+    /// This is what the application does when it starts, and it is safe at
+    /// any moment.
+    pub async fn reconcile(&self) -> cooklanghub::index::Report {
+        cooklanghub::index::reconcile(&self.pool, &self.cipher, &self.forgejo).await
+    }
 }
+
+/// The webhook secret that the tests use.
+pub const TEST_WEBHOOK_SECRET: &str = "integration-test-webhook-secret";
 
 /// Start the application against the given Forgejo base URL.
 ///

@@ -44,6 +44,10 @@ services:
       # Where a browser reaches this application. Forgejo sends a person
       # back to it after a sign-in, so it must be the published address.
       COOKLANGHUB_PUBLIC_URL: "${COOKLANGHUB_PUBLIC_URL:-http://localhost:8080}"
+      # Where Forgejo reaches this application, for the system webhook. A
+      # browser cannot resolve this name, and Forgejo cannot resolve the
+      # published address, so the two settings differ here.
+      COOKLANGHUB_INTERNAL_URL: http://app:8080
       # Inside the compose network the app reaches Forgejo by service name.
       COOKLANGHUB_FORGEJO_URL: http://forgejo:3000
       # A browser reaches it at the published address instead. Change this
