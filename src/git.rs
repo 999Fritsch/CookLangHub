@@ -278,6 +278,22 @@ pub trait GitAdapter: Send + Sync + std::fmt::Debug {
     ///
     /// Returns the identifier of the Cookbook Version that this made.
     async fn remove_reference(&self, request: RemoveReference<'_>) -> Result<String, GitError>;
+
+    /// Add one Version to a Suggestion, and make the Suggestion when it is
+    /// not there yet.
+    ///
+    /// The Version is built on [`PushSuggestion::parent_version`] and is
+    /// offered to Forgejo, which holds the Suggestion and everything about
+    /// it. Nothing reaches the published Recipe: the published branch is
+    /// only named so that Forgejo knows what the Suggestion is measured
+    /// against.
+    ///
+    /// Forgejo takes the Version only while the Suggestion still points at
+    /// the parent. A second tab that wrote first therefore keeps what it
+    /// wrote, and this gives [`GitError::Stale`].
+    ///
+    /// Returns the identifier of the Version that the Suggestion now holds.
+    async fn push_suggestion(&self, request: PushSuggestion<'_>) -> Result<String, GitError>;
 }
 
 /// Runs the system Git executable in a temporary workspace.
@@ -900,6 +916,130 @@ impl GitAdapter for SystemGit {
             &Reference::Remove { path: request.path },
         )
         .await
+    }
+
+    async fn push_suggestion(&self, request: PushSuggestion<'_>) -> Result<String, GitError> {
+        let workspace = tempfile::tempdir().map_err(GitError::Workspace)?;
+        let root = workspace.path();
+
+        // Git reads its per-user configuration from the home directory, and
+        // that directory must sit outside the work tree.
+        let home = root.join("home");
+        tokio::fs::create_dir_all(&home)
+            .await
+            .map_err(GitError::Workspace)?;
+        let repo = root.join("repo");
+        tokio::fs::create_dir_all(&repo)
+            .await
+            .map_err(GitError::Workspace)?;
+
+        // Only the side that the new Version is built on travels. For the
+        // first Version of a Suggestion that is the published Recipe, and
+        // afterwards it is the Suggestion itself.
+        self.run_in(&home, &repo, request.token, &["init", "--quiet"])
+            .await?;
+        self.run_in(
+            &home,
+            &repo,
+            request.token,
+            &[
+                "fetch",
+                "--quiet",
+                request.remote_url,
+                request.parent_reference,
+            ],
+        )
+        .await?;
+
+        // The exact Version, and not whatever the reference points at now.
+        // This is what makes a second tab lose its push instead of quietly
+        // replacing what the first tab wrote.
+        self.run_in(
+            &home,
+            &repo,
+            request.token,
+            &[
+                "-c",
+                "advice.detachedHead=false",
+                "checkout",
+                "--quiet",
+                "--detach",
+                request.parent_version,
+            ],
+        )
+        .await?;
+
+        write_files(&repo, &request.files).await?;
+
+        self.run_in(&home, &repo, request.token, &["add", "--all"])
+            .await?;
+
+        // A save always answers with a Version, even when the person took
+        // out again what they typed. Without this a save that lands back on
+        // the text it started from would give the writer nothing to send
+        // with the next one.
+        self.run_in(
+            &home,
+            &repo,
+            request.token,
+            &[
+                "-c",
+                &format!("user.name={}", request.identity.name),
+                "-c",
+                &format!("user.email={}", request.identity.email),
+                "commit",
+                "--quiet",
+                "--allow-empty",
+                "--message",
+                request.message,
+            ],
+        )
+        .await?;
+
+        let version = self.head(&repo, &home, request.token).await?;
+
+        // Forgejo reads this reference and makes the Suggestion out of it.
+        // The topic keeps every save of one person on one Suggestion, and
+        // the branch says what the Suggestion is measured against.
+        let target = format!("{version}:refs/for/{}/{}", request.branch, request.topic);
+
+        let mut args: Vec<String> = vec![
+            "push".to_string(),
+            "--quiet".to_string(),
+            request.remote_url.to_string(),
+            target,
+        ];
+        // Forgejo reads these only when it makes the Suggestion. A later
+        // save must not carry them, or it would write over the words that
+        // the person put on their Suggestion.
+        if let Some(title) = request.title {
+            args.push("-o".to_string());
+            args.push(format!("title={title}"));
+        }
+        if let Some(description) = request.description {
+            args.push("-o".to_string());
+            args.push(format!("description={description}"));
+        }
+
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        let pushed = self.attempt(&home, &repo, request.token, &borrowed).await?;
+
+        if pushed.success {
+            drop(workspace);
+            return Ok(version);
+        }
+
+        // Forgejo takes a Version only while the Suggestion still points at
+        // the parent it was built on. It refuses anything else, and that
+        // refusal is the answer this caller wants: somebody wrote first.
+        if pushed.stderr.contains("[remote rejected]") || pushed.stderr.contains("[rejected]") {
+            return Err(GitError::Stale);
+        }
+
+        Err(GitError::Command {
+            command: "push".to_string(),
+            message: redact(&pushed.stderr, request.token),
+        })
     }
 }
 
@@ -1666,4 +1806,37 @@ impl Reference<'_> {
             Reference::Write { path, .. } | Reference::Remove { path } => path,
         }
     }
+}
+
+/// A request to add one Version to a Suggestion.
+///
+/// Nothing here writes to the published Recipe. The Version is offered to
+/// Forgejo, which holds the Suggestion, decides whether to take the Version,
+/// and makes the Suggestion when there is none yet.
+#[derive(Debug)]
+pub struct PushSuggestion<'a> {
+    /// Where to push, without any credential in it. This is the Recipe that
+    /// the Suggestion is for, and not a copy of it.
+    pub remote_url: &'a str,
+    pub token: &'a Secret<String>,
+    pub identity: &'a Identity,
+    /// The branch that carries the published Recipe. The Suggestion is
+    /// measured against it, and nothing is ever written to it.
+    pub branch: &'a str,
+    /// The name that keeps every save of one person on one Suggestion.
+    pub topic: &'a str,
+    /// The reference to read the parent from: the published branch for the
+    /// first Version of a Suggestion, and the Suggestion itself afterwards.
+    pub parent_reference: &'a str,
+    /// The exact Version to build on.
+    pub parent_version: &'a str,
+    /// The description that the new Version carries.
+    pub message: &'a str,
+    /// The title to give the Suggestion. `None` leaves the title that the
+    /// Suggestion has, so only the first Version of a Suggestion sets one.
+    pub title: Option<&'a str>,
+    /// The words that go with the Suggestion. `None` leaves what is there.
+    pub description: Option<&'a str>,
+    /// File name to content.
+    pub files: BTreeMap<String, Vec<u8>>,
 }

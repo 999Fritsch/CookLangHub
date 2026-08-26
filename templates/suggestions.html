@@ -1,0 +1,96 @@
+{#
+  The Suggestions area of a Recipe. CookCLI has no screen like this, so the
+  page is built from its parts: the orange gradient title, the navigation
+  pills, the white rounded cards, the gradient rows, the metadata pills, and
+  the orange button.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+
+  Every action here is a link or a form that posts. The page needs no
+  script, which is what lets the Content Security Policy stay at
+  default-src 'self'.
+#}
+{% extends "base.html" %}
+
+{% block title %}Suggestions &middot; {{ title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div>
+  <div class="mb-8">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
+        {{ title }}
+      </h1>
+      <div class="flex flex-wrap items-center gap-2 self-start">
+        <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
+      </div>
+    </div>
+
+    <p class="text-gray-600">Owned by {{ owner }}</p>
+  </div>
+
+  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Recipe">
+    <a class="nav-pill" href="/recipes/{{ owner }}/{{ slug }}">Recipe</a>
+    {% for area in areas %}
+    {% if area.name == "Suggestions" %}
+    <span class="nav-pill active" aria-current="page">{{ area.name }}</span>
+    {% else %}
+    {% if let Some(href) = area.href %}
+    <a class="nav-pill" href="{{ href }}">{{ area.name }}</a>
+    {% else %}
+    <span class="nav-pill opacity-50" aria-disabled="true">{{ area.name }}</span>
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+  </nav>
+
+  {% if !errors.is_empty() %}
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-8" role="alert">
+    <h2 class="font-bold mb-2">This did not work</h2>
+    <ul class="list-disc pl-5 space-y-1">
+      {% for error in errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Suggestions</h2>
+
+    {% if suggestions.is_empty() %}
+    <p class="text-gray-600">This Recipe has no Suggestion yet.</p>
+    {% else %}
+    <ul class="space-y-3">
+      {% for suggestion in suggestions %}
+      <li class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <a class="font-medium text-gray-900 hover:text-orange-700" href="/recipes/{{ owner }}/{{ slug }}/suggestions/{{ suggestion.number }}">{{ suggestion.title }}</a>
+          <span class="metadata-pill {{ suggestion.pill }}">{{ suggestion.state }}</span>
+        </div>
+        <p class="text-sm text-gray-600 mt-1">
+          {% if suggestion.mine %}Made by you{% else %}Made by {{ suggestion.author }}{% endif %}
+          on {{ suggestion.made }} &middot; Comments: {{ suggestion.comments }}
+        </p>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+
+  <div class="bg-white rounded-2xl shadow-lg p-6">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Suggest a change</h2>
+
+    {% if layout.signed_in %}
+    <p class="text-gray-600 mb-4">
+      A Suggestion is a change that you propose. It does not change the Recipe.
+      An Editor reads it, and the Recipe changes only when an Editor accepts it.
+    </p>
+    <a class="btn-primary px-5 py-2 rounded-full font-medium text-white inline-block" href="/recipes/{{ owner }}/{{ slug }}/suggest">Suggest a change</a>
+    {% else %}
+    <p class="text-gray-600 mb-4">To suggest a change to this Recipe, sign in.</p>
+    <a class="btn-primary px-5 py-2 rounded-full font-medium text-white inline-block" href="/auth/sign-in">Sign in</a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

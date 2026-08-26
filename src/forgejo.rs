@@ -1802,6 +1802,103 @@ impl ForgejoClient {
 
         read_json(self.send(request).await?).await
     }
+
+    /// List the Suggestions of a Recipe.
+    ///
+    /// Forgejo records a Suggestion as a pull request and holds every part
+    /// of it. The application keeps no copy, so a Suggestion that somebody
+    /// makes in Forgejo appears here at once.
+    ///
+    /// `state` is `open`, `closed`, or `all`, in the words of Forgejo. The
+    /// caller passes one of those three words and never a value that a
+    /// person typed.
+    ///
+    /// The token can be absent, because a public Recipe is readable without
+    /// a session. Forgejo applies the permissions of whoever asks, so the
+    /// application computes no permission of its own.
+    pub async fn list_pull_requests(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        state: &str,
+        limit: u32,
+    ) -> Result<Vec<PullRequest>, ForgejoError> {
+        let mut request = self
+            .http
+            .get(format!(
+                "{}/api/v1/repos/{owner}/{repository}/pulls",
+                self.api_url
+            ))
+            .query(&[
+                ("state", state.to_string()),
+                ("page", "1".to_string()),
+                ("limit", limit.to_string()),
+            ]);
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        read_json(self.send(request).await?).await
+    }
+
+    /// Read one Suggestion.
+    pub async fn pull_request(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        number: i64,
+    ) -> Result<PullRequest, ForgejoError> {
+        let mut request = self.http.get(format!(
+            "{}/api/v1/repos/{owner}/{repository}/pulls/{number}",
+            self.api_url
+        ));
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        read_json(self.send(request).await?).await
+    }
+
+    /// Change the title of a Suggestion, the words that go with it, or both.
+    ///
+    /// Forgejo lets the person who made the Suggestion do this, and it lets
+    /// anybody who can write to the Recipe do it. The application asks
+    /// Forgejo and never works the permission out for itself.
+    ///
+    /// A field that is `None` is left exactly as it is.
+    pub async fn edit_pull_request(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        number: i64,
+        title: Option<&str>,
+        body: Option<&str>,
+    ) -> Result<PullRequest, ForgejoError> {
+        let mut fields = serde_json::Map::new();
+        if let Some(title) = title {
+            fields.insert("title".to_string(), serde_json::Value::from(title));
+        }
+        if let Some(body) = body {
+            fields.insert("body".to_string(), serde_json::Value::from(body));
+        }
+
+        let response = self
+            .send(
+                self.http
+                    .patch(format!(
+                        "{}/api/v1/repos/{owner}/{repository}/pulls/{number}",
+                        self.api_url
+                    ))
+                    .bearer_auth(token.expose())
+                    .json(&serde_json::Value::Object(fields)),
+            )
+            .await?;
+
+        read_json(response).await
+    }
 }
 
 /// One entry at the top of a repository.
@@ -2120,4 +2217,93 @@ impl RootEntry {
     pub fn is_reference(&self) -> bool {
         self.kind == "submodule"
     }
+}
+
+/// The number that Forgejo gives a pull request made through AGit.
+///
+/// Forgejo records how a pull request reached it. A Suggestion that this
+/// application made carries this number, and a pull request that somebody
+/// made from a copy of the Recipe carries another one.
+pub const AGIT_FLOW: i64 = 1;
+
+/// One Suggestion, as Forgejo reports it.
+///
+/// Forgejo records a Suggestion as a pull request and holds all of it: the
+/// proposal, its state, and its conversation. The application keeps no copy
+/// of any part of it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PullRequest {
+    /// The number a person sees in Forgejo, and the one in the address here.
+    pub number: i64,
+    #[serde(default)]
+    pub title: String,
+    /// The words that go with the Suggestion. Forgejo stores Markdown.
+    #[serde(default)]
+    pub body: String,
+    /// `open` or `closed`, in the words of Forgejo.
+    #[serde(default)]
+    pub state: String,
+    /// Whether the Suggestion was accepted.
+    #[serde(default)]
+    pub merged: bool,
+    /// Whether Forgejo can join the Suggestion with the published Recipe.
+    /// Forgejo works this out after a change, so it can be absent for a
+    /// moment.
+    #[serde(default)]
+    pub mergeable: Option<bool>,
+    /// Forgejo answers with a Ghost user for a deleted account, but an
+    /// answer without the field must not stop the page.
+    #[serde(default)]
+    pub user: Option<ForgejoUser>,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub updated_at: String,
+    /// How many comments the conversation holds.
+    #[serde(default)]
+    pub comments: i64,
+    /// What the Suggestion proposes.
+    #[serde(default)]
+    pub head: PullBranch,
+    /// What the Suggestion is measured against.
+    #[serde(default)]
+    pub base: PullBranch,
+    /// How the pull request reached Forgejo. See [`AGIT_FLOW`].
+    #[serde(default)]
+    pub flow: i64,
+}
+
+impl PullRequest {
+    pub fn is_open(&self) -> bool {
+        self.state != "closed"
+    }
+
+    /// Whether this application can add a Version to this Suggestion.
+    ///
+    /// A pull request that came from a copy of the Recipe cannot be written
+    /// to here. It is still a Suggestion, and it is still shown, but the
+    /// person who made it changes it in Forgejo.
+    pub fn is_agit(&self) -> bool {
+        self.flow == AGIT_FLOW
+    }
+
+    /// The login of the person who made the Suggestion.
+    pub fn author(&self) -> &str {
+        self.user
+            .as_ref()
+            .map(|user| user.login.as_str())
+            .unwrap_or_default()
+    }
+}
+
+/// One side of a Suggestion.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PullBranch {
+    /// The exact Version that this side points at.
+    #[serde(default)]
+    pub sha: String,
+    /// The name Forgejo reads this side by. For a Suggestion made through
+    /// AGit, Forgejo holds the proposal itself and names it here.
+    #[serde(rename = "ref", default)]
+    pub reference: String,
 }

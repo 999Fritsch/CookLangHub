@@ -1,0 +1,201 @@
+{#
+  One Suggestion. The page draws it in two ways: as the editor of the person
+  who made it, and as the page anybody who can read the Recipe sees.
+
+  CookCLI has no screen like this, so the page is built from its parts: the
+  orange gradient title, the navigation pills, the white rounded cards, the
+  gradient rows, the metadata pills, and the orange button. The editor
+  itself is the same shape as the Recipe editor.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+
+  The page works with no script at all. The text area carries the Cooklang,
+  the preview arrives with the page, and both buttons are ordinary form
+  buttons. The bundled CodeMirror only makes the text area a highlighted
+  editor, keeps the preview current, and saves the Suggestion while a person
+  writes. Losing it loses nothing that was already saved.
+#}
+{% extends "base.html" %}
+
+{% block title %}Suggestion &middot; {{ title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div>
+  <div class="mb-8">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
+        {{ title }}
+      </h1>
+      <div class="flex flex-wrap items-center gap-2 self-start">
+        <a class="nav-pill" href="/recipes/{{ owner }}/{{ slug }}">Back to the Recipe</a>
+        <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
+      </div>
+    </div>
+
+    <p class="text-gray-600">Owned by {{ owner }}</p>
+  </div>
+
+  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Recipe">
+    <a class="nav-pill" href="/recipes/{{ owner }}/{{ slug }}">Recipe</a>
+    {% for area in areas %}
+    {% if area.name == "Suggestions" %}
+    <span class="nav-pill active" aria-current="page">{{ area.name }}</span>
+    {% else %}
+    {% if let Some(href) = area.href %}
+    <a class="nav-pill" href="{{ href }}">{{ area.name }}</a>
+    {% else %}
+    <span class="nav-pill opacity-50" aria-disabled="true">{{ area.name }}</span>
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+  </nav>
+
+  {% if !errors.is_empty() %}
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-8" role="alert">
+    <h2 class="font-bold mb-2">This did not work</h2>
+    <ul class="list-disc pl-5 space-y-1">
+      {% for error in errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {#
+    What the Suggestion is and where it stands. Forgejo holds all of it,
+    so this card only reports.
+  #}
+  {% if let Some(suggestion) = suggestion %}
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+      <h2 class="text-xl font-bold text-gray-900">{{ suggestion.title }}</h2>
+      <span class="metadata-pill {{ suggestion.pill }}">{{ suggestion.state }}</span>
+    </div>
+
+    <p class="text-gray-600">
+      {% if suggestion.mine %}Made by you{% else %}Made by {{ suggestion.author }}{% endif %}
+      on {{ suggestion.made }} &middot; Comments: {{ suggestion.comments }}
+    </p>
+
+    {% if !suggestion.note.is_empty() %}
+    <div class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4 mt-4">
+      <p class="text-gray-700 m-0 whitespace-pre-wrap break-words">{{ suggestion.note }}</p>
+    </div>
+    {% endif %}
+
+    {% if !suggestion.here %}
+    <p class="text-gray-600 mt-4 mb-0">{{ elsewhere }}</p>
+    {% endif %}
+
+    {% if editable %}
+    <p class="mt-4 mb-0">
+      <a class="font-medium text-gray-900 hover:text-orange-700" href="/recipes/{{ owner }}/{{ slug }}/suggestions/{{ suggestion.number }}">See your Suggestion as the Editors read it</a>
+    </p>
+    {% else %}
+    {% if suggestion.mine && suggestion.open && suggestion.here %}
+    <p class="mt-4 mb-0">
+      <a class="font-medium text-gray-900 hover:text-orange-700" href="/recipes/{{ owner }}/{{ slug }}/suggest">Go on with your Suggestion</a>
+    </p>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if editable %}
+  {# What CookLangHub does with the work of this person while they write. #}
+  <div class="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-xl p-4 mb-6">
+    <p class="text-gray-700 m-0">{{ notice }}</p>
+  </div>
+
+  <form method="post" action="/recipes/{{ owner }}/{{ slug }}/suggest/save">
+    <input type="hidden" name="base_version" value="{{ base_version }}">
+
+    {# The Version the Suggestion held when this page opened. The editor
+       sends it back with every save, and that is what lets a second tab be
+       refused instead of overwriting this one. #}
+    <input type="hidden" id="draft-version" name="draft_version" value="{{ draft_version }}">
+
+    {#
+      `min-w-0` on both columns is what keeps this inside a telephone
+      screen. A grid item is `min-width: auto` by default, so it refuses to
+      be narrower than its content, and the editor asks for a wide one.
+    #}
+    <div class="grid lg:grid-cols-2 gap-8 mb-8 items-start">
+      <div class="min-w-0 bg-white rounded-2xl shadow-lg p-6">
+        <label for="recipe-source" class="block font-medium mb-2">Recipe source</label>
+
+        <textarea id="recipe-source" name="source" rows="24" spellcheck="false"
+                  data-label="Recipe source"
+                  class="search-input w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-gray-900 font-mono text-sm focus:outline-hidden">{{ source }}</textarea>
+        <div id="recipe-editor" hidden
+             data-preview-url="/recipes/preview"
+             data-draft-url="/recipes/{{ owner }}/{{ slug }}/suggest"
+             class="border-2 border-gray-200 rounded-xl overflow-hidden"></div>
+
+        <p class="text-sm text-gray-600 mt-2">
+          Mark an ingredient with <code>@</code>, cookware with <code>#</code>, and a
+          time with <code>~</code>. CookLangHub keeps your text as you wrote it.
+        </p>
+
+        {# What the application did with the last save. The words come from
+           the server, so one wording serves the page and the answer. #}
+        <p id="draft-status" class="text-sm text-gray-600 mt-2" role="status"></p>
+
+        {# Shown when a save was refused. The person keeps their text, so
+           this says what happened and what they can do. #}
+        <div id="draft-problem" hidden role="alert"
+             class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mt-3">
+          <p id="draft-problem-text" class="m-0"></p>
+        </div>
+      </div>
+
+      {# The preview changes with every keystroke, so it is a region a
+         person can reach and never one that announces itself. #}
+      <section class="min-w-0 bg-white rounded-2xl shadow-lg p-6" aria-labelledby="preview-heading">
+        <h2 id="preview-heading" class="sr-only">Preview</h2>
+        <div id="recipe-preview">
+          {% include "recipe_preview.html" %}
+        </div>
+      </section>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-lg p-6">
+      <label for="note" class="block font-medium mb-2">Note for the Editors (optional)</label>
+      <textarea id="note" name="note" rows="3" maxlength="500"
+                placeholder="Less salt, more garlic"
+                class="search-input w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-hidden">{{ note }}</textarea>
+      <p class="text-sm text-gray-600 mt-1">
+        The note says what you changed and why. The Editors read it with your Suggestion.
+      </p>
+
+      <div class="flex flex-wrap gap-3 mt-6">
+        <button type="submit" name="action" value="save"
+                class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Save Suggestion</button>
+        {% if let Some(suggestion) = suggestion %}
+        {% if !suggestion.ready %}
+        <button type="submit" name="action" value="ready"
+                class="btn-primary px-5 py-2 rounded-full font-medium text-white">Ready for review</button>
+        {% endif %}
+        {% else %}
+        <button type="submit" name="action" value="ready"
+                class="btn-primary px-5 py-2 rounded-full font-medium text-white">Ready for review</button>
+        {% endif %}
+        <a href="/recipes/{{ owner }}/{{ slug }}" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</a>
+      </div>
+    </div>
+  </form>
+  {% else %}
+
+  {# The Recipe that the Suggestion proposes. Ticket #15 puts the Changes
+     and the conversation beside it. #}
+  <section class="bg-white rounded-2xl shadow-lg p-6" aria-labelledby="proposed-heading">
+    <h2 id="proposed-heading" class="text-xl font-bold mb-4 text-gray-900">The Recipe this Suggestion proposes</h2>
+    {% include "recipe_preview.html" %}
+  </section>
+  {% endif %}
+</div>
+
+{% if editable %}
+<script src="/static/js/editor.js" defer></script>
+{% endif %}
+{% endblock %}

@@ -333,6 +333,13 @@ async fn edit_form(
 
     let target = match target(&state, &actor, &owner, &slug).await {
         Ok(target) => target,
+        // A person who can read this Recipe but not write to it does not
+        // lose their work here. The editor opens as a Suggestion instead,
+        // which Forgejo holds and an Editor can accept.
+        Err(Refused::Blocked { status, .. }) if status == StatusCode::FORBIDDEN => {
+            return Redirect::to(&crate::web_suggestions::editor_href(&owner, &slug))
+                .into_response();
+        }
         Err(refused) => return refusal(layout(), &owner, &slug, refused),
     };
 
@@ -482,6 +489,12 @@ async fn publish(
     // a check: this request can arrive without the page.
     let target = match target(&state, &actor, &owner, &slug).await {
         Ok(target) => target,
+        // The Recipe is not published to by somebody who cannot write to
+        // it. Their work becomes a Suggestion, so they go there.
+        Err(Refused::Blocked { status, .. }) if status == StatusCode::FORBIDDEN => {
+            return Redirect::to(&crate::web_suggestions::editor_href(&owner, &slug))
+                .into_response();
+        }
         Err(refused) => return refusal(layout(), &owner, &slug, refused),
     };
 

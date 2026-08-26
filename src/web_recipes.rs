@@ -46,7 +46,7 @@ pub fn areas(owner: &str, slug: &str, repository: &Repository) -> Vec<RecipeArea
         },
         RecipeArea {
             name: "Suggestions",
-            href: None,
+            href: Some(crate::web_suggestions::area_href(owner, slug)),
         },
         RecipeArea {
             name: "Discussions",
