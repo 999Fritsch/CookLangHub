@@ -70,13 +70,16 @@
               <details class="menu relative md:hidden ml-auto">
                 <summary class="nav-pill cursor-pointer" aria-label="Menu">Menu</summary>
                 <div class="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl z-50 py-1">
-                  <a href="/" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors {% if layout.area_is("recipes") %}font-semibold text-orange-600{% endif %}">
+                  <a href="/" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                     {% if layout.area_is("recipes") %}aria-current="page"{% endif %}>
                     <span aria-hidden="true">🍳</span> <span>Recipes</span>
                   </a>
-                  <a href="/explore" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors {% if layout.area_is("explore") %}font-semibold text-orange-600{% endif %}">
+                  <a href="/explore" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                     {% if layout.area_is("explore") %}aria-current="page"{% endif %}>
                     <span aria-hidden="true">🌍</span> <span>Explore</span>
                   </a>
-                  <a href="/recipes/new" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors {% if layout.area_is("new") %}font-semibold text-orange-600{% endif %}">
+                  <a href="/recipes/new" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                     {% if layout.area_is("new") %}aria-current="page"{% endif %}>
                     <span aria-hidden="true">➕</span> <span>New Recipe</span>
                   </a>
                   <a href="/preferences" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors">

@@ -285,3 +285,22 @@ html.fact-colour .metadata-custom     { @apply text-purple-600 border-purple-300
 .menu > summary::-webkit-details-marker {
     display: none;
 }
+
+/* ------------------------------------------------------------------
+   Not from CookCLI. The row of the menu for the place you are in.
+
+   The mark cannot ride on a colour utility. The row also carries the
+   ordinary text colour, and the dark rules for these two classes fight
+   each other, so in the dark palette the mark disappeared and every row
+   looked the same. `aria-current` says which row it is, a screen reader
+   reads it, and these rules give it the colour. They sit outside the
+   layer, so nothing in the theme can quietly win against them.
+   ------------------------------------------------------------------ */
+.menu a[aria-current="page"] {
+    color: #ea580c;
+    font-weight: 600;
+}
+
+html.dark .menu a[aria-current="page"] {
+    color: #fb923c;
+}
