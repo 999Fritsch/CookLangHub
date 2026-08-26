@@ -26,6 +26,7 @@ pub mod session;
 pub mod telemetry;
 pub mod theme;
 pub mod upload;
+pub mod variation;
 pub mod web;
 pub mod web_browse;
 pub mod web_cookbooks;
@@ -35,6 +36,7 @@ pub mod web_history;
 pub mod web_profile;
 pub mod web_recipes;
 pub mod web_sharing;
+pub mod web_variations;
 pub mod webhook;
 
 pub use config::Config;

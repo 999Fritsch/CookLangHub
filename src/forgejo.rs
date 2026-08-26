@@ -1501,6 +1501,152 @@ impl ForgejoClient {
 
         read_json(response).await
     }
+
+    /// Make a Variation: a copy of a Recipe that belongs to the token holder.
+    ///
+    /// Forgejo does the whole of it. It copies the content and the History,
+    /// it records that the new repository came from this one, and it gives
+    /// the new repository the visibility that this one has. The application
+    /// writes no marker of its own for any of that.
+    ///
+    /// `name` is the repository name to ask for. Forgejo answers 409 when
+    /// the token holder cannot have it, so the caller offers another one.
+    pub async fn fork_repository(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        name: &str,
+    ) -> Result<Repository, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .post(format!(
+                        "{}/api/v1/repos/{owner}/{repository}/forks",
+                        self.api_url
+                    ))
+                    .bearer_auth(token.expose())
+                    .json(&serde_json::json!({ "name": name })),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Read what Forgejo records about where a repository came from.
+    ///
+    /// Forgejo is the authority on this, and it is the only store of it.
+    /// When Forgejo stops recording a source, the repository has none.
+    ///
+    /// The token can be absent, because a public Recipe is readable without
+    /// a session.
+    pub async fn repository_lineage(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+    ) -> Result<Lineage, ForgejoError> {
+        let mut request = self.http.get(format!(
+            "{}/api/v1/repos/{owner}/{repository}",
+            self.api_url
+        ));
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        read_json(self.send(request).await?).await
+    }
+
+    /// List the repositories that were made from this one.
+    ///
+    /// Forgejo holds the list. The application keeps no copy, so a Variation
+    /// that somebody makes in Forgejo appears here at once.
+    pub async fn list_forks(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        limit: u32,
+    ) -> Result<Vec<Repository>, ForgejoError> {
+        let mut request = self
+            .http
+            .get(format!(
+                "{}/api/v1/repos/{owner}/{repository}/forks",
+                self.api_url
+            ))
+            .query(&[("page", "1".to_string()), ("limit", limit.to_string())]);
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        read_json(self.send(request).await?).await
+    }
+}
+
+/// Where a repository came from, as Forgejo records it.
+///
+/// A Variation is a Forgejo fork, and Forgejo holds that relationship on its
+/// own. This application stores no lineage and writes none into Git, so this
+/// answer is everything there is to know about the source of a Recipe.
+///
+/// Forgejo removes the relationship when the source repository is deleted.
+/// A Variation of a deleted Recipe therefore reports no source at all, and
+/// it stays a complete, usable Recipe.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct Lineage {
+    /// Whether Forgejo reports this repository as made from another one.
+    #[serde(default)]
+    pub fork: bool,
+    /// The repository it was made from, when Forgejo still names one.
+    #[serde(default)]
+    pub parent: Option<Parent>,
+}
+
+/// The repository that another one was made from.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Parent {
+    #[serde(default)]
+    pub id: i64,
+    #[serde(default)]
+    pub name: String,
+    /// `owner/name`, as Forgejo writes it.
+    #[serde(default)]
+    pub full_name: String,
+    #[serde(default)]
+    pub private: bool,
+    #[serde(default)]
+    pub owner: Option<RepositoryOwner>,
+}
+
+impl Parent {
+    /// The login of the person the source belongs to.
+    ///
+    /// Forgejo reports it twice, and an answer can carry either one, so the
+    /// owner comes first and the full name is read second.
+    pub fn owner_login(&self) -> &str {
+        if let Some(owner) = &self.owner
+            && !owner.login.is_empty()
+        {
+            return &owner.login;
+        }
+
+        self.full_name
+            .split_once('/')
+            .map(|(owner, _)| owner)
+            .unwrap_or_default()
+    }
+
+    /// The repository name of the source.
+    pub fn repository_name(&self) -> &str {
+        if !self.name.is_empty() {
+            return &self.name;
+        }
+
+        self.full_name
+            .split_once('/')
+            .map(|(_, name)| name)
+            .unwrap_or_default()
+    }
 }
 
 async fn read_json<T: serde::de::DeserializeOwned>(
@@ -1713,6 +1859,37 @@ mod tests {
         assert_eq!(urlencode("sam"), "sam");
         assert_eq!(urlencode("sam.the-cook_1"), "sam.the-cook_1");
         assert_eq!(urlencode("../../admin/users"), "..%2F..%2Fadmin%2Fusers");
+    }
+
+    #[test]
+    fn the_source_of_a_variation_is_read_whichever_way_forgejo_names_it() {
+        // Forgejo names the owner twice. An answer that carries only the
+        // full name must still say who the source belongs to, because the
+        // page builds an address out of it.
+        let full: Lineage = serde_json::from_str(
+            r#"{"fork":true,"parent":{"id":2,"name":"chili","full_name":"sam/chili","private":false,"owner":{"id":1,"login":"sam"}}}"#,
+        )
+        .unwrap();
+        let parent = full.parent.expect("the answer names a source");
+        assert!(full.fork);
+        assert_eq!(parent.owner_login(), "sam");
+        assert_eq!(parent.repository_name(), "chili");
+
+        let short: Lineage =
+            serde_json::from_str(r#"{"fork":true,"parent":{"full_name":"sam/chili"}}"#).unwrap();
+        let parent = short.parent.expect("the answer names a source");
+        assert_eq!(parent.owner_login(), "sam");
+        assert_eq!(parent.repository_name(), "chili");
+    }
+
+    #[test]
+    fn a_recipe_that_forgejo_records_no_source_for_has_none() {
+        // Forgejo forgets the relationship when the source is deleted. The
+        // application must read that as "no source" and never invent one.
+        let alone: Lineage =
+            serde_json::from_str(r#"{"name":"chili","fork":false,"parent":null}"#).unwrap();
+        assert!(!alone.fork);
+        assert!(alone.parent.is_none());
     }
 
     #[test]

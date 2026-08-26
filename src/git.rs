@@ -58,6 +58,9 @@ pub enum GitError {
     /// What the draft held is left exactly as it was.
     #[error("the draft changed somewhere else")]
     Stale,
+    /// The Version asked for is not one that this Recipe holds.
+    #[error("this Recipe does not hold that Version")]
+    Missing,
 }
 
 /// Who a Version belongs to.
@@ -230,6 +233,24 @@ pub trait GitAdapter: Send + Sync + std::fmt::Debug {
         remote_url: &str,
         token: &Secret<String>,
         branch: &str,
+    ) -> Result<(), GitError>;
+
+    /// Move a branch back to an earlier Version that it already holds.
+    ///
+    /// A Variation that starts at an earlier Version is made this way. The
+    /// copy carries the whole Recipe first, and the published branch is then
+    /// moved before anybody can read it.
+    ///
+    /// Only a Version that the branch already holds is accepted, so nothing
+    /// from outside the published Recipe can ever be published by this. A
+    /// Version that the branch does not hold gives [`GitError::Missing`] and
+    /// the branch keeps exactly what it had.
+    async fn move_branch(
+        &self,
+        remote_url: &str,
+        token: &Secret<String>,
+        branch: &str,
+        version: &str,
     ) -> Result<(), GitError>;
 }
 
@@ -770,6 +791,61 @@ impl GitAdapter for SystemGit {
             message: redact(&attempt.stderr, token),
         })
     }
+
+    async fn move_branch(
+        &self,
+        remote_url: &str,
+        token: &Secret<String>,
+        branch: &str,
+        version: &str,
+    ) -> Result<(), GitError> {
+        let workspace = tempfile::tempdir().map_err(GitError::Workspace)?;
+        let root = workspace.path();
+
+        // Only the published branch travels, and with it every Version that
+        // it holds. Nothing else of the Recipe is needed here.
+        self.run(root, token, &["init", "--quiet"]).await?;
+        self.run(root, token, &["fetch", "--quiet", remote_url, branch])
+            .await?;
+
+        // The Version has to be one that the published branch holds. This
+        // is the check, and it is a read of Git rather than a promise from
+        // the caller.
+        let held = self
+            .attempt(
+                root,
+                root,
+                token,
+                &[
+                    "merge-base",
+                    "--is-ancestor",
+                    &format!("{version}^{{commit}}"),
+                    "FETCH_HEAD",
+                ],
+            )
+            .await?;
+
+        if !held.success {
+            return Err(GitError::Missing);
+        }
+
+        self.run(
+            root,
+            token,
+            &[
+                "push",
+                "--quiet",
+                "--force",
+                remote_url,
+                &format!("{version}:refs/heads/{branch}"),
+            ],
+        )
+        .await?;
+
+        drop(workspace);
+
+        Ok(())
+    }
 }
 
 /// What happened when the change was applied to a branch that moved.
@@ -1120,6 +1196,92 @@ mod tests {
         for word in ["branch", "commit", "push", "merge", "rebase", "ref"] {
             assert!(!text.contains(word), "`{word}` must not reach the person");
         }
+    }
+
+    #[test]
+    fn a_version_that_is_not_there_names_no_git_word() {
+        // A person reads this one when a Variation is asked for from a
+        // Version that the Recipe does not hold.
+        let text = GitError::Missing.to_string();
+        for word in ["branch", "commit", "sha", "ref", "fork", "head"] {
+            assert!(!text.contains(word), "`{word}` must not reach the person");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_branch_moves_back_only_to_a_version_that_it_holds() {
+        // This is what makes a Variation start at an earlier Version. A
+        // Version from anywhere else must never reach the published branch.
+        let source = tempfile::tempdir().unwrap();
+        let git = SystemGit;
+        let token = Secret::new(String::new());
+        let identity = Identity {
+            name: "Sam Cook".to_string(),
+            email: "sam@noreply.localhost".to_string(),
+        };
+
+        git.run(source.path(), &token, &["init", "--quiet", "--bare"])
+            .await
+            .expect("cannot make the probe repository");
+        let remote = source.path().to_string_lossy().replace('\\', "/");
+
+        let mut first_files = BTreeMap::new();
+        first_files.insert("recipe.cook".to_string(), b"Chop it.\n".to_vec());
+        let first = git
+            .create_initial_commit(InitialCommit {
+                remote_url: &remote,
+                token: &token,
+                identity: &identity,
+                branch: "main",
+                message: "Add Chili",
+                files: first_files,
+            })
+            .await
+            .expect("cannot write the first Version");
+
+        let mut second_files = BTreeMap::new();
+        second_files.insert("recipe.cook".to_string(), b"Chop it. Fry it.\n".to_vec());
+        let second = git
+            .publish_version(PublishVersion {
+                remote_url: &remote,
+                token: &token,
+                identity: &identity,
+                branch: "main",
+                message: "Fry it too",
+                base_version: &first,
+                files: second_files,
+            })
+            .await
+            .expect("cannot write the second Version");
+
+        assert_eq!(
+            git.branch_head(&remote, &token, "main").await.unwrap(),
+            Some(second.clone())
+        );
+
+        git.move_branch(&remote, &token, "main", &first)
+            .await
+            .expect("the branch must move back");
+        assert_eq!(
+            git.branch_head(&remote, &token, "main").await.unwrap(),
+            Some(first.clone())
+        );
+
+        // A Version that this Recipe never held is refused, and the branch
+        // keeps what it has.
+        let outside = git
+            .move_branch(
+                &remote,
+                &token,
+                "main",
+                "0123456789abcdef0123456789abcdef01234567",
+            )
+            .await;
+        assert!(matches!(outside, Err(GitError::Missing)));
+        assert_eq!(
+            git.branch_head(&remote, &token, "main").await.unwrap(),
+            Some(first)
+        );
     }
 
     #[test]

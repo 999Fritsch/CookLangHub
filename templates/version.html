@@ -158,6 +158,20 @@
   </div>
   {% endif %}
 
+  {#
+    A Variation of the Version that this person is reading. The address
+    carries the Version, so the Variations area starts the Variation here
+    and not at the published Recipe.
+  #}
+  {% if layout.signed_in %}
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Make a Variation of this Version</h2>
+    <p class="text-gray-600 mb-4">A Variation is your own Recipe. It starts with this Version, and a change that you make in it does not change this Recipe.</p>
+    <a class="inline-block btn-primary px-5 py-2 rounded-full font-medium text-white"
+       href="/recipes/{{ owner }}/{{ slug }}/variations?from={{ version.id }}">Create variation</a>
+  </div>
+  {% endif %}
+
   <details class="bg-white rounded-2xl shadow-lg p-6">
     <summary class="cursor-pointer font-medium text-gray-600 hover:text-gray-900">Recipe source</summary>
     <pre class="mt-4 bg-gray-50 rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words text-sm"><code>{{ source }}</code></pre>
