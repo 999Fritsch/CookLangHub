@@ -15,6 +15,9 @@
   <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">{{ title }}</h1>
   <div class="flex flex-wrap items-center gap-2 self-start">
     <a class="nav-pill" href="/cookbooks">All Cookbooks</a>
+    {% if can_change %}
+    <a class="nav-pill" href="/cookbooks/{{ owner }}/{{ slug }}/sharing">Sharing</a>
+    {% endif %}
     <a class="nav-pill" href="{{ forgejo_url }}">Open in Forgejo</a>
   </div>
 </div>
