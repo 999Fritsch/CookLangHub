@@ -50,10 +50,20 @@ async fn the_page_shows_ingredients_cookware_timings_and_steps() {
         assert!(body.contains(amount), "`{amount}` is missing from the page");
     }
 
-    // Each entity carries its own class, which is what gives it its color.
+    // Inside a step each entity carries its own class, which is what gives
+    // it its color and separates an ingredient from cookware in prose.
     assert!(body.contains("class=\"ingredient\""), "no ingredient marks");
     assert!(body.contains("class=\"cookware\""), "no cookware marks");
     assert!(body.contains("class=\"timer\""), "no timer marks");
+
+    // The gather list reads name then amount, and carries no badge: every
+    // row there is already the same kind of thing.
+    assert!(body.contains("gather-list--ingredient"), "no ingredient list");
+    assert!(body.contains("gather-list--cookware"), "no cookware list");
+    assert!(body.contains("gather-amount"), "an amount must stand on its own");
+
+    // Each step names what it needs, so a cook does not look back.
+    assert!(body.contains("step-needs"), "a step must name its amounts");
 
     // Metadata a cook cares about.
     assert!(body.contains("Servings"));

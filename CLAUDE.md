@@ -60,6 +60,11 @@ Five rules:
    green, timer is red. This mapping comes from CookCLI, so a cook who
    knows that interface can read this one. Do not reuse these hues for
    anything else.
+
+   A badge belongs inside running text, where it separates an ingredient
+   from cookware. A list of one kind of thing gets a tinted row instead:
+   the name on the left, the amount in bold on the right. In such a list a
+   badge repeats the heading and takes the weight that the amount needs.
 5. **It must not look like a code forge.** Recipe pages are culinary
    first. History, Suggestions, and Variations use quiet neutral chrome,
    never the visual language of a source control tool.

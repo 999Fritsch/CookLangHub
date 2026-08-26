@@ -73,6 +73,11 @@ pub struct Block {
     /// Zero for a paragraph that is not a step.
     pub number: u32,
     pub pieces: Vec<Piece>,
+    /// What this one step needs, with amounts.
+    ///
+    /// A cook working through the method should not have to look back at
+    /// the full list to find out how much of something this step takes.
+    pub components: Vec<Component>,
 }
 
 impl Block {
@@ -157,17 +162,23 @@ pub fn render(recipe: &Recipe) -> RenderedRecipe {
                 .content
                 .iter()
                 .map(|content| match content {
-                    Content::Step(step) => Block {
-                        number: step.number,
-                        pieces: step
+                    Content::Step(step) => {
+                        let pieces: Vec<Piece> = step
                             .items
                             .iter()
                             .map(|item| piece(recipe, item))
-                            .collect(),
-                    },
+                            .collect();
+                        let components = step_components(&pieces);
+                        Block {
+                            number: step.number,
+                            pieces,
+                            components,
+                        }
+                    }
                     Content::Text(text) => Block {
                         number: 0,
                         pieces: vec![Piece::text(text.clone())],
+                        components: Vec::new(),
                     },
                 })
                 .collect(),
@@ -186,6 +197,28 @@ pub fn render(recipe: &Recipe) -> RenderedRecipe {
         cookware,
         sections,
     }
+}
+
+/// The ingredients that one step uses, each named once.
+fn step_components(pieces: &[Piece]) -> Vec<Component> {
+    let mut out: Vec<Component> = Vec::new();
+
+    for piece in pieces {
+        if piece.kind != PieceKind::Ingredient {
+            continue;
+        }
+        // A step can name the same ingredient twice. Show it once.
+        if out.iter().any(|c| c.name == piece.text) {
+            continue;
+        }
+        out.push(Component {
+            name: piece.text.clone(),
+            quantity: piece.quantity.clone(),
+            note: None,
+        });
+    }
+
+    out
 }
 
 fn piece(recipe: &Recipe, item: &Item) -> Piece {
@@ -351,6 +384,56 @@ mod tests {
             .unwrap();
         assert_eq!(onion.text, "onion");
         assert_eq!(onion.quantity.as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn each_step_lists_what_it_needs() {
+        let r = render(&parse(
+            "---
+title: T
+---
+
+Chop @onion{1} and @garlic{2%cloves}.
+
+Fry the @onion{} again in @oil{2%tbsp}.",
+        ));
+
+        let first = &r.sections[0].blocks[0];
+        let names: Vec<&str> = first.components.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["onion", "garlic"]);
+        assert_eq!(first.components[1].quantity.as_deref(), Some("2 cloves"));
+
+        // The second step names only what it uses.
+        let second = &r.sections[0].blocks[1];
+        let names: Vec<&str> = second.components.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["onion", "oil"]);
+    }
+
+    #[test]
+    fn a_step_names_a_repeated_ingredient_once() {
+        let r = render(&parse(
+            "---
+title: T
+---
+
+Add @salt{1%pinch}, stir, then add @salt{} again.",
+        ));
+
+        let step = &r.sections[0].blocks[0];
+        assert_eq!(step.components.len(), 1, "salt must appear once");
+        assert_eq!(step.components[0].name, "salt");
+    }
+
+    #[test]
+    fn a_paragraph_that_is_not_a_step_lists_nothing() {
+        let r = render(&parse("---
+title: T
+---
+
+Chop @onion{1}."));
+        let step = &r.sections[0].blocks[0];
+        assert!(step.is_step());
+        assert!(!step.components.is_empty());
     }
 
     #[test]

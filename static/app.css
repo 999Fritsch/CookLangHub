@@ -482,28 +482,49 @@ input[type="text"]:focus, textarea:focus {
 .recipe-aside h2 { margin-top: 0; font-size: var(--text-base); }
 .recipe-aside section + section { margin-top: var(--space-5); }
 
-.component-list {
+/* ---- Gather lists ------------------------------------------------------ */
+/* What to collect before cooking. The name reads on the left and the amount
+ * on the right, which is what makes a long list scannable.
+ *
+ * A row carries no entity badge. Every row in this list is already the same
+ * kind of thing, so a badge would repeat the heading and would take the
+ * weight that belongs to the amount. The badge appears inside a step
+ * instead, where it separates an ingredient from cookware in running text.
+ */
+
+.gather-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
-.component-list li {
-  display: flex;
-  flex-wrap: wrap;
+.gather-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: baseline;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
 }
 
-.component-amount {
-  color: var(--ink-muted);
-  font-size: var(--text-sm);
+.gather-list--ingredient .gather-row { background: var(--ingredient-row); }
+.gather-list--cookware .gather-row { background: var(--cookware-row); }
+
+.gather-name { color: var(--ink); }
+
+.gather-amount {
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.component-note {
+.gather-list--ingredient .gather-amount { color: var(--ingredient-ink); }
+.gather-list--cookware .gather-amount { color: var(--cookware-ink); }
+
+.gather-note {
+  grid-column: 1 / -1;
   color: var(--ink-muted);
   font-size: var(--text-sm);
   font-style: italic;
@@ -518,8 +539,7 @@ input[type="text"]:focus, textarea:focus {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: var(--space-5);
-  counter-reset: none;
+  gap: var(--space-4);
 }
 
 .step {
@@ -527,14 +547,37 @@ input[type="text"]:focus, textarea:focus {
   grid-template-columns: auto 1fr;
   gap: var(--space-3);
   align-items: start;
+  background: var(--step-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
 }
 
 .step--note {
   grid-template-columns: 1fr;
   color: var(--ink-muted);
   font-style: italic;
+  background: none;
   border-left: 2px solid var(--line-strong);
+  border-radius: 0;
+  padding: 0 0 0 var(--space-3);
+}
+
+/* The amounts this one step needs. */
+.step-needs {
+  grid-column: 2;
+  margin: var(--space-3) 0 0;
   padding-left: var(--space-3);
+  border-left: 2px solid var(--ingredient-line);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+.step-need-name { color: var(--ink-muted); }
+
+.step-need-amount {
+  color: var(--ingredient-ink);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
 }
 
 .step-text { margin: 0; }

@@ -89,15 +89,15 @@
       {% if !cooked.ingredients.is_empty() %}
       <section aria-labelledby="ingredients-heading">
         <h2 id="ingredients-heading">Ingredients</h2>
-        <ul class="component-list">
+        <ul class="gather-list gather-list--ingredient">
           {% for item in cooked.ingredients %}
-          <li>
-            <span class="ingredient">{{ item.name }}</span>
+          <li class="gather-row">
+            <span class="gather-name">{{ item.name }}</span>
             {% if let Some(quantity) = item.quantity %}
-            <span class="component-amount">{{ quantity }}</span>
+            <span class="gather-amount">{{ quantity }}</span>
             {% endif %}
             {% if let Some(note) = item.note %}
-            <span class="component-note">{{ note }}</span>
+            <span class="gather-note">{{ note }}</span>
             {% endif %}
           </li>
           {% endfor %}
@@ -108,12 +108,12 @@
       {% if !cooked.cookware.is_empty() %}
       <section aria-labelledby="cookware-heading">
         <h2 id="cookware-heading">Cookware</h2>
-        <ul class="component-list">
+        <ul class="gather-list gather-list--cookware">
           {% for item in cooked.cookware %}
-          <li>
-            <span class="cookware">{{ item.name }}</span>
+          <li class="gather-row">
+            <span class="gather-name">{{ item.name }}</span>
             {% if let Some(quantity) = item.quantity %}
-            <span class="component-amount">{{ quantity }}</span>
+            <span class="gather-amount">{{ quantity }}</span>
             {% endif %}
           </li>
           {% endfor %}
@@ -144,6 +144,14 @@
             {%- endif -%}
             {%- endfor -%}
           </p>
+          {% if !block.components.is_empty() %}
+          <p class="step-needs">
+            {%- for item in block.components -%}
+            {%- if !loop.first %}, {% endif -%}
+            <span class="step-need"><span class="step-need-name">{{ item.name }}</span>{% if let Some(quantity) = item.quantity %} <span class="step-need-amount">{{ quantity }}</span>{% endif %}</span>
+            {%- endfor -%}
+          </p>
+          {% endif %}
         </li>
         {% else %}
         <li class="step step--note">

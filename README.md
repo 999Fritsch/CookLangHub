@@ -139,9 +139,11 @@ and as committer. A person who hides their address gets the Forgejo no-reply
 address, because History is readable by anybody who can read the Recipe.
 
 The Recipe page shows the cooked Recipe: what to gather, then what to do.
-Each Cooklang entity keeps its own color, the same mapping that CookCLI
-uses, so ingredient is amber, cookware is green, and a time is red. The
-Cooklang source stays one click away.
+The layout follows CookCLI, so a cook who knows that interface can read
+this one. The gather lists put the name on the left and the amount in bold
+on the right. Inside a step each Cooklang entity keeps its own color, and
+the step repeats the amounts it needs. The Cooklang source stays one click
+away.
 
 Everything a person wrote reaches the page as text, and the template
 escapes it, so a Recipe that contains markup shows those characters and
