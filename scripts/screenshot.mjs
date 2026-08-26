@@ -65,26 +65,26 @@ const OVERLAYS = [
   },
 ];
 
-function cookies(palette, facts) {
+function cookies(palette, facts, signedIn = true) {
   const host = new URL(BASE).hostname;
   const jar = [
     { name: "cooklanghub_theme", value: palette, domain: host, path: "/" },
     { name: "cooklanghub_fact_colour", value: facts, domain: host, path: "/" },
   ];
-  if (SESSION) {
+  if (SESSION && signedIn) {
     jar.push({ name: "cooklanghub_session", value: SESSION, domain: host, path: "/" });
   }
   return jar;
 }
 
-async function shoot(browser, { name, path, needsSession, open }, size, palette, facts) {
-  if (needsSession && !SESSION) return null;
+async function shoot(browser, { name, path, needsSession, open }, size, palette, facts, signedIn = true) {
+  if (needsSession && (!SESSION || !signedIn)) return null;
 
   const context = await browser.newContext({
     viewport: { width: size.width, height: size.height },
     deviceScaleFactor: 1,
   });
-  await context.addCookies(cookies(palette, facts));
+  await context.addCookies(cookies(palette, facts, signedIn));
   const page = await context.newPage();
 
   const problems = [];
@@ -107,7 +107,8 @@ async function shoot(browser, { name, path, needsSession, open }, size, palette,
       return de.scrollWidth - de.clientWidth;
     });
 
-    const suffix = facts === "coloured" ? "-coloured" : "";
+    const suffix =
+      (facts === "coloured" ? "-coloured" : "") + (signedIn ? "" : "-no-account");
     const file = `${OUT}/${name}-${size.name}-${palette}${suffix}.png`;
     await page.screenshot({ path: file, fullPage: FULL });
 
@@ -140,6 +141,18 @@ for (const target of wanted) {
 for (const target of wanted.filter((p) => p.name === "preferences" || p.name === "recipe")) {
   const shot = await shoot(browser, target, SIZES[0], "light", "coloured");
   if (shot) taken.push({ target: target.name, size: "desktop", palette: "light-coloured", ...shot });
+}
+
+// A visitor with no account sees a different navigation, different
+// buttons, and only the public Recipes. Nothing else in this tool looks at
+// that, so it is easy for a fault there to go unseen.
+for (const target of wanted.filter((p) => !p.needsSession)) {
+  for (const size of SIZES) {
+    const shot = await shoot(browser, target, size, "light", "plain", false);
+    if (shot) {
+      taken.push({ target: target.name, size: size.name, palette: "light-no-account", ...shot });
+    }
+  }
 }
 
 await browser.close();

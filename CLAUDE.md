@@ -89,6 +89,29 @@ Do not "correct" these back.
   (History, Suggestions, Discussions, Variations, Sharing) are built from
   CookCLI's own classes.
 
+### Dark mode is not free
+
+The dark palette is a set of rules keyed to exact class combinations, in
+`static/css/theme.src.css`. A CookCLI class that looks right in the light
+palette can be unstyled in the dark one, and the light palette will never
+show you that.
+
+This has caused three separate defects: a step card, the cards on the
+Preferences page, and the mark for the area you are in. Each time a class
+was copied correctly and had no dark rule behind it.
+
+So, before using a class for a background, a border, or a text colour:
+
+1. Search `theme.src.css` for a `.dark` rule that covers it. Prefer a class
+   that already has one.
+2. If none exists and the class is needed, add the rule to `theme.src.css`
+   in the shape of the rules already there, and run `npm run build`.
+3. Never put two colour utilities on one element. Their dark rules fight,
+   and the result is that neither wins and the element inherits. Choose one,
+   or carry the state on an attribute such as `aria-current` and colour that.
+4. Look at the page in both palettes before calling it done. `npm run shot`
+   takes both.
+
 ### Accessibility
 
 Semantic HTML, a label on every control, a visible focus ring, full keyboard
