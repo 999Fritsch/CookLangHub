@@ -264,7 +264,10 @@ fn description(message: &str) -> String {
 ///
 /// Git writes RFC 3339, for example `2026-08-26T09:41:00+02:00`. Two
 /// Versions can share a day, so the clock stays.
-fn moment(timestamp: &str) -> String {
+///
+/// Public inside the crate so that a diagnosis can name the Version it
+/// offers with the same words that History uses for it.
+pub(crate) fn moment(timestamp: &str) -> String {
     let timestamp = timestamp.trim();
     let Some((day, rest)) = timestamp.split_once('T') else {
         return timestamp.to_string();
@@ -750,7 +753,10 @@ async fn history(
 }
 
 /// Read the Cooklang of one Version.
-async fn source_at(
+///
+/// Public inside the crate so that the diagnosis of a broken Recipe can
+/// look for the last valid Version through this one reader.
+pub(crate) async fn source_at(
     state: &AppState,
     token: Option<&Secret<String>>,
     owner: &str,

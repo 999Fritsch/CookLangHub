@@ -1501,6 +1501,62 @@ impl ForgejoClient {
 
         read_json(response).await
     }
+
+    /// List the files at the top of a repository with their sizes.
+    ///
+    /// [`Self::list_root_files`] answers the same question without the
+    /// sizes. The size matters where a file can be larger than the friendly
+    /// interface shows: reading it to find that out would put the whole file
+    /// in memory, which is exactly what a person with a Git client could
+    /// then use to exhaust it.
+    pub async fn list_root_entries(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        reference: &str,
+    ) -> Result<Vec<RootEntry>, ForgejoError> {
+        #[derive(Deserialize)]
+        struct Entry {
+            #[serde(default)]
+            name: String,
+            #[serde(rename = "type", default)]
+            kind: String,
+            #[serde(default)]
+            size: u64,
+        }
+
+        let mut request = self
+            .http
+            .get(format!(
+                "{}/api/v1/repos/{owner}/{repository}/contents",
+                self.api_url
+            ))
+            .query(&[("ref", reference)]);
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        let response = self.send(request).await?;
+        let entries: Vec<Entry> = read_json(response).await?;
+
+        Ok(entries
+            .into_iter()
+            .filter(|entry| entry.kind == "file")
+            .map(|entry| RootEntry {
+                name: entry.name,
+                size: entry.size,
+            })
+            .collect())
+    }
+}
+
+/// One file at the top of a repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RootEntry {
+    pub name: String,
+    /// How many bytes Forgejo holds for this file.
+    pub size: u64,
 }
 
 async fn read_json<T: serde::de::DeserializeOwned>(
