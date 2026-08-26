@@ -26,6 +26,7 @@ pub mod render;
 pub mod scale;
 pub mod secret;
 pub mod session;
+pub mod suggestion;
 pub mod telemetry;
 pub mod theme;
 pub mod upload;
@@ -39,6 +40,7 @@ pub mod web_history;
 pub mod web_profile;
 pub mod web_recipes;
 pub mod web_sharing;
+pub mod web_suggestions;
 pub mod web_variations;
 pub mod webhook;
 

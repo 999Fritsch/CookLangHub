@@ -504,22 +504,36 @@ async fn a_change_that_cannot_be_joined_leaves_the_published_recipe_alone() {
 }
 
 #[tokio::test]
-async fn a_reader_cannot_open_the_editor_or_publish_a_version() {
+async fn a_reader_publishes_no_version_and_is_sent_to_a_suggestion() {
     let world = ready().await;
     let slug = a_recipe(&world, "Read Only", DISH).await;
     let before = stored(&world, &slug).await;
 
     // Kim can read this public Recipe. Forgejo gives Kim no write access.
     let reader = support::sign_in(&world.app, &world.forgejo, "kim").await;
+    let suggestion = format!("/recipes/sam/{slug}/suggest");
 
-    let (status, body) = open_editor(&world.app, &reader, &slug).await;
-    assert_eq!(status, 403, "a Reader must not reach the editor");
-    assert!(body.contains("cannot be edited here"), "got: {body:.600}");
-    assert!(body.contains("Open in Forgejo"));
+    // The work of a Reader is not lost and is not published either: it
+    // becomes a Suggestion.
+    let response = support::client()
+        .get(world.app.url(&format!("/recipes/sam/{slug}/edit")))
+        .header("cookie", cookie(&reader))
+        .send()
+        .await
+        .expect("cannot reach the editor");
+    assert_eq!(response.status(), 303, "a Reader must not reach the editor");
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some(suggestion.as_str()),
+        "a Reader must be sent to their Suggestion"
+    );
 
     // The refusal is not only in the page. The publish route asks Forgejo
-    // again, so a request that never passed through the editor is refused
-    // as well.
+    // again, so a request that never passed through the editor publishes
+    // nothing either.
     let response = publish(
         &world.app,
         &reader,
@@ -529,7 +543,14 @@ async fn a_reader_cannot_open_the_editor_or_publish_a_version() {
         "Sneaky",
     )
     .await;
-    assert_eq!(response.status(), 403);
+    assert_eq!(response.status(), 303);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some(suggestion.as_str())
+    );
 
     assert_eq!(versions(&world, &slug).await.len(), 1);
     assert_eq!(stored(&world, &slug).await, before);
