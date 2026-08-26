@@ -1691,13 +1691,17 @@ impl ForgejoClient {
         Ok(results.data)
     }
 
-    /// List the files at the top of a repository with their sizes.
+    /// List what sits at the top of a repository.
     ///
-    /// [`Self::list_root_files`] answers the same question without the
-    /// sizes. The size matters where a file can be larger than the friendly
-    /// interface shows: reading it to find that out would put the whole file
-    /// in memory, which is exactly what a person with a Git client could
-    /// then use to exhaust it.
+    /// Every entry is returned, of every kind. Two callers need different
+    /// parts of this: the state of a Recipe reads a file and its size, and a
+    /// Cookbook reads a reference and the exact Version it records. Filtering
+    /// here would serve one of them and lie to the other.
+    ///
+    /// The size matters where a file can be larger than the friendly
+    /// interface shows. Reading the file to find that out would put all of it
+    /// in memory, which is what a person with a Git client could then use to
+    /// exhaust it.
     pub async fn list_root_entries(
         &self,
         token: Option<&Secret<String>>,
@@ -1705,16 +1709,6 @@ impl ForgejoClient {
         repository: &str,
         reference: &str,
     ) -> Result<Vec<RootEntry>, ForgejoError> {
-        #[derive(Deserialize)]
-        struct Entry {
-            #[serde(default)]
-            name: String,
-            #[serde(rename = "type", default)]
-            kind: String,
-            #[serde(default)]
-            size: u64,
-        }
-
         let mut request = self
             .http
             .get(format!(
@@ -1726,17 +1720,7 @@ impl ForgejoClient {
             request = request.bearer_auth(token.expose());
         }
 
-        let response = self.send(request).await?;
-        let entries: Vec<Entry> = read_json(response).await?;
-
-        Ok(entries
-            .into_iter()
-            .filter(|entry| entry.kind == "file")
-            .map(|entry| RootEntry {
-                name: entry.name,
-                size: entry.size,
-            })
-            .collect())
+        read_json(self.send(request).await?).await
     }
 
     /// Make a Variation: a copy of a Recipe that belongs to the token holder.
@@ -1820,11 +1804,20 @@ impl ForgejoClient {
     }
 }
 
-/// One file at the top of a repository.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One entry at the top of a repository.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct RootEntry {
+    #[serde(default)]
     pub name: String,
+    /// `file`, `dir`, `symlink`, or `submodule`.
+    #[serde(rename = "type", default)]
+    pub kind: String,
+    /// For a reference to another repository, the exact Version that this
+    /// repository records. For a file, the identifier of its content.
+    #[serde(default)]
+    pub sha: String,
     /// How many bytes Forgejo holds for this file.
+    #[serde(default)]
     pub size: u64,
 }
 
@@ -2119,5 +2112,12 @@ impl Parent {
             .split_once('/')
             .map(|(_, name)| name)
             .unwrap_or_default()
+    }
+}
+
+impl RootEntry {
+    /// Whether this entry is a reference to another repository.
+    pub fn is_reference(&self) -> bool {
+        self.kind == "submodule"
     }
 }

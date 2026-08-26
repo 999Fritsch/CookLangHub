@@ -20,8 +20,24 @@
 //! There is no `cookbook.yaml`: a Cookbook stays readable, and editable, with
 //! nothing but Git.
 //!
-//! Later tickets add the Recipes of a Cookbook as Git submodules. They belong
-//! in `.gitmodules` and in the gitlinks, and never in this database.
+//! # The Recipes
+//!
+//! A Cookbook holds each of its Recipes by reference, and never by copy. The
+//! reference is a Git submodule: `.gitmodules` names the Recipe and its
+//! address, and the tree of the Cookbook records the exact Version. Both live
+//! in Git, and neither is ever in this database.
+//!
+//! Two things follow from that choice, and the tickets after this one rest on
+//! both. A reference that names a branch moves to each new Version of the
+//! Recipe, and one that names none keeps the Version it was made at. And a
+//! reference is only a name and an address, so a Cookbook can name a Recipe
+//! that the reader may not open, or one that is no longer there. Each of
+//! those states is reported and none of them is repaired.
+//!
+//! One thing follows that a person must know. The reference is in the
+//! Cookbook, so anybody who can read the Cookbook in Forgejo can read the
+//! address of every Recipe in it, including a private one. These pages never
+//! show it, and Forgejo is the authority for what Forgejo shows.
 //!
 //! # The index
 //!
@@ -413,6 +429,631 @@ async fn create_repository(
     }
 
     Err(CreateError::NoFreeName)
+}
+
+// ------------------------------------------------------------ the Recipes
+
+/// The file that names each Recipe of a Cookbook and where it lives.
+///
+/// Git writes this file and Git reads it. A Cookbook that a person clones
+/// therefore brings its Recipes with it, and nothing in this application is
+/// needed to understand the file.
+pub const MODULES_FILE: &str = ".gitmodules";
+
+/// How a Cookbook holds one Recipe.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Holding {
+    /// The Cookbook keeps the Version that the person selected. This is
+    /// the default, and it is what makes a Cookbook reproducible.
+    #[default]
+    Pinned,
+    /// The Cookbook moves to each new Version of the Recipe.
+    Following,
+}
+
+impl Holding {
+    /// The value that the form carries.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Holding::Pinned => "pinned",
+            Holding::Following => "following",
+        }
+    }
+
+    /// Read the choice that a person made.
+    ///
+    /// Anything that is not the exact word gives Pinned, so a form with no
+    /// choice at all keeps the Version.
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "following" => Holding::Following,
+            _ => Holding::Pinned,
+        }
+    }
+}
+
+/// One Recipe reference, exactly as the Cookbook records it.
+///
+/// This is what Git holds, and it is the authority. Nothing here comes from
+/// the index.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reference {
+    /// Where the Recipe sits inside the Cookbook. The name comes from the
+    /// Recipe and it never changes afterwards.
+    pub path: String,
+    /// The address of the Recipe repository. Empty when the Cookbook
+    /// records none, which is a state a direct push can make.
+    pub url: String,
+    /// The branch that the Cookbook follows, when it names one. A Pinned
+    /// Recipe names none.
+    pub follow: Option<String>,
+    /// The exact Version that the Cookbook holds, when it records one.
+    pub version: Option<String>,
+}
+
+impl Reference {
+    /// Whether the Cookbook keeps this Version or follows the Recipe.
+    pub fn holding(&self) -> Holding {
+        match self.follow {
+            Some(_) => Holding::Following,
+            None => Holding::Pinned,
+        }
+    }
+}
+
+/// Read `.gitmodules`.
+///
+/// The file is written by Git and can also be written by a person, so this
+/// reads what is there and never assumes the shape that this application
+/// writes. A section with no `path` falls back to its own name, which is
+/// what Git does.
+pub fn read_references(bytes: &[u8]) -> Vec<Reference> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut found: Vec<Reference> = Vec::new();
+    let mut open: Option<Section> = None;
+
+    for line in text.lines() {
+        let line = line.trim();
+
+        if line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+
+        if line.starts_with('[') {
+            found.extend(open.take().map(Section::close));
+            open = section_name(line).map(Section::new);
+            continue;
+        }
+
+        let Some(section) = open.as_mut() else {
+            continue;
+        };
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let value = value.trim().trim_matches('"').to_string();
+
+        match key.trim().to_ascii_lowercase().as_str() {
+            "path" => section.path = value,
+            "url" => section.url = value,
+            "branch" if !value.is_empty() => section.follow = Some(value),
+            _ => {}
+        }
+    }
+
+    found.extend(open.take().map(Section::close));
+
+    // Git reads the last section that names a path, so this does too.
+    let mut kept: Vec<Reference> = Vec::new();
+    for reference in found {
+        if let Some(older) = kept.iter_mut().find(|held| held.path == reference.path) {
+            *older = reference;
+        } else {
+            kept.push(reference);
+        }
+    }
+    kept
+}
+
+/// One `[submodule "name"]` section while it is being read.
+struct Section {
+    name: String,
+    path: String,
+    url: String,
+    follow: Option<String>,
+}
+
+impl Section {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            path: String::new(),
+            url: String::new(),
+            follow: None,
+        }
+    }
+
+    /// A section with no `path` falls back to its own name, the way Git
+    /// reads it.
+    fn close(self) -> Reference {
+        let path = match self.path.trim() {
+            "" => self.name,
+            named => named.to_string(),
+        };
+
+        Reference {
+            path,
+            url: self.url.trim().to_string(),
+            follow: self.follow,
+            version: None,
+        }
+    }
+}
+
+/// The name of a `[submodule "name"]` section, when the line names one.
+fn section_name(line: &str) -> Option<String> {
+    let inside = line.strip_prefix('[')?.strip_suffix(']')?.trim();
+    let rest = inside.strip_prefix("submodule")?.trim();
+    Some(rest.trim_matches('"').to_string())
+}
+
+/// The address that a Cookbook records for a Recipe.
+///
+/// This is the address that a person clones, so it is the public one. The
+/// application never fetches through it: it asks Forgejo about the Recipe
+/// by its owner and its name.
+pub fn recipe_address(forgejo: &ForgejoClient, owner: &str, slug: &str) -> String {
+    format!("{}.git", forgejo.web_url(&format!("{owner}/{slug}")))
+}
+
+/// The Recipe that an address names, when it names one of this installation.
+///
+/// A Recipe that was renamed, or that lives on another Forgejo, gives
+/// nothing. The application never repairs such an address.
+pub fn recipe_named_by(forgejo: &ForgejoClient, url: &str) -> Option<(String, String)> {
+    let cleaned = url.trim();
+    let cleaned = cleaned.strip_suffix(".git").unwrap_or(cleaned);
+
+    for base in [forgejo.public_url(), forgejo.api_url()] {
+        let base = base.trim_end_matches('/');
+        if base.is_empty() {
+            continue;
+        }
+
+        let Some(rest) = cleaned.strip_prefix(base) else {
+            continue;
+        };
+        // The rest must begin a path. Without this `http://forge.test`
+        // would also match `http://forge.test.elsewhere/sam/chili`.
+        let Some(rest) = rest.strip_prefix('/') else {
+            continue;
+        };
+        let Some((owner, slug)) = rest.split_once('/') else {
+            continue;
+        };
+
+        if !owner.is_empty() && !slug.is_empty() && !slug.contains('/') {
+            return Some((owner.to_string(), slug.to_string()));
+        }
+    }
+
+    None
+}
+
+/// Where a Recipe sits inside a Cookbook.
+///
+/// The name comes from the Recipe itself, and it stays for as long as the
+/// Recipe is in the Cookbook. A second Recipe of the same name, from
+/// another person, gets the next free name. The application chooses that
+/// name and asks nobody.
+pub fn reference_path(taken: &[String], slug: &str) -> Option<String> {
+    let base = crate::recipe::slug_with(slug, "recipe");
+
+    (1..=MAX_SLUG_ATTEMPTS)
+        .map(|attempt| slug_attempt(&base, attempt))
+        .find(|candidate| {
+            !taken
+                .iter()
+                .any(|held| held.eq_ignore_ascii_case(candidate))
+        })
+}
+
+/// What a Cookbook records about the Recipes it holds.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Contents {
+    /// One entry for each Recipe that the Cookbook names or holds.
+    pub references: Vec<Reference>,
+    /// Whether the Cookbook itself answered. When it did not, a Recipe
+    /// with no Version means that nothing was read, and not that the
+    /// Cookbook records none. A diagnosis must never come from a question
+    /// that was never answered.
+    pub complete: bool,
+}
+
+/// Read every Recipe reference that a Cookbook holds.
+///
+/// Two things are read, and both come from Git through Forgejo. The file
+/// says which Recipe each name points at, and the Cookbook itself says
+/// which Version it holds. A name that is in one and not the other is a
+/// state that a direct push can make, and it is reported rather than
+/// hidden.
+pub async fn references(
+    forgejo: &ForgejoClient,
+    token: Option<&Secret<String>>,
+    repository: &Repository,
+) -> Contents {
+    let owner = &repository.owner.login;
+    let slug = &repository.name;
+    let branch = repository.branch();
+
+    let declared = match forgejo
+        .raw_file(token, owner, slug, branch, MODULES_FILE)
+        .await
+    {
+        Ok(bytes) => read_references(&bytes),
+        // A Cookbook with no Recipes holds no file at all, which is the
+        // ordinary state and not a fault.
+        Err(_) => Vec::new(),
+    };
+
+    let (held, complete) = match forgejo.list_root_entries(token, owner, slug, branch).await {
+        Ok(entries) => (entries, true),
+        Err(error) => {
+            tracing::info!(%error, %owner, %slug, "cannot read what this Cookbook holds");
+            (Vec::new(), false)
+        }
+    };
+
+    let mut references: Vec<Reference> = declared
+        .into_iter()
+        .map(|mut reference| {
+            reference.version = held
+                .iter()
+                .find(|entry| entry.is_reference() && entry.name == reference.path)
+                .map(|entry| entry.sha.clone());
+            reference
+        })
+        .collect();
+
+    // A Recipe that the Cookbook holds but does not name. Git allows it and
+    // this interface cannot show it as a Recipe, so it is named here and
+    // repaired nowhere.
+    for entry in held.iter().filter(|entry| entry.is_reference()) {
+        if !references
+            .iter()
+            .any(|reference| reference.path == entry.name)
+        {
+            references.push(Reference {
+                path: entry.name.clone(),
+                url: String::new(),
+                follow: None,
+                version: Some(entry.sha.clone()),
+            });
+        }
+    }
+
+    Contents {
+        references,
+        complete,
+    }
+}
+
+// ------------------------------------------------- what a person is shown
+
+/// Shown for a Recipe that this person cannot read.
+///
+/// The message names nothing about the Recipe. Its title, its owner, and
+/// its name are all facts that the person may not have.
+///
+/// It also names two causes, because Forgejo gives one answer for both. A
+/// Recipe that a person may not see and a Recipe that is gone look the same
+/// from here, and that is on purpose: an answer that told them apart would
+/// say that the Recipe exists.
+pub const UNAVAILABLE_MESSAGE: &str = "This Cookbook holds a Recipe that you cannot open. The Recipe is private, or it is not there any more.";
+
+/// Shown for a reference that names no Recipe of this installation.
+pub const FOREIGN_MESSAGE: &str = "This Cookbook holds a Recipe from a different Forgejo. CookLangHub cannot show it. Open the Cookbook in Forgejo to see the address.";
+
+/// Shown for a reference that records no address at all.
+pub const NO_ADDRESS_MESSAGE: &str =
+    "This Cookbook holds a Recipe with no address. Open the Cookbook in Forgejo to see this state.";
+
+/// Shown for a reference that records no Version.
+pub const NO_VERSION_MESSAGE: &str = "This Cookbook names a Recipe but holds no Version of it. Open the Cookbook in Forgejo to see this state.";
+
+/// Shown for a reference to something that carries no Recipe marker.
+pub const NOT_A_RECIPE_MESSAGE: &str =
+    "This Cookbook holds something that is not a Recipe. Open the Cookbook in Forgejo to see it.";
+
+/// One Recipe of a Cookbook, as a page needs it.
+///
+/// A Recipe that this person cannot read carries no title, no owner, and no
+/// name. Those are exactly the facts that would say what the Recipe is, so
+/// the page cannot show them even by mistake.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Held {
+    /// Whether this person can open the Recipe.
+    pub available: bool,
+    /// Where the Recipe sits in the Cookbook. Empty when it is not
+    /// available, because that name comes from the Recipe title.
+    pub path: String,
+    pub owner: String,
+    pub slug: String,
+    pub title: String,
+    /// Whether the Cookbook moves to each new Version of this Recipe.
+    pub following: bool,
+    /// Why the Recipe is not available, when it is not.
+    pub problem: String,
+}
+
+impl Held {
+    /// A Recipe that is there and that this person cannot open.
+    fn hidden(message: &str) -> Self {
+        Self {
+            available: false,
+            path: String::new(),
+            owner: String::new(),
+            slug: String::new(),
+            title: String::new(),
+            following: false,
+            problem: message.to_string(),
+        }
+    }
+}
+
+/// Turn what a Cookbook records into what a person may see.
+///
+/// Forgejo answers, for this person, whether each Recipe can be read. The
+/// index only supplies the title, and only for a Recipe that Forgejo has
+/// already shown to this person.
+///
+/// The order is alphabetical by Recipe title. A Recipe that this person
+/// cannot read has no title, so it comes last.
+pub async fn held_recipes(
+    pool: &SqlitePool,
+    forgejo: &ForgejoClient,
+    token: Option<&Secret<String>>,
+    contents: &Contents,
+) -> Vec<Held> {
+    let references = &contents.references;
+    let complete = contents.complete;
+
+    // Ask Forgejo about each Recipe. This is the permission decision, and
+    // Forgejo makes it once for each reference.
+    let mut reads = Vec::with_capacity(references.len());
+    for reference in references {
+        reads.push(async move {
+            if reference.url.trim().is_empty() {
+                return Err(NO_ADDRESS_MESSAGE);
+            }
+            // A Cookbook that did not answer records nothing that this can
+            // judge, so no Version here is silence and not a fault.
+            if complete && reference.version.is_none() {
+                return Err(NO_VERSION_MESSAGE);
+            }
+
+            let Some((owner, slug)) = recipe_named_by(forgejo, &reference.url) else {
+                return Err(FOREIGN_MESSAGE);
+            };
+
+            match forgejo.repository_as(token, &owner, &slug).await {
+                Ok(repository) if crate::index::is_recipe(&repository) => Ok(repository),
+                Ok(_) => Err(NOT_A_RECIPE_MESSAGE),
+                Err(_) => Err(UNAVAILABLE_MESSAGE),
+            }
+        });
+    }
+
+    let answers: Vec<Result<Repository, &'static str>> = futures::stream::iter(reads)
+        .buffered(READ_CONCURRENCY)
+        .collect()
+        .await;
+
+    // The title comes from the Recipe index, and only for a Recipe that
+    // Forgejo just showed to this person.
+    let readable: Vec<Repository> = answers.iter().filter_map(|a| a.clone().ok()).collect();
+    let titles = crate::index::entries(pool, forgejo, token, &readable).await;
+
+    let mut available: Vec<Held> = Vec::new();
+    let mut hidden: Vec<Held> = Vec::new();
+
+    for (reference, answer) in references.iter().zip(answers) {
+        match answer {
+            Ok(repository) => {
+                let title = titles
+                    .iter()
+                    .find(|entry| entry.repository_id == repository.id)
+                    .map(|entry| entry.title.clone())
+                    .unwrap_or_else(|| repository.name.clone());
+
+                available.push(Held {
+                    available: true,
+                    path: reference.path.clone(),
+                    owner: repository.owner.login.clone(),
+                    slug: repository.name.clone(),
+                    title,
+                    following: reference.holding() == Holding::Following,
+                    problem: String::new(),
+                });
+            }
+            Err(message) => hidden.push(Held::hidden(message)),
+        }
+    }
+
+    available.sort_by(|one, two| {
+        one.title
+            .to_lowercase()
+            .cmp(&two.title.to_lowercase())
+            .then_with(|| one.owner.to_lowercase().cmp(&two.owner.to_lowercase()))
+    });
+
+    available.extend(hidden);
+    available
+}
+
+// ------------------------------------------- adding and removing a Recipe
+
+#[derive(Debug, thiserror::Error)]
+pub enum HoldError {
+    #[error("select a Recipe to add")]
+    NoRecipe,
+    #[error("this Cookbook holds that Recipe already")]
+    AlreadyHeld,
+    #[error("that Recipe has no Version yet, so a Cookbook cannot hold it")]
+    NoVersion,
+    #[error("cannot find a free name for the Recipe in this Cookbook")]
+    NoFreePath,
+    #[error("this Cookbook does not hold that Recipe")]
+    NotHeld,
+    #[error(transparent)]
+    Forgejo(#[from] ForgejoError),
+    #[error(transparent)]
+    Git(#[from] GitError),
+}
+
+/// What a person asked for when they added a Recipe.
+#[derive(Debug, Clone)]
+pub struct AddRecipe<'a> {
+    /// The Cookbook that gains the Recipe.
+    pub cookbook: &'a Repository,
+    /// The Recipe, as Forgejo reports it to the person who asked.
+    pub recipe: &'a Repository,
+    pub holding: Holding,
+    /// The title that History records for the Recipe.
+    pub title: &'a str,
+    /// The domain Forgejo uses for a hidden address.
+    pub noreply_domain: &'a str,
+}
+
+/// A Recipe that a Cookbook now holds.
+#[derive(Debug, Clone)]
+pub struct Added {
+    /// Where the Recipe sits inside the Cookbook.
+    pub path: String,
+    /// The exact Version of the Recipe that the Cookbook holds.
+    pub version: String,
+    /// The Version of the Cookbook that this made.
+    pub cookbook_version: String,
+}
+
+/// Add a Recipe to a Cookbook.
+///
+/// Nothing is copied. The Cookbook gains one reference to the Recipe
+/// repository and one Version of its own, and the Recipe repository is not
+/// written to at all. It keeps its owner, its permissions, and every
+/// Version it had.
+pub async fn add_recipe(
+    forgejo: &ForgejoClient,
+    git: &dyn GitAdapter,
+    token: &Secret<String>,
+    user: &ForgejoUser,
+    input: AddRecipe<'_>,
+) -> Result<Added, HoldError> {
+    let held = references(forgejo, Some(token), input.cookbook)
+        .await
+        .references;
+
+    // One Recipe sits in one Cookbook at most once. A second reference to
+    // it would make two entries that mean the same thing.
+    let already = held.iter().any(|reference| {
+        recipe_named_by(forgejo, &reference.url).is_some_and(|(owner, slug)| {
+            owner.eq_ignore_ascii_case(&input.recipe.owner.login)
+                && slug.eq_ignore_ascii_case(&input.recipe.name)
+        })
+    });
+    if already {
+        return Err(HoldError::AlreadyHeld);
+    }
+
+    let taken: Vec<String> = held
+        .iter()
+        .map(|reference| reference.path.clone())
+        .collect();
+    let path = reference_path(&taken, &input.recipe.name).ok_or(HoldError::NoFreePath)?;
+
+    // The exact Version comes from Git, which is the authority for it.
+    let recipe_url = forgejo.git_url(&input.recipe.full_name);
+    let version = git
+        .branch_head(&recipe_url, token, input.recipe.branch())
+        .await?
+        .ok_or(HoldError::NoVersion)?;
+
+    let identity = create_recipe::identity_of(forgejo, token, user, input.noreply_domain).await;
+    let address = recipe_address(forgejo, &input.recipe.owner.login, &input.recipe.name);
+
+    let follow = match input.holding {
+        Holding::Following => Some(input.recipe.branch()),
+        Holding::Pinned => None,
+    };
+
+    let cookbook_version = git
+        .write_reference(crate::git::WriteReference {
+            remote_url: &forgejo.git_url(&input.cookbook.full_name),
+            token,
+            identity: &identity,
+            branch: input.cookbook.branch(),
+            message: &format!("Add {}", input.title),
+            path: &path,
+            url: &address,
+            version: &version,
+            follow,
+        })
+        .await?;
+
+    Ok(Added {
+        path,
+        version,
+        cookbook_version,
+    })
+}
+
+/// What a person asked for when they took a Recipe out.
+#[derive(Debug, Clone)]
+pub struct RemoveRecipe<'a> {
+    /// The Cookbook that loses the Recipe.
+    pub cookbook: &'a Repository,
+    /// Where the Recipe sits inside the Cookbook.
+    pub path: &'a str,
+    /// The title that History records for the Recipe.
+    pub title: &'a str,
+    /// The domain Forgejo uses for a hidden address.
+    pub noreply_domain: &'a str,
+}
+
+/// Take a Recipe out of a Cookbook.
+///
+/// Only the Cookbook changes. The Recipe repository is not written to, so
+/// it keeps its owner, its permissions, and every Version it had. A Recipe
+/// that leaves one Cookbook stays in every other Cookbook that holds it.
+pub async fn remove_recipe(
+    forgejo: &ForgejoClient,
+    git: &dyn GitAdapter,
+    token: &Secret<String>,
+    user: &ForgejoUser,
+    input: RemoveRecipe<'_>,
+) -> Result<String, HoldError> {
+    let held = references(forgejo, Some(token), input.cookbook)
+        .await
+        .references;
+
+    if !held.iter().any(|reference| reference.path == input.path) {
+        return Err(HoldError::NotHeld);
+    }
+
+    let identity = create_recipe::identity_of(forgejo, token, user, input.noreply_domain).await;
+
+    let version = git
+        .remove_reference(crate::git::RemoveReference {
+            remote_url: &forgejo.git_url(&input.cookbook.full_name),
+            token,
+            identity: &identity,
+            branch: input.cookbook.branch(),
+            message: &format!("Remove {}", input.title),
+            path: input.path,
+        })
+        .await?;
+
+    Ok(version)
 }
 
 // -------------------------------------------------------------- the index
@@ -1397,6 +2038,286 @@ mod tests {
         // A Recipe falls back to `recipe` here. A Cookbook must not.
         assert_eq!(slug("!!!"), "cookbook");
         assert_eq!(slug(""), "cookbook");
+    }
+
+    // ------------------------------------------------------- the Recipes
+
+    /// A Forgejo that a browser and this server reach at two addresses,
+    /// which is what the bundled stack really looks like.
+    fn client() -> ForgejoClient {
+        ForgejoClient::with_urls("http://forgejo:3000", "http://localhost:3000")
+            .expect("cannot build the Forgejo client")
+    }
+
+    #[test]
+    fn a_recipe_reference_is_read_back_exactly_as_git_writes_it() {
+        // This is the shape that `git submodule add` writes, and the shape
+        // that the adapter writes through `git config`.
+        let file =
+            "[submodule \"chili\"]\n\tpath = chili\n\turl = http://localhost:3000/sam/chili.git\n";
+        let held = read_references(file.as_bytes());
+
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].path, "chili");
+        assert_eq!(held[0].url, "http://localhost:3000/sam/chili.git");
+        assert_eq!(held[0].follow, None);
+        assert_eq!(held[0].holding(), Holding::Pinned);
+    }
+
+    #[test]
+    fn a_reference_that_names_a_branch_follows_the_recipe() {
+        let file = "[submodule \"chili\"]\n\tpath = chili\n\turl = http://localhost:3000/sam/chili.git\n\tbranch = main\n";
+        let held = read_references(file.as_bytes());
+
+        assert_eq!(held[0].follow.as_deref(), Some("main"));
+        assert_eq!(held[0].holding(), Holding::Following);
+    }
+
+    #[test]
+    fn a_pinned_reference_names_no_branch_at_all() {
+        // This is the difference between the two, and it is the whole of
+        // it. A Pinned Recipe stays on the Version it was added at because
+        // nothing says which branch to read.
+        let file = "[submodule \"chili\"]\n\tpath = chili\n\turl = http://x/sam/chili.git\n";
+        assert!(read_references(file.as_bytes())[0].follow.is_none());
+    }
+
+    #[test]
+    fn several_recipes_are_all_read() {
+        let file = concat!(
+            "[submodule \"chili\"]\n\tpath = chili\n\turl = http://x/sam/chili.git\n",
+            "[submodule \"toast\"]\n\tpath = toast\n\turl = http://x/alex/toast.git\n\tbranch = main\n",
+        );
+        let held = read_references(file.as_bytes());
+
+        assert_eq!(held.len(), 2);
+        assert_eq!(held[0].path, "chili");
+        assert_eq!(held[1].path, "toast");
+        assert_eq!(held[1].follow.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn a_file_written_by_hand_is_still_read() {
+        // A person can write this file, and Git accepts what they write.
+        // Line endings, spaces, comments, quotation marks, and a section
+        // with no path of its own all have to survive.
+        let file = "# my recipes\r\n[submodule \"chili\"]\r\n  url = \"http://x/sam/chili.git\"\r\n; a note\r\n";
+        let held = read_references(file.as_bytes());
+
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].path, "chili", "the section name stands in");
+        assert_eq!(held[0].url, "http://x/sam/chili.git");
+    }
+
+    #[test]
+    fn a_file_with_no_recipes_gives_no_recipes() {
+        assert!(read_references(b"").is_empty());
+        assert!(read_references(b"[core]\n\tbare = false\n").is_empty());
+    }
+
+    #[test]
+    fn the_last_section_for_a_name_wins_as_it_does_in_git() {
+        let file = concat!(
+            "[submodule \"chili\"]\n\tpath = chili\n\turl = http://x/sam/chili.git\n",
+            "[submodule \"again\"]\n\tpath = chili\n\turl = http://x/alex/chili.git\n",
+        );
+        let held = read_references(file.as_bytes());
+
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].url, "http://x/alex/chili.git");
+    }
+
+    #[test]
+    fn the_address_of_a_recipe_is_the_one_a_person_clones() {
+        // The application reaches Forgejo at another address, and that
+        // address means nothing outside this installation. What a Cookbook
+        // records is the address a person uses.
+        assert_eq!(
+            recipe_address(&client(), "sam", "chili"),
+            "http://localhost:3000/sam/chili.git"
+        );
+    }
+
+    #[test]
+    fn an_address_names_the_recipe_it_points_at() {
+        let forgejo = client();
+
+        for address in [
+            "http://localhost:3000/sam/chili.git",
+            "http://localhost:3000/sam/chili",
+            // The address this server uses counts too, because an older
+            // installation can have recorded it.
+            "http://forgejo:3000/sam/chili.git",
+        ] {
+            assert_eq!(
+                recipe_named_by(&forgejo, address),
+                Some(("sam".to_string(), "chili".to_string())),
+                "`{address}` must name the Recipe"
+            );
+        }
+    }
+
+    #[test]
+    fn an_address_somewhere_else_names_no_recipe() {
+        let forgejo = client();
+
+        for address in [
+            "http://elsewhere.test/sam/chili.git",
+            // A host that only begins with the address of this Forgejo.
+            "http://localhost:3000.elsewhere.test/sam/chili.git",
+            "git@localhost:sam/chili.git",
+            "http://localhost:3000/sam",
+            "http://localhost:3000/",
+            "",
+        ] {
+            assert_eq!(
+                recipe_named_by(&forgejo, address),
+                None,
+                "`{address}` must name no Recipe of this installation"
+            );
+        }
+    }
+
+    #[test]
+    fn an_address_survives_a_round_trip() {
+        let forgejo = client();
+        let address = recipe_address(&forgejo, "sam", "chili");
+
+        assert_eq!(
+            recipe_named_by(&forgejo, &address),
+            Some(("sam".to_string(), "chili".to_string()))
+        );
+    }
+
+    #[test]
+    fn the_name_inside_a_cookbook_comes_from_the_recipe() {
+        assert_eq!(reference_path(&[], "chili").as_deref(), Some("chili"));
+    }
+
+    #[test]
+    fn a_second_recipe_of_the_same_name_gets_the_next_free_one() {
+        // Two people can each own a Recipe called Chili, and both can be in
+        // one Cookbook. Nobody is asked about this.
+        let taken = vec!["chili".to_string()];
+        assert_eq!(reference_path(&taken, "chili").as_deref(), Some("chili-2"));
+
+        let taken = vec!["chili".to_string(), "chili-2".to_string()];
+        assert_eq!(reference_path(&taken, "chili").as_deref(), Some("chili-3"));
+    }
+
+    #[test]
+    fn a_name_that_is_free_is_not_moved_by_another_recipe() {
+        // The name has to stay the same for as long as the Recipe is in the
+        // Cookbook, so a name that nothing holds is always the first try.
+        let taken = vec!["toast".to_string(), "chili-2".to_string()];
+        assert_eq!(reference_path(&taken, "chili").as_deref(), Some("chili"));
+    }
+
+    #[test]
+    fn a_recipe_that_a_person_cannot_read_says_nothing_about_itself() {
+        // The title, the owner, and the name all say what the Recipe is.
+        // A person who may not know that must get none of them, so this is
+        // checked here and not only in the page.
+        for message in [
+            UNAVAILABLE_MESSAGE,
+            FOREIGN_MESSAGE,
+            NO_ADDRESS_MESSAGE,
+            NO_VERSION_MESSAGE,
+            NOT_A_RECIPE_MESSAGE,
+        ] {
+            let hidden = Held::hidden(message);
+
+            assert!(!hidden.available);
+            assert!(hidden.title.is_empty());
+            assert!(hidden.owner.is_empty());
+            assert!(hidden.slug.is_empty());
+            assert!(hidden.path.is_empty());
+            assert_eq!(hidden.problem, message);
+        }
+    }
+
+    #[test]
+    fn keeping_the_version_is_what_a_form_gives_when_it_says_nothing() {
+        assert_eq!(Holding::parse(""), Holding::Pinned);
+        assert_eq!(Holding::parse("pinned"), Holding::Pinned);
+        assert_eq!(Holding::parse("sideways"), Holding::Pinned);
+        assert_eq!(Holding::parse("following"), Holding::Following);
+        assert_eq!(Holding::default(), Holding::Pinned);
+    }
+
+    #[test]
+    fn every_message_a_person_reads_uses_cooking_words() {
+        // A person reads these. They say what is wrong in cooking words,
+        // and they offer Forgejo instead of repairing anything.
+        let refusals = [
+            HoldError::NoRecipe.to_string(),
+            HoldError::AlreadyHeld.to_string(),
+            HoldError::NoVersion.to_string(),
+            HoldError::NoFreePath.to_string(),
+            HoldError::NotHeld.to_string(),
+        ];
+
+        let messages = [
+            UNAVAILABLE_MESSAGE,
+            FOREIGN_MESSAGE,
+            NO_ADDRESS_MESSAGE,
+            NO_VERSION_MESSAGE,
+            NOT_A_RECIPE_MESSAGE,
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .chain(refusals);
+
+        for message in messages {
+            for word in [
+                "submodule",
+                "repository",
+                "branch",
+                "commit",
+                "gitlink",
+                "fork",
+                "pull request",
+            ] {
+                assert!(
+                    !message.to_lowercase().contains(word),
+                    "`{word}` must not reach the person: {message}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_cookbook_that_did_not_answer_is_not_called_broken() {
+        // A diagnosis must come from an answer. When the Cookbook itself
+        // could not be read, no Version is silence, and saying that the
+        // Cookbook holds none would name a fault that nobody has.
+        let pool = crate::db::connect("sqlite://:memory:").await.unwrap();
+        let forgejo = client();
+
+        let reference = Reference {
+            path: "chili".to_string(),
+            url: recipe_address(&forgejo, "sam", "chili"),
+            follow: None,
+            version: None,
+        };
+
+        let silent = Contents {
+            references: vec![reference.clone()],
+            complete: false,
+        };
+        let answered = Contents {
+            references: vec![reference],
+            complete: true,
+        };
+
+        // Nothing here reaches Forgejo, because the client points at a host
+        // that does not exist. That is the point: the only difference
+        // between the two answers is what was read.
+        let quiet = held_recipes(&pool, &forgejo, None, &silent).await;
+        let told = held_recipes(&pool, &forgejo, None, &answered).await;
+
+        assert_eq!(quiet[0].problem, UNAVAILABLE_MESSAGE);
+        assert_eq!(told[0].problem, NO_VERSION_MESSAGE);
     }
 
     // --------------------------------------------------------- the index

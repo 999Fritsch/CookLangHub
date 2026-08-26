@@ -185,7 +185,12 @@ pub async fn read(
         .list_root_entries(token, owner, slug, MAIN_BRANCH)
         .await
     {
-        Ok(entries) => entries,
+        // The listing now carries every kind of entry, because a Cookbook
+        // needs the references too. A Recipe reads only its own files.
+        Ok(entries) => entries
+            .into_iter()
+            .filter(|entry| entry.kind == "file")
+            .collect::<Vec<_>>(),
         Err(error) if is_missing(&error) => {
             tracing::info!(%owner, %slug, "this Recipe has no published Version");
             return Reading::of(Problem::NoPublishedVersion, Photos::None);

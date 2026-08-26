@@ -1,0 +1,110 @@
+{#
+  Put a Recipe into a Cookbook.
+
+  The page explains the two ways a Cookbook can hold a Recipe before the
+  person chooses. Keep this version is the default, so a person who reads
+  nothing still gets the Cookbook that stays the same.
+
+  Nothing here needs a script. The search is a form that gets, and the add
+  is a form that posts.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}Add a Recipe &middot; {{ title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">Add a Recipe</h1>
+  <div class="flex flex-wrap items-center gap-2 self-start">
+    <a class="nav-pill" href="/cookbooks/{{ owner }}/{{ slug }}">Back to {{ title }}</a>
+  </div>
+</div>
+
+{% if !errors.is_empty() %}
+<div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-6" role="alert">
+  <h2 class="font-bold mb-2">This Recipe was not added</h2>
+  <ul class="list-disc pl-5 space-y-1">
+    {% for error in errors %}
+    <li>{{ error }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if let Some(message) = notice %}
+<div class="bg-white rounded-2xl shadow-lg p-4 mb-6 text-gray-700" role="status">
+  {{ message }}
+</div>
+{% endif %}
+
+<section class="bg-white rounded-2xl shadow-lg p-6 mb-8" aria-labelledby="find-heading">
+  <h2 id="find-heading" class="text-lg font-bold mb-3 text-orange-600"><span aria-hidden="true">🔎</span> Find a Recipe</h2>
+  <form method="get" action="/cookbooks/{{ owner }}/{{ slug }}/recipes" class="flex flex-wrap items-end gap-3">
+    <div class="grow">
+      <label for="q" class="block font-medium mb-2 text-gray-900">Search the Recipe titles</label>
+      <input id="q" name="q" type="search" value="{{ q }}" autocomplete="off"
+             class="search-input w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-hidden">
+    </div>
+    <button type="submit" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Search</button>
+  </form>
+</section>
+
+<section class="bg-white rounded-2xl shadow-lg p-6" aria-labelledby="add-heading">
+  <h2 id="add-heading" class="text-lg font-bold mb-3 text-orange-600"><span aria-hidden="true">🍽️</span> Add it to this Cookbook</h2>
+
+  {% if choices.is_empty() %}
+  <p class="text-gray-600 m-0">
+    {% if q.is_empty() %}
+    This Cookbook holds every Recipe that you can read.
+    {% else %}
+    No Recipe title contains these words.
+    {% endif %}
+  </p>
+  {% else %}
+  <form method="post" action="/cookbooks/{{ owner }}/{{ slug }}/recipes" class="space-y-6">
+    <div>
+      <label for="recipe" class="block font-medium mb-2 text-gray-900">Recipe</label>
+      <select id="recipe" name="recipe" required
+              class="w-full px-4 py-2 rounded-full border border-gray-300 bg-white text-gray-900">
+        {% for choice in choices %}
+        <option value="{{ choice.value }}">{{ choice.title }} &mdash; owned by {{ choice.owner }}</option>
+        {% endfor %}
+      </select>
+      <p class="text-sm text-gray-600 mt-1">
+        The Recipe stays where it is. This Cookbook points at it, and it keeps
+        its own owner and its own Sharing.
+      </p>
+    </div>
+
+    <fieldset class="border-0 m-0 p-0">
+      <legend class="font-medium mb-2 text-gray-900">How this Cookbook holds the Recipe</legend>
+
+      <label class="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50">
+        <input type="radio" name="holding" value="pinned" checked>
+        <span class="text-gray-700">
+          <strong>Keep this version</strong> &mdash; the Cookbook holds the Version
+          that the Recipe has now. A later Version of the Recipe does not change
+          this Cookbook.
+        </span>
+      </label>
+
+      <label class="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50">
+        <input type="radio" name="holding" value="following">
+        <span class="text-gray-700">
+          <strong>Follow future updates</strong> &mdash; the Cookbook moves to each
+          new Version of the Recipe. Each move makes one Version of this
+          Cookbook, so its History stays complete.
+        </span>
+      </label>
+    </fieldset>
+
+    <div class="flex flex-wrap gap-3">
+      <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Add the Recipe</button>
+      <a href="/cookbooks/{{ owner }}/{{ slug }}" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</a>
+    </div>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}
