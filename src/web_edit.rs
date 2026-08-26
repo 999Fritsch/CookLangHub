@@ -41,7 +41,7 @@ use crate::web::{AppState, Layout, MaybeUser};
 const MAX_NOTE_CHARS: usize = 200;
 
 /// Shown when the person may read the Recipe but may not write to it.
-const NO_WRITE_MESSAGE: &str = "You can read this Recipe, but you cannot change it. Ask the owner to share it with you as an Editor.";
+pub(crate) const NO_WRITE_MESSAGE: &str = "You can read this Recipe, but you cannot change it. Ask the owner to share it with you as an Editor.";
 
 /// Shown when the stored file is not text that the application can read.
 const NOT_TEXT_MESSAGE: &str = "This Recipe is not UTF-8 text, so the editor cannot open it. Open the Recipe in Forgejo to see the exact content.";
@@ -118,6 +118,12 @@ struct EditTemplate {
     source: String,
     /// The Version the person started from.
     base_version: String,
+    /// The draft Version the page carries, or empty when there is none.
+    /// The editor sends it back with each save, and that is what lets the
+    /// application refuse a save from a tab that has fallen behind.
+    draft_version: String,
+    /// What the person reads about their draft. `None` when they have none.
+    draft_notice: Option<&'static str>,
     note: String,
     forgejo_url: String,
     /// Why a publication did not happen. Empty on the way in.
@@ -139,11 +145,15 @@ impl EditTemplate {
         slug: &str,
         source: String,
         base_version: String,
+        draft_version: String,
         note: String,
         forgejo_url: String,
         publish_errors: Vec<String>,
     ) -> Self {
         let preview = PreviewTemplate::of(&source, slug);
+        // A page carries a draft exactly when it carries a draft Version,
+        // so the two can never disagree.
+        let draft_notice = (!draft_version.is_empty()).then_some(crate::draft::NOTICE_MESSAGE);
 
         Self {
             layout,
@@ -152,6 +162,8 @@ impl EditTemplate {
             recipe_title: preview.preview_title.clone(),
             source,
             base_version,
+            draft_version,
+            draft_notice,
             note,
             forgejo_url,
             publish_errors,
@@ -208,7 +220,7 @@ struct Target {
 }
 
 /// Why the editor cannot open a Recipe.
-enum Refused {
+pub(crate) enum Refused {
     /// There is no such Recipe, or this person may not see it.
     Missing,
     /// The Recipe is there, and the interface cannot handle its state.
@@ -233,7 +245,7 @@ struct BlockedTemplate {
 ///
 /// A state the interface cannot handle is diagnosed and offers **Open in
 /// Forgejo**. It is never repaired here.
-fn refusal(layout: Layout, owner: &str, slug: &str, refused: Refused) -> Response {
+pub(crate) fn refusal(layout: Layout, owner: &str, slug: &str, refused: Refused) -> Response {
     match refused {
         Refused::Missing => {
             (StatusCode::NOT_FOUND, "This Recipe is not available.").into_response()
@@ -361,15 +373,41 @@ async fn edit_form(
         }
     };
 
+    // A draft comes first. The person left unfinished work here, possibly
+    // on another device, and the editor has to open on that and not on the
+    // published Recipe. The draft says which Version it was built on, so
+    // publishing later joins the change with the Version the person really
+    // started from and not with whatever `main` holds now.
+    let draft =
+        match crate::draft::read(&state, &actor.token, &owner, &slug, &actor.user.login).await {
+            Ok(draft) => draft,
+            Err(error) => {
+                tracing::warn!(%error, %owner, %slug, "cannot read the draft");
+                return refusal(
+                    layout(),
+                    &owner,
+                    &slug,
+                    Refused::Blocked {
+                        status: StatusCode::BAD_GATEWAY,
+                        message: UNREACHABLE_MESSAGE,
+                        forgejo_url: target.forgejo_url,
+                    },
+                );
+            }
+        };
+
+    let (read_at, base_version, draft_version) = match draft {
+        Some(draft) => (
+            draft.version.clone(),
+            draft.base_version,
+            draft.version.clone(),
+        ),
+        None => (base_version.clone(), base_version, String::new()),
+    };
+
     let bytes = match state
         .forgejo
-        .raw_file(
-            Some(&actor.token),
-            &owner,
-            &slug,
-            &base_version,
-            RECIPE_FILE,
-        )
+        .raw_file(Some(&actor.token), &owner, &slug, &read_at, RECIPE_FILE)
         .await
     {
         Ok(bytes) => bytes,
@@ -403,6 +441,7 @@ async fn edit_form(
         &slug,
         source.to_string(),
         base_version,
+        draft_version,
         String::new(),
         target.forgejo_url,
         Vec::new(),
@@ -417,6 +456,9 @@ struct PublishForm {
     /// The Version the person started from.
     #[serde(default)]
     base_version: String,
+    /// The draft Version the page carried, when it carried one.
+    #[serde(default)]
+    draft_version: String,
     #[serde(default)]
     note: String,
 }
@@ -453,6 +495,7 @@ async fn publish(
             &slug,
             source.clone(),
             form.base_version.clone(),
+            form.draft_version.clone(),
             note.clone(),
             target.forgejo_url.clone(),
             errors,
@@ -528,6 +571,21 @@ async fn publish(
                 warnings = parsed.warnings.len(),
                 "published a Version"
             );
+
+            // The publication consumed the draft, so the draft goes. This
+            // is one of the two moments a draft is ever removed, and the
+            // person asked for it by publishing.
+            //
+            // A removal that fails leaves the draft where it is. The
+            // Version is published either way, so the person is not held
+            // up, and the editor shows the draft again with the same text
+            // in it.
+            if let Err(error) =
+                crate::draft::remove(&state, &actor.token, &owner, &slug, &actor.user.login).await
+            {
+                tracing::warn!(%error, %owner, %slug, "cannot remove the draft after a publication");
+            }
+
             Redirect::to(&format!("/recipes/{owner}/{slug}")).into_response()
         }
         // Git could not join the change with what is published now. The
@@ -674,6 +732,55 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The editor page, with or without a draft on it.
+    fn editor_page(draft_version: &str) -> String {
+        EditTemplate::new(
+            Layout::new(None),
+            "sam",
+            "chili",
+            "Chop the @onion{1}.".to_string(),
+            "a".repeat(40),
+            draft_version.to_string(),
+            String::new(),
+            "https://forge.test/sam/chili".to_string(),
+            Vec::new(),
+        )
+        .render()
+        .expect("the page must render")
+    }
+
+    #[test]
+    fn a_page_with_a_draft_carries_it_and_offers_to_discard_it() {
+        let version = "b".repeat(40);
+        let page = editor_page(&version);
+
+        // The draft Version travels with the form, so the next save can be
+        // measured against what the draft holds.
+        assert!(page.contains(&format!("name=\"draft_version\" value=\"{version}\"")));
+        assert!(page.contains(crate::draft::NOTICE_MESSAGE));
+        assert!(page.contains("Discard draft"));
+        assert!(page.contains("action=\"/recipes/sam/chili/draft/discard\""));
+
+        // Saving is a served file and a data attribute, never an attribute
+        // that runs. The policy is `default-src 'self'`.
+        assert!(page.contains("data-draft-url=\"/recipes/sam/chili/draft\""));
+        assert!(!page.contains("onclick="));
+        assert!(!page.contains("<script>"));
+    }
+
+    #[test]
+    fn a_page_without_a_draft_offers_nothing_to_discard() {
+        let page = editor_page("");
+
+        assert!(page.contains("name=\"draft_version\" value=\"\""));
+        assert!(!page.contains("Discard draft"));
+        assert!(!page.contains("draft/discard"));
+        assert!(!page.contains(crate::draft::NOTICE_MESSAGE));
+
+        // Publishing still works with no script at all, draft or no draft.
+        assert!(page.contains("Publish Version"));
     }
 
     #[test]

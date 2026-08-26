@@ -60,6 +60,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::preferences::router())
         .merge(crate::web_browse::router())
         .merge(crate::web_discussions::router())
+        .merge(crate::draft::router())
         .merge(crate::web_edit::router())
         .merge(crate::web_sharing::router())
         .merge(crate::webhook::router())

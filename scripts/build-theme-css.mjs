@@ -75,6 +75,19 @@ function split(node) {
   };
 }
 
+/**
+ * The selector alone, without any comment that sits in front of it.
+ *
+ * A node begins where the one before it ended, so a comment written above a
+ * rule belongs to that rule's prelude. Reading the prelude as a selector
+ * then found `/*` instead of `.dark`, and the rule was emitted once and
+ * never mirrored. A person who follows the operating system therefore kept
+ * the light colours for every rule that carried an explanation above it.
+ */
+function selectorOf(prelude) {
+  return prelude.replace(/\/\*[\s\S]*?\*\//g, "").trim();
+}
+
 /** The same selector, for a person who has chosen nothing. */
 function mirrorSelector(selector) {
   const parts = selector
@@ -99,8 +112,9 @@ const mirrored = [];
 
 for (const node of parse(source)) {
   const { prelude, body } = split(node);
+  const selector = selectorOf(prelude);
 
-  if (prelude.startsWith("@")) {
+  if (selector.startsWith("@")) {
     // An at-rule keeps its own nesting. `@media print` in particular must
     // never have its contents lifted out.
     kept.push(node);
@@ -112,8 +126,8 @@ for (const node of parse(source)) {
 
   kept.push(node);
 
-  const selector = mirrorSelector(prelude);
-  if (selector) mirrored.push(`  ${selector} {${body}}`);
+  const mirror = mirrorSelector(selector);
+  if (mirror) mirrored.push(`  ${mirror} {${body}}`);
 }
 
 const output =

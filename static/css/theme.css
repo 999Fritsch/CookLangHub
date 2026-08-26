@@ -175,6 +175,23 @@
             border-color: #1e3a8a;
         }
 
+/* Not from CookCLI. The editor and the photo page both show a
+           refusal in a red panel, and CookCLI has no dark rule for one, so
+           it stayed a pale red block with dark red words on a dark page.
+           Written in their shape, from the same red ramp they use for a
+           timer. */
+        .dark .bg-red-50 {
+            background-color: #3f1a1a;
+        }
+
+.dark .border-red-400 {
+            border-color: #b91c1c;
+        }
+
+.dark .text-red-900 {
+            color: #fecaca;
+        }
+
 /* Dark mode hover states */
         .dark .hover\:bg-gradient-to-r:hover {
             background: #374151 !important;
@@ -797,6 +814,9 @@
         }
 
 @media (prefers-color-scheme: dark) {
+  html:not(.dark):not(.light) {
+            color-scheme: dark;
+        }
   html:not(.dark):not(.light) body {
             background-color: #111827;
         }
@@ -849,7 +869,7 @@
             background: linear-gradient(to right, #1f2937, #111827);
             border: 1px solid #374151;
         }
-  html:not(.dark):not(.light) .bg-gradient-to-r.from-purple-50.to-pink-50 {
+  html:not(.dark):not(.light) .bg-gradient-to-r.from-blue-50.to-indigo-50, html:not(.dark):not(.light) .bg-gradient-to-r.from-purple-50.to-pink-50 {
             background: linear-gradient(to right, #1f2937, #111827);
             border-color: #374151;
         }
@@ -871,7 +891,15 @@
             background: linear-gradient(to right, #1f2937, #111827);
             border: 1px solid #374151;
         }
+  html:not(.dark):not(.light) .bg-gradient-to-r.from-purple-50.to-pink-50 {
+            background: linear-gradient(to right, #1f2937, #111827);
+            border: 1px solid #374151;
+        }
   html:not(.dark):not(.light) .bg-gradient-to-r.from-green-50.to-emerald-50 {
+            background: linear-gradient(to right, #1f2937, #111827);
+            border: 1px solid #374151;
+        }
+  html:not(.dark):not(.light) .bg-gradient-to-r.from-indigo-50.to-purple-50 {
             background: linear-gradient(to right, #1f2937, #111827);
             border: 1px solid #374151;
         }
@@ -890,6 +918,18 @@
   html:not(.dark):not(.light) .border-blue-400 {
             border-color: #1e3a8a;
         }
+  html:not(.dark):not(.light) .bg-red-50 {
+            background-color: #3f1a1a;
+        }
+  html:not(.dark):not(.light) .border-red-400 {
+            border-color: #b91c1c;
+        }
+  html:not(.dark):not(.light) .text-red-900 {
+            color: #fecaca;
+        }
+  html:not(.dark):not(.light) .hover\:bg-gradient-to-r:hover {
+            background: #374151 !important;
+        }
   html:not(.dark):not(.light) .hover\:from-purple-50:hover, html:not(.dark):not(.light) .hover\:to-pink-50:hover {
             background: #374151 !important;
         }
@@ -904,11 +944,15 @@
             color: #e5e7eb !important;
         }
   html:not(.dark):not(.light) a[href=" {{ prefix }}
+  html:not(.dark):not(.light) a[href=" {{ prefix }}
   html:not(.dark):not(.light) .hover\:text-orange-700:hover {
             color: #fb923c !important;
         }
   html:not(.dark):not(.light) .hover\:text-purple-700:hover {
             color: #a78bfa !important;
+        }
+  html:not(.dark):not(.light) .nav-pill {
+            color: #9ca3af;
         }
   html:not(.dark):not(.light) .nav-pill:hover {
             background: #374151;
@@ -918,11 +962,17 @@
             background: linear-gradient(135deg, #ff6b35, #f97316);
             color: white;
         }
+  html:not(.dark):not(.light) .bg-gray-200 {
+            background-color: #4b5563;
+        }
   html:not(.dark):not(.light) .hover\:bg-gray-300:hover {
             background-color: #6b7280;
         }
   html:not(.dark):not(.light) .bg-gray-200.text-gray-700 {
             color: #e5e7eb;
+        }
+  html:not(.dark):not(.light) .text-purple-600 {
+            color: #c084fc;
         }
   html:not(.dark):not(.light) .text-red-500 {
             color: #ef4444;
@@ -935,6 +985,9 @@
         }
   html:not(.dark):not(.light) .shadow-lg, html:not(.dark):not(.light) .shadow-md, html:not(.dark):not(.light) .shadow-xl {
             box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+  html:not(.dark):not(.light) .bg-gradient-to-r.from-yellow-100.to-orange-100 {
+            background: linear-gradient(to right, #374151, #4b5563);
         }
   html:not(.dark):not(.light) .text-orange-700 {
             color: #fb923c;
@@ -951,6 +1004,14 @@
   html:not(.dark):not(.light) .bg-gray-100 {
             background-color: #374151;
         }
+  html:not(.dark):not(.light) .recipe-card {
+            background-color: #1f2937;
+            border: 1px solid #374151;
+        }
+  html:not(.dark):not(.light) #search-results {
+            background-color: #1f2937;
+            border-color: #7c3aed;
+        }
   html:not(.dark):not(.light) #search-results a {
             color: #e5e7eb;
         }
@@ -962,6 +1023,9 @@
         }
   html:not(.dark):not(.light) #search-results .text-gray-500 {
             color: #9ca3af;
+        }
+  html:not(.dark):not(.light) #search-results a.hover\:bg-gradient-to-r:hover {
+            background: #374151 !important;
         }
   html:not(.dark):not(.light) #search-results .border-gray-100 {
             border-color: #374151;
