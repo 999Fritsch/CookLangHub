@@ -104,9 +104,6 @@ pub struct PublishVersion<'a> {
     pub files: BTreeMap<String, Vec<u8>>,
 }
 
-/// The Git operations that the Recipe model needs.
-///
-/// Later tickets add draft branches, comparison, and submodules here.
 /// A request to add one Version to a Recipe that exists.
 ///
 /// One request makes one Version. A photo that replaces a photo of another
@@ -166,6 +163,7 @@ pub struct SaveDraft<'a> {
     pub files: BTreeMap<String, Vec<u8>>,
 }
 
+/// The Git operations that the Recipe and Cookbook models need.
 #[async_trait]
 pub trait GitAdapter: Send + Sync + std::fmt::Debug {
     /// Create a repository with one commit and push it.
@@ -231,6 +229,27 @@ pub trait GitAdapter: Send + Sync + std::fmt::Debug {
         token: &Secret<String>,
         branch: &str,
     ) -> Result<(), GitError>;
+
+    /// Write one Recipe reference into a Cookbook.
+    ///
+    /// The reference records the address of the Recipe and the exact
+    /// Version that the Cookbook holds. The Recipe repository is not read
+    /// and not written: only the Cookbook gets a new Version.
+    ///
+    /// A reference that is already at this path is replaced, which is how a
+    /// Cookbook moves a Recipe to another Version.
+    ///
+    /// Returns the identifier of the Cookbook Version that this made.
+    async fn write_reference(&self, request: WriteReference<'_>) -> Result<String, GitError>;
+
+    /// Take one Recipe reference out of a Cookbook.
+    ///
+    /// Only the Cookbook changes. The Recipe repository is not read and not
+    /// written, so a Recipe that leaves a Cookbook keeps every Version it
+    /// had.
+    ///
+    /// Returns the identifier of the Cookbook Version that this made.
+    async fn remove_reference(&self, request: RemoveReference<'_>) -> Result<String, GitError>;
 }
 
 /// Runs the system Git executable in a temporary workspace.
@@ -770,6 +789,313 @@ impl GitAdapter for SystemGit {
             message: redact(&attempt.stderr, token),
         })
     }
+
+    async fn write_reference(&self, request: WriteReference<'_>) -> Result<String, GitError> {
+        self.change_references(
+            request.remote_url,
+            request.token,
+            request.identity,
+            request.branch,
+            request.message,
+            &Reference::Write {
+                path: request.path,
+                url: request.url,
+                version: request.version,
+                follow: request.follow,
+            },
+        )
+        .await
+    }
+
+    async fn remove_reference(&self, request: RemoveReference<'_>) -> Result<String, GitError> {
+        self.change_references(
+            request.remote_url,
+            request.token,
+            request.identity,
+            request.branch,
+            request.message,
+            &Reference::Remove { path: request.path },
+        )
+        .await
+    }
+}
+
+/// The one change that a Cookbook Version carries.
+enum Reference<'a> {
+    Write {
+        path: &'a str,
+        url: &'a str,
+        version: &'a str,
+        follow: Option<&'a str>,
+    },
+    Remove {
+        path: &'a str,
+    },
+}
+
+impl Reference<'_> {
+    fn path(&self) -> &str {
+        match self {
+            Reference::Write { path, .. } | Reference::Remove { path } => path,
+        }
+    }
+}
+
+/// The file that names every Recipe of a Cookbook and where it lives.
+const MODULES_FILE: &str = ".gitmodules";
+
+/// The file mode that Git gives a reference to another repository.
+const REFERENCE_MODE: &str = "160000";
+
+impl SystemGit {
+    /// Change one Recipe reference of a Cookbook and publish the result.
+    ///
+    /// The change is made on what the Cookbook holds now, so two people who
+    /// add a Recipe at the same moment both keep their Recipe. If the
+    /// Cookbook moved between the read and the push, the whole change is
+    /// made again on the new state, and the abandoned attempt reached
+    /// nobody.
+    ///
+    /// `git config` writes `.gitmodules`, so the file keeps exactly the
+    /// shape that Git itself writes and any Git client reads it.
+    async fn change_references(
+        &self,
+        remote_url: &str,
+        token: &Secret<String>,
+        identity: &Identity,
+        branch: &str,
+        message: &str,
+        change: &Reference<'_>,
+    ) -> Result<String, GitError> {
+        let mut last = String::new();
+
+        for _ in 0..MAX_PUBLISH_ATTEMPTS {
+            let workspace = tempfile::tempdir().map_err(GitError::Workspace)?;
+            // Git reads its per-user configuration from the home directory,
+            // and that directory must sit outside the work tree.
+            let home = workspace.path();
+            let work = home.join("work");
+
+            self.run_in(
+                home,
+                home,
+                token,
+                &[
+                    "clone",
+                    "--quiet",
+                    "--depth",
+                    "1",
+                    "--single-branch",
+                    "--branch",
+                    branch,
+                    remote_url,
+                    "work",
+                ],
+            )
+            .await?;
+
+            self.apply_reference(home, &work, token, change).await?;
+
+            // A change that makes no difference must not become a Version,
+            // because History is for a person to read.
+            let pending = self
+                .run_in(home, &work, token, &["status", "--porcelain"])
+                .await?;
+            if pending.trim().is_empty() {
+                return self.head(&work, home, token).await;
+            }
+
+            self.run_in(
+                home,
+                &work,
+                token,
+                &[
+                    "-c",
+                    &format!("user.name={}", identity.name),
+                    "-c",
+                    &format!("user.email={}", identity.email),
+                    "commit",
+                    "--quiet",
+                    "--message",
+                    message,
+                ],
+            )
+            .await?;
+
+            let version = self.head(&work, home, token).await?;
+
+            let pushed = self
+                .attempt(
+                    home,
+                    &work,
+                    token,
+                    &[
+                        "push",
+                        "--quiet",
+                        remote_url,
+                        &format!("{version}:refs/heads/{branch}"),
+                    ],
+                )
+                .await?;
+
+            if pushed.success {
+                return Ok(version);
+            }
+
+            last = redact(&pushed.stderr, token);
+        }
+
+        Err(GitError::Command {
+            command: "push".to_string(),
+            message: last,
+        })
+    }
+
+    /// Make the one change inside a Cookbook that was just read.
+    async fn apply_reference(
+        &self,
+        home: &Path,
+        work: &Path,
+        token: &Secret<String>,
+        change: &Reference<'_>,
+    ) -> Result<(), GitError> {
+        // The path is built from a Recipe name, so it is checked here as
+        // well. Nothing may reach outside the Cookbook.
+        let inside = safe_path(work, change.path())?;
+        let modules = work.join(MODULES_FILE);
+        let section = format!("submodule.{}", change.path());
+
+        match change {
+            Reference::Write {
+                path,
+                url,
+                version,
+                follow,
+            } => {
+                // Git records a directory for the Recipe. It stays empty
+                // here: the Recipe lives in its own repository and this
+                // Version records only which one, and which Version of it.
+                tokio::fs::create_dir_all(&inside)
+                    .await
+                    .map_err(GitError::Workspace)?;
+
+                self.write_setting(home, work, token, &format!("{section}.path"), path)
+                    .await?;
+                self.write_setting(home, work, token, &format!("{section}.url"), url)
+                    .await?;
+
+                match follow {
+                    // A Cookbook that follows a Recipe names the branch it
+                    // follows. A Pinned Recipe names none at all, which is
+                    // what keeps it on the Version that was selected.
+                    Some(branch) => {
+                        self.write_setting(home, work, token, &format!("{section}.branch"), branch)
+                            .await?;
+                    }
+                    None => {
+                        let _ = self
+                            .attempt(
+                                home,
+                                work,
+                                token,
+                                &[
+                                    "config",
+                                    "-f",
+                                    MODULES_FILE,
+                                    "--unset",
+                                    &format!("{section}.branch"),
+                                ],
+                            )
+                            .await?;
+                    }
+                }
+
+                self.run_in(home, work, token, &["add", MODULES_FILE])
+                    .await?;
+                self.run_in(
+                    home,
+                    work,
+                    token,
+                    &[
+                        "update-index",
+                        "--add",
+                        "--cacheinfo",
+                        &format!("{REFERENCE_MODE},{version},{path}"),
+                    ],
+                )
+                .await?;
+            }
+            Reference::Remove { path } => {
+                // A section that is not there is the state that was asked
+                // for, so a refusal here is an answer and not a fault.
+                let _ = self
+                    .attempt(
+                        home,
+                        work,
+                        token,
+                        &["config", "-f", MODULES_FILE, "--remove-section", &section],
+                    )
+                    .await?;
+
+                let _ = self
+                    .attempt(home, work, token, &["update-index", "--force-remove", path])
+                    .await?;
+
+                let left = tokio::fs::read_to_string(&modules)
+                    .await
+                    .unwrap_or_default();
+
+                if left.trim().is_empty() {
+                    // The last Recipe left, so the file goes with it. This
+                    // is what Git itself does, and it is what keeps a
+                    // Cookbook with no Recipes exactly as a new one.
+                    let _ = self
+                        .attempt(
+                            home,
+                            work,
+                            token,
+                            &[
+                                "rm",
+                                "--quiet",
+                                "--cached",
+                                "--ignore-unmatch",
+                                MODULES_FILE,
+                            ],
+                        )
+                        .await?;
+                    let _ = tokio::fs::remove_file(&modules).await;
+                } else {
+                    self.run_in(home, work, token, &["add", MODULES_FILE])
+                        .await?;
+                }
+
+                let _ = tokio::fs::remove_dir_all(&inside).await;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Write one setting into `.gitmodules`.
+    ///
+    /// The value can be a Recipe address, so it never reaches a message.
+    async fn write_setting(
+        &self,
+        home: &Path,
+        work: &Path,
+        token: &Secret<String>,
+        key: &str,
+        value: &str,
+    ) -> Result<(), GitError> {
+        self.run_in(
+            home,
+            work,
+            token,
+            &["config", "-f", MODULES_FILE, key, value],
+        )
+        .await?;
+        Ok(())
+    }
 }
 
 /// What happened when the change was applied to a branch that moved.
@@ -999,6 +1325,45 @@ fn verb(args: &[&str]) -> String {
         return args[index].to_string();
     }
     "git".to_string()
+}
+
+/// A request to write one Recipe reference into a Cookbook.
+///
+/// The Cookbook is the repository that changes. The Recipe is named by its
+/// address and by the exact Version that the Cookbook holds, and nothing at
+/// all is written to it.
+#[derive(Debug)]
+pub struct WriteReference<'a> {
+    /// Where to push, without any credential in it. This is the Cookbook.
+    pub remote_url: &'a str,
+    pub token: &'a Secret<String>,
+    pub identity: &'a Identity,
+    /// The branch that carries the published Cookbook.
+    pub branch: &'a str,
+    pub message: &'a str,
+    /// Where the Recipe sits inside the Cookbook.
+    pub path: &'a str,
+    /// The address of the Recipe repository.
+    pub url: &'a str,
+    /// The exact Version of the Recipe that the Cookbook holds.
+    pub version: &'a str,
+    /// The branch of the Recipe to follow. `None` keeps the Version that
+    /// `version` names and follows nothing.
+    pub follow: Option<&'a str>,
+}
+
+/// A request to take one Recipe reference out of a Cookbook.
+#[derive(Debug)]
+pub struct RemoveReference<'a> {
+    /// Where to push, without any credential in it. This is the Cookbook.
+    pub remote_url: &'a str,
+    pub token: &'a Secret<String>,
+    pub identity: &'a Identity,
+    /// The branch that carries the published Cookbook.
+    pub branch: &'a str,
+    pub message: &'a str,
+    /// Where the Recipe sits inside the Cookbook.
+    pub path: &'a str,
 }
 
 /// Remove the token from a message, whatever shape Git echoed it in.

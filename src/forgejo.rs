@@ -1501,6 +1501,55 @@ impl ForgejoClient {
 
         read_json(response).await
     }
+
+    /// List everything at the top of a repository, of every kind.
+    ///
+    /// [`Self::list_root_files`] answers with plain files only. A Cookbook
+    /// also holds a reference to each of its Recipes, and a reference is
+    /// not a file, so the Cookbook pages need the whole listing. Forgejo
+    /// applies the permissions of the token here as everywhere else.
+    pub async fn list_root_entries(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        reference: &str,
+    ) -> Result<Vec<RootEntry>, ForgejoError> {
+        let mut request = self
+            .http
+            .get(format!(
+                "{}/api/v1/repos/{owner}/{repository}/contents",
+                self.api_url
+            ))
+            .query(&[("ref", reference)]);
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        let response = self.send(request).await?;
+        read_json(response).await
+    }
+}
+
+/// One entry at the top of a repository, as Forgejo reports it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RootEntry {
+    #[serde(default)]
+    pub name: String,
+    /// `file`, `dir`, `symlink`, or `submodule`.
+    #[serde(rename = "type", default)]
+    pub kind: String,
+    /// For a reference to another repository, the exact Version that this
+    /// repository records. For a file, the identifier of its content.
+    #[serde(default)]
+    pub sha: String,
+}
+
+impl RootEntry {
+    /// Whether this entry is a reference to another repository.
+    pub fn is_reference(&self) -> bool {
+        self.kind == "submodule"
+    }
 }
 
 async fn read_json<T: serde::de::DeserializeOwned>(

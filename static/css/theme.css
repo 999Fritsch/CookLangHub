@@ -308,6 +308,19 @@
             color: #34d399;
         }
 
+/* Not from CookCLI. A link inside a card carries `text-blue-600`,
+           and their rules cover 900 only, so every such link stayed a dark
+           blue on a dark card. The Cookbook page, the Recipe lists, and
+           each notice use it. Written in their shape, and from the same
+           blue ramp as the rule for `text-blue-900`. */
+        .dark .text-blue-600 {
+            color: #60a5fa;
+        }
+
+.dark .hover\:text-blue-800:hover {
+            color: #93c5fd;
+        }
+
 .dark .shadow-lg, .dark .shadow-md, .dark .shadow-xl {
             box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
         }
@@ -1014,6 +1027,12 @@
         }
   html:not(.dark):not(.light) .text-green-700 {
             color: #34d399;
+        }
+  html:not(.dark):not(.light) .text-blue-600 {
+            color: #60a5fa;
+        }
+  html:not(.dark):not(.light) .hover\:text-blue-800:hover {
+            color: #93c5fd;
         }
   html:not(.dark):not(.light) .shadow-lg, html:not(.dark):not(.light) .shadow-md, html:not(.dark):not(.light) .shadow-xl {
             box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
