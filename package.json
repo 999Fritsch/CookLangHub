@@ -7,7 +7,8 @@
     "watch-css": "tailwindcss -i ./static/css/input.css -o ./static/css/styles.css --watch",
     "build-theme": "node scripts/build-theme-css.mjs",
     "build-editor": "node scripts/build-editor.mjs",
-    "build": "npm run build-theme && npm run build-editor && npm run build-css"
+    "build": "npm run build-theme && npm run build-editor && npm run build-css",
+    "shot": "node scripts/screenshot.mjs"
   },
   "devDependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -18,6 +19,7 @@
     "@lezer/highlight": "^1.2.1",
     "@tailwindcss/cli": "^4.3.3",
     "esbuild": "^0.28.2",
+    "playwright": "^1.62.1",
     "tailwindcss": "^4.3.3"
   }
 }

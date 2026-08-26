@@ -186,6 +186,22 @@ it made a system webhook. The application therefore records the identifier
 of the webhook that it registered, and uses `GET /api/v1/admin/hooks/{id}`
 to find it again. This is why a repeated bootstrap makes no second webhook.
 
+## Looking at the pages
+
+The tests say whether the application behaves. They do not say whether a
+page reads well. To look at it:
+
+```sh
+docker compose up --build -d
+npx playwright install chromium --only-shell   # once
+npm run shot -- --session YOUR_SESSION_COOKIE
+```
+
+This writes a picture of every page into `screenshots/`, at a desktop size
+and a telephone size, in both palettes, and it reports any page that
+scrolls sideways or writes to the browser console. The pictures are not
+kept in Git.
+
 ## Appearance
 
 The design is the CookCLI design. CookLangHub is a Cooklang product, so it

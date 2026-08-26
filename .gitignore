@@ -5,3 +5,6 @@ node_modules/
 
 # Worktrees that background agents run in.
 .claude/worktrees/
+
+# Pictures taken by `npm run shot`.
+screenshots/
