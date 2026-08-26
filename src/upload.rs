@@ -397,7 +397,10 @@ impl Photos {
 }
 
 /// Decide the photo state from the names at the top of a Recipe.
-fn photos_in(names: &[String]) -> Photos {
+///
+/// Public so that the Recipe page can read the photo state out of the file
+/// listing it already asked for, rather than asking Forgejo a second time.
+pub fn photos_in(names: &[String]) -> Photos {
     let found: Vec<ThumbnailFormat> = ThumbnailFormat::ALL
         .into_iter()
         .filter(|format| names.iter().any(|name| name == format.path()))

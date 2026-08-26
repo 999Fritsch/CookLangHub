@@ -20,6 +20,7 @@ pub mod health;
 pub mod index;
 pub mod preferences;
 pub mod recipe;
+pub mod recipe_state;
 pub mod render;
 pub mod scale;
 pub mod secret;

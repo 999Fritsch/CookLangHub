@@ -1,0 +1,99 @@
+{#
+  Shown when a Recipe is in a state that the cooking interface cannot show.
+
+  Git accepts anything, so a Recipe can hold Cooklang the parser refuses, no
+  Recipe file at all, no published Version, or a file above the friendly
+  limit. The page names the state and hands the person what they can act on:
+  the source as it is stored, the last valid Version, a repair that they
+  start themselves, and Open in Forgejo.
+
+  This page corrects nothing. The repair is a form and never a link, because
+  it publishes a new Version, and only a person decides that.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div>
+  <div class="mb-8">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
+        {{ title }}
+      </h1>
+      <div class="flex flex-wrap items-center gap-2 self-start">
+        {# The escape hatch. Every diagnosis carries it, whatever the state. #}
+        <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
+
+        {% if let Some(version) = last_valid %}
+        <a class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap"
+           href="/recipes/{{ owner }}/{{ slug }}/history/{{ version.id }}">Read the last valid Version</a>
+        {% endif %}
+
+        {% if layout.signed_in %}
+        <a class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap"
+           href="/recipes/{{ owner }}/{{ slug }}/edit">Edit</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <p class="text-gray-600 mb-4">Owned by <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/cooks/{{ owner }}">{{ owner }}</a></p>
+  </div>
+
+  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Recipe">
+    <span class="nav-pill active" aria-current="page">Recipe</span>
+    {% for area in areas %}
+    {% if let Some(href) = area.href %}
+    <a class="nav-pill" href="{{ href }}">{{ area.name }}</a>
+    {% else %}
+    <span class="nav-pill opacity-50" aria-disabled="true">{{ area.name }}</span>
+    {% endif %}
+    {% endfor %}
+  </nav>
+
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-8" role="alert">
+    <h2 class="font-bold mb-2">{{ heading }}</h2>
+    <p class="mb-2">{{ message }}</p>
+
+    {% if !details.is_empty() %}
+    <ul class="list-disc pl-5 space-y-1 mb-2">
+      {% for detail in details %}
+      <li>{{ detail }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <p class="m-0">{{ untouched }}</p>
+  </div>
+
+  {#
+    The repair publishes one new Version that holds the last valid Recipe.
+    It changes the Recipe, so it is a form and never a link, and it happens
+    only when a person presses it. History keeps every Version, the broken
+    one included.
+  #}
+  {% if can_repair %}
+  {% if let Some(version) = last_valid %}
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Repair this Recipe</h2>
+    <p class="text-gray-700 mb-4">
+      The repair publishes a new Version that holds the last valid Recipe{% if !version.moment.is_empty() %}, the one of {{ version.moment }}{% endif %}. History keeps every Version, so nothing is lost.
+    </p>
+    <form method="post" action="/recipes/{{ owner }}/{{ slug }}/history/{{ version.id }}/restore">
+      <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Publish the last valid Version</button>
+    </form>
+  </div>
+  {% endif %}
+  {% endif %}
+
+  {% if let Some(stored) = source %}
+  <div class="bg-white rounded-2xl shadow-lg p-6">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Recipe source</h2>
+    <p class="text-gray-600 mb-4">This is the Recipe exactly as it is stored.</p>
+    <pre class="bg-gray-50 rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words text-sm"><code>{{ stored }}</code></pre>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

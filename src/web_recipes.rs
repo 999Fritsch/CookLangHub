@@ -12,7 +12,8 @@ use axum_extra::extract::CookieJar;
 
 use crate::create_recipe::{self, CreateError, NewRecipe};
 use crate::forgejo::{ForgejoUser, Repository};
-use crate::recipe::{self, RECIPE_FILE};
+use crate::recipe;
+use crate::recipe_state::{self, Problem, ValidVersion};
 use crate::render::{self, RenderedRecipe};
 use crate::scale::View;
 use crate::secret::Secret;
@@ -61,9 +62,6 @@ pub fn areas(owner: &str, slug: &str, repository: &Repository) -> Vec<RecipeArea
         },
     ]
 }
-
-/// Shown when the stored file is not text that the application can read.
-const NOT_TEXT_MESSAGE: &str = "This Recipe is not UTF-8 text. Each character that could not be read appears below as a replacement mark. Open the Recipe in Forgejo to see the exact content.";
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -244,9 +242,37 @@ struct ShowTemplate {
     /// Notify me. Forgejo holds both, and this page only reads them.
     marks: crate::favorite::Marks,
     warnings: Vec<String>,
-    errors: Vec<String>,
     /// The Recipe as JSON, for Cook mode.
     cooking_data: String,
+}
+
+/// The page for a Recipe that the interface cannot cook.
+///
+/// Every field here is a diagnosis or a recovery option. There is no field
+/// that changes the Recipe, because this page never does.
+#[derive(Template)]
+#[template(path = "recipe_broken.html")]
+struct BrokenTemplate {
+    layout: Layout,
+    owner: String,
+    slug: String,
+    title: String,
+    /// The heading that names the state.
+    heading: &'static str,
+    /// What is wrong, and what a person can do about it.
+    message: &'static str,
+    /// What the parser said, when the parser is what refused the Recipe.
+    details: Vec<String>,
+    /// The promise that the application corrected nothing.
+    untouched: &'static str,
+    /// The Cooklang as it is stored, when there is any to show.
+    source: Option<String>,
+    /// The newest Version that can be read, when there is one.
+    last_valid: Option<ValidVersion>,
+    /// Whether Forgejo lets this person start the repair.
+    can_repair: bool,
+    forgejo_url: String,
+    areas: Vec<RecipeArea>,
 }
 
 /// The last value that the address gives for a name.
@@ -299,62 +325,55 @@ async fn show(
         }
     };
 
-    let bytes = match state
-        .forgejo
-        .raw_file(
+    let forgejo_url = state.forgejo.web_url(&repository.full_name);
+    let areas = areas(&owner, &slug, &repository);
+    let layout = Layout::new(current.as_ref()).on(&headers, &here);
+
+    // One place decides what state this Recipe is in. Everything that Git
+    // allows and this interface cannot show is named there, and none of it
+    // is corrected here.
+    let reading = recipe_state::read(&state, token.as_ref(), &owner, &slug, &repository).await;
+
+    let title = reading
+        .parsed
+        .as_ref()
+        .and_then(|parsed| parsed.title.clone())
+        .unwrap_or_else(|| repository.name.clone());
+
+    if let Some(problem) = reading.problem {
+        return broken(
+            &state,
             token.as_ref(),
+            layout,
             &owner,
             &slug,
-            &repository.default_branch,
-            RECIPE_FILE,
+            title,
+            problem,
+            reading.source,
+            forgejo_url,
+            areas,
         )
-        .await
-    {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            tracing::info!(%error, %owner, %slug, "cannot read the Recipe file");
-            Vec::new()
-        }
-    };
-
-    // A Recipe written through this application is always UTF-8 text. Git
-    // accepts any bytes though, so a direct push can put something else
-    // there. Say so plainly instead of showing replacement characters that
-    // look like a fault in the Recipe itself.
-    let valid_text = std::str::from_utf8(&bytes).is_ok();
-    let source = String::from_utf8_lossy(&bytes).to_string();
-
-    let mut errors = Vec::new();
-    if !valid_text {
-        tracing::info!(%owner, %slug, "the Recipe file is not UTF-8 text");
-        errors.push(NOT_TEXT_MESSAGE.to_string());
+        .await;
     }
 
-    let parsed = recipe::parse(&source);
-    errors.extend(parsed.errors.iter().map(|d| d.message.clone()));
-
-    let mut warnings: Vec<String> = parsed.warnings.iter().map(|d| d.message.clone()).collect();
-
-    let photos = upload::photos(
-        &state.forgejo,
-        token.as_ref(),
-        &owner,
-        &slug,
-        &upload::branch_of(&repository),
-    )
-    .await;
+    // The parser ran inside the reading, so what it said comes from there.
+    // A warning never stops a Recipe: the person decides whether it matters.
+    let mut warnings: Vec<String> = reading
+        .parsed
+        .as_ref()
+        .map(|parsed| parsed.warnings.iter().map(|d| d.message.clone()).collect())
+        .unwrap_or_default();
 
     // A Recipe with two photos is a state that Git allows and this
-    // interface cannot resolve. Say so, and leave it to a person.
-    if photos == upload::Photos::Several {
+    // interface cannot resolve. Say so, show none of them, and leave the
+    // choice to a person.
+    if reading.photos == upload::Photos::Several {
         warnings.push(upload::SEVERAL_PHOTOS_MESSAGE.to_string());
     }
 
     let can_change_photo = current.as_ref().is_some_and(|person| person.login == owner);
 
-    // A Recipe the parser refused cannot be cooked, so the page shows the
-    // diagnosis and the source instead of a broken rendering.
-    let cooked = recipe::parse_recipe(&source)
+    let cooked = recipe::parse_recipe(&reading.source)
         .as_ref()
         .map(|parsed| render::render_with(parsed, &view, recipe::converter()))
         .unwrap_or_default();
@@ -364,26 +383,91 @@ async fn show(
     // kept here, so neither answer can be out of date.
     let marks = crate::favorite::marks(&state.forgejo, token.as_ref(), &owner, &slug).await;
 
-    let areas = areas(&owner, &slug, &repository);
-    let title = parsed.title.unwrap_or_else(|| repository.name.clone());
     let cooking_data = crate::cooking::json(&title, &cooked);
 
     respond(ShowTemplate {
-        layout: Layout::new(current.as_ref()).on(&headers, &here),
+        layout,
         owner,
         slug,
         title,
-        photo: photos.is_some(),
+        photo: reading.photos.is_some(),
         can_change_photo,
         cooked,
-        source,
-        forgejo_url: state.forgejo.web_url(&repository.full_name),
+        source: reading.source,
+        forgejo_url,
         areas,
         marks,
         warnings,
-        errors,
         cooking_data,
     })
+}
+
+/// Show the state of a Recipe that the interface cannot cook.
+///
+/// The page says what is wrong and hands the person what they can act on:
+/// the source as it is stored, the last valid Version, a repair that they
+/// start themselves, and **Open in Forgejo**. It writes nothing.
+#[allow(clippy::too_many_arguments)]
+async fn broken(
+    state: &AppState,
+    token: Option<&Secret<String>>,
+    layout: Layout,
+    owner: &str,
+    slug: &str,
+    title: String,
+    problem: Problem,
+    source: String,
+    forgejo_url: String,
+    areas: Vec<RecipeArea>,
+) -> Response {
+    // Forgejo is not answering, so there is no History to offer and no
+    // repair that could be trusted to run.
+    let searchable = !matches!(problem, Problem::Unreadable | Problem::NoPublishedVersion);
+
+    let last_valid = if searchable {
+        recipe_state::last_valid_version(state, token, owner, slug).await
+    } else {
+        None
+    };
+
+    // Forgejo decides who may add a Version, so the repair is offered only
+    // to somebody it says can.
+    let can_repair = match (last_valid.as_ref(), token) {
+        (Some(_), Some(token)) => state
+            .forgejo
+            .can_write(token, owner, slug)
+            .await
+            .unwrap_or(false),
+        _ => false,
+    };
+
+    // A state that Forgejo cannot answer for is an outage and not a
+    // property of the Recipe, so it answers as one. Every other state is
+    // the true state of a Recipe that is there, and this page is the
+    // correct answer for it.
+    let status = if matches!(problem, Problem::Unreadable) {
+        StatusCode::BAD_GATEWAY
+    } else {
+        StatusCode::OK
+    };
+
+    let body = respond(BrokenTemplate {
+        layout,
+        owner: owner.to_string(),
+        slug: slug.to_string(),
+        title,
+        heading: problem.heading(),
+        message: problem.message(),
+        details: problem.details().to_vec(),
+        untouched: recipe_state::UNTOUCHED_MESSAGE,
+        source: problem.shows_source().then_some(source),
+        last_valid,
+        can_repair,
+        forgejo_url,
+        areas,
+    });
+
+    (status, body).into_response()
 }
 
 fn respond<T: Template>(template: T) -> Response {
@@ -392,6 +476,202 @@ fn respond<T: Template>(template: T) -> Response {
         Err(error) => {
             tracing::error!(%error, "cannot render a template");
             (StatusCode::INTERNAL_SERVER_ERROR, "template error").into_response()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::forgejo::RepositoryOwner;
+
+    fn repository() -> Repository {
+        Repository {
+            id: 1,
+            name: "chili".to_string(),
+            full_name: "sam/chili".to_string(),
+            html_url: String::new(),
+            clone_url: String::new(),
+            default_branch: "main".to_string(),
+            private: false,
+            empty: false,
+            has_issues: true,
+            topics: vec!["cooklang".to_string(), "recipe".to_string()],
+            updated_at: String::new(),
+            owner: RepositoryOwner {
+                id: 1,
+                login: "sam".to_string(),
+            },
+        }
+    }
+
+    /// The diagnosis page, as one person sees it.
+    fn diagnosis(
+        problem: Problem,
+        source: &str,
+        last_valid: Option<ValidVersion>,
+        can_repair: bool,
+        signed_in: bool,
+    ) -> String {
+        let mut layout = Layout::new(None);
+        layout.signed_in = signed_in;
+
+        BrokenTemplate {
+            layout,
+            owner: "sam".to_string(),
+            slug: "chili".to_string(),
+            title: "Chili".to_string(),
+            heading: problem.heading(),
+            message: problem.message(),
+            details: problem.details().to_vec(),
+            untouched: recipe_state::UNTOUCHED_MESSAGE,
+            source: problem.shows_source().then_some(source.to_string()),
+            last_valid,
+            can_repair,
+            forgejo_url: "https://forge.test/sam/chili".to_string(),
+            areas: areas("sam", "chili", &repository()),
+        }
+        .render()
+        .expect("the page must render")
+    }
+
+    fn valid_version() -> ValidVersion {
+        ValidVersion {
+            id: "a".repeat(40),
+            moment: "2026-08-26 09:41".to_string(),
+        }
+    }
+
+    #[test]
+    fn every_state_is_diagnosed_and_offers_forgejo() {
+        for problem in Problem::each() {
+            let page = diagnosis(problem.clone(), "", None, false, false);
+
+            assert!(
+                page.contains(problem.heading()),
+                "{problem:?} must name itself"
+            );
+            assert!(
+                page.contains("Open in Forgejo"),
+                "{problem:?} must offer the escape hatch"
+            );
+            assert!(
+                page.contains("https://forge.test/sam/chili"),
+                "{problem:?} must carry the address of the Recipe in Forgejo"
+            );
+            assert!(
+                page.contains(recipe_state::UNTOUCHED_MESSAGE),
+                "{problem:?} must say that nothing was corrected"
+            );
+        }
+    }
+
+    #[test]
+    fn a_broken_recipe_offers_the_source_the_last_version_and_a_repair() {
+        // The three recovery options of the ticket, on one page.
+        let broken = Problem::Invalid(vec!["a timer needs a unit".to_string()]);
+        let page = diagnosis(
+            broken,
+            "Wait ~{5%bananas}.",
+            Some(valid_version()),
+            true,
+            true,
+        );
+
+        // The source, exactly as it is stored.
+        assert!(page.contains("Wait ~{5%bananas}."));
+        // What the parser found.
+        assert!(page.contains("a timer needs a unit"));
+        // The last valid Version.
+        assert!(page.contains(&format!("/recipes/sam/chili/history/{}", "a".repeat(40))));
+        assert!(page.contains("Read the last valid Version"));
+        // The repair. It publishes a Version, so it is a form and never a
+        // link, and nothing runs until a person presses it.
+        assert!(page.contains(&format!(
+            "action=\"/recipes/sam/chili/history/{}/restore\"",
+            "a".repeat(40)
+        )));
+        assert!(page.contains("method=\"post\""));
+        assert!(page.contains("<button type=\"submit\""));
+    }
+
+    #[test]
+    fn a_person_who_cannot_write_gets_no_repair() {
+        let broken = Problem::Invalid(vec!["a timer needs a unit".to_string()]);
+        let page = diagnosis(
+            broken,
+            "Wait ~{5%bananas}.",
+            Some(valid_version()),
+            false,
+            false,
+        );
+
+        assert!(!page.contains("/restore"), "the repair must not be offered");
+        assert!(!page.contains("Repair this Recipe"));
+        // Reading the last valid Version needs no permission at all.
+        assert!(page.contains("Read the last valid Version"));
+        assert!(page.contains("Open in Forgejo"));
+    }
+
+    #[test]
+    fn a_recipe_with_no_earlier_version_still_says_what_is_wrong() {
+        let page = diagnosis(Problem::NoRecipeFile, "", None, true, true);
+
+        assert!(page.contains("This Recipe has no Recipe file"));
+        assert!(!page.contains("/restore"), "there is nothing to restore");
+        assert!(!page.contains("Read the last valid Version"));
+        assert!(page.contains("Open in Forgejo"));
+    }
+
+    #[test]
+    fn a_file_that_is_too_large_never_reaches_the_page() {
+        // Putting a megabyte of it on the page is the fault this state
+        // exists to avoid.
+        let page = diagnosis(Problem::TooLarge, &"x".repeat(2048), None, false, false);
+
+        assert!(
+            !page.contains(&"x".repeat(64)),
+            "the file must stay off the page"
+        );
+        assert!(page.contains("larger than 1 MB"));
+        assert!(page.contains("Open in Forgejo"));
+    }
+
+    #[test]
+    fn the_page_carries_no_script_that_runs() {
+        // The policy is `default-src 'self'`, and the page has to work with
+        // scripts blocked.
+        let page = diagnosis(
+            Problem::Invalid(vec!["a timer needs a unit".to_string()]),
+            "Wait ~{5%bananas}.",
+            Some(valid_version()),
+            true,
+            true,
+        );
+
+        assert!(!page.contains("onclick="));
+        assert!(!page.contains("onsubmit="));
+        for script in page.split("<script").skip(1) {
+            assert!(
+                script.starts_with(" src=\""),
+                "the page must carry no inline script"
+            );
+        }
+    }
+
+    #[test]
+    fn a_broken_recipe_keeps_the_other_areas_reachable() {
+        // History is a recovery route, so the page must not cut it off.
+        let page = diagnosis(Problem::NoRecipeFile, "", None, false, false);
+
+        for area in [
+            "History",
+            "Suggestions",
+            "Discussions",
+            "Variations",
+            "Sharing",
+        ] {
+            assert!(page.contains(area), "the page must name `{area}`");
         }
     }
 }

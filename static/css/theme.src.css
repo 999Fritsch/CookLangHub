@@ -194,6 +194,28 @@
             color: #fecaca;
         }
 
+        /* Not from CookCLI. The box that says something is worth a look
+           draws with `bg-yellow-50`, `border-yellow-400`, and
+           `text-yellow-900`, and CookCLI has no dark rule for any of the
+           three, so the box stayed a pale yellow card with dark yellow
+           words on a dark page. The Recipe page shows an ambiguous photo
+           state in it, and the editor shows a Cooklang warning in it.
+
+           No badge carries these three, so the rules can name the classes
+           themselves. Written in the shape of the red rules above, from the
+           same amber ramp CookCLI uses for an ingredient. */
+        .dark .bg-yellow-50 {
+            background-color: #422006;
+        }
+
+        .dark .border-yellow-400 {
+            border-color: #a16207;
+        }
+
+        .dark .text-yellow-900 {
+            color: #fde68a;
+        }
+
         /* Dark mode hover states */
         .dark .hover\:bg-gradient-to-r:hover {
             background: #374151 !important;
