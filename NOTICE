@@ -29,6 +29,15 @@ close adaptations:
     static/css/input.css         copied, then extended
     static/css/custom-styles.css copied
     static/css/cooking-mode.css  copied
+    static/js/cooking-mode.js    copied, with one change: CookCLI starts
+                                 Cook mode from an `onclick` attribute,
+                                 which the Content Security Policy here
+                                 does not allow, so the button is bound
+                                 in the file instead
+    static/js/src/cooklang-mode.js
+                                 copied, then corrected: the mode gave
+                                 CodeMirror its own words for a token
+                                 rather than a tag CodeMirror knows
 
     templates/*.html             the class names, the markup shape, and
                                  the component structure follow CookCLI

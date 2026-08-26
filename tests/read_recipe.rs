@@ -434,14 +434,27 @@ async fn a_person_can_choose_light_or_dark_and_it_sticks() {
         "the page must carry the choice as the class CookCLI uses"
     );
     // The choice needs no script at all. A page can load a script from a
-    // file, such as the countdown on the Recipe page, but never an inline
-    // one: the policy forbids it, and an inline script is what would make
-    // the wrong colours show while the page loads.
+    // file, such as the countdown on the Recipe page, and it can carry a
+    // block of data that a browser never runs, such as the Recipe that
+    // Cook mode reads. It must never carry an inline script: the policy
+    // forbids one, and an inline script is what would make the wrong
+    // colours show while the page loads.
     for script in page.split("<script").skip(1) {
+        let runs = !script.starts_with(" src=\"") && !script.contains("type=\"application/json\"");
         assert!(
-            script.starts_with(" src=\""),
+            !runs,
             "the page must carry no inline script, got `<script{}`",
             &script[..script.len().min(60)]
+        );
+    }
+
+    // A block of data must stay data. A Recipe holding `</script>` would
+    // otherwise close the block and everything after it would become code.
+    for block in page.split("type=\"application/json\">").skip(1) {
+        let content = block.split("</script>").next().unwrap_or_default();
+        assert!(
+            !content.contains("<script") && !content.contains("</script"),
+            "a data block must not be closeable from inside"
         );
     }
 }

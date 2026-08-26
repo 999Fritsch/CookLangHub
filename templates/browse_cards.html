@@ -1,6 +1,11 @@
 {#
   A grid of Recipe cards, shared by every list of Recipes.
 
+  The card is the CookCLI card: no padding of its own, the photo across the
+  top, and the body below it. A Recipe with no photo gets the CookCLI
+  circle with a plate on it. Tags stop at three and the rest become a count, so a
+  Recipe with many tags does not make a tall card.
+
   A card carries culinary information only: what the Recipe is, what it
   needs, and who wrote it. Nothing on it comes from Git.
 
@@ -22,35 +27,48 @@
   {% for recipe in recipes %}
   <li>
     <a href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}"
-       class="recipe-card bg-white rounded-2xl shadow-lg p-6 pt-7 hover:shadow-xl transition-shadow block h-full">
+       class="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all hover:scale-105 recipe-card flex flex-col h-full">
       {% if recipe.thumbnail %}
-      <img src="/recipes/{{ recipe.owner }}/{{ recipe.slug }}/thumbnail" alt=""
-           class="w-full h-40 object-cover rounded-xl mb-4" loading="lazy">
-      {% endif %}
-
-      <h3 class="text-lg font-bold text-gray-900 mb-2">{{ recipe.title }}</h3>
-
-      {% if !recipe.tags.is_empty() %}
-      <div class="flex flex-wrap gap-y-2 mb-3">
-        {% for tag in recipe.tags %}<span class="tag">#{{ tag }}</span>{% endfor %}
+      <div class="h-48 bg-gray-100 overflow-hidden">
+        <img src="/recipes/{{ recipe.owner }}/{{ recipe.slug }}/thumbnail" alt=""
+             class="w-full h-full object-cover hover:scale-110 transition-transform duration-300" loading="lazy">
       </div>
+      <div class="p-6">
+      {% else %}
+      <div class="p-6">
+        <div class="flex items-center justify-center w-16 h-16 bg-gradient-to-br from-orange-400 to-pink-500 rounded-full mb-4">
+          <span class="text-2xl" aria-hidden="true">🍽️</span>
+        </div>
       {% endif %}
+        <h3 class="font-bold text-lg mb-2 text-gray-800">{{ recipe.title }}</h3>
 
-      <div class="flex flex-wrap gap-2 mb-3">
-        {% if let Some(servings) = recipe.servings %}
-        <span class="metadata-pill metadata-servings"><span aria-hidden="true">👥</span> {{ servings }} servings</span>
+        <div class="flex flex-wrap gap-2 mb-3">
+          {% if let Some(servings) = recipe.servings %}
+          <span class="metadata-pill metadata-servings"><span aria-hidden="true">👥</span> {{ servings }} servings</span>
+          {% endif %}
+          {% if recipe.ingredients == 1 %}
+          <span class="metadata-pill metadata-custom"><span aria-hidden="true">🥘</span> 1 ingredient</span>
+          {% else if recipe.ingredients > 1 %}
+          <span class="metadata-pill metadata-custom"><span aria-hidden="true">🥘</span> {{ recipe.ingredients }} ingredients</span>
+          {% endif %}
+          {% if recipe.private %}
+          <span class="metadata-pill metadata-custom"><span aria-hidden="true">🔒</span> Private</span>
+          {% endif %}
+        </div>
+
+        {% if !recipe.tags.is_empty() %}
+        <div class="mt-3 flex flex-wrap gap-2">
+          {% for tag in recipe.tags.iter().take(3) %}
+          <span class="text-xs bg-gradient-to-r from-yellow-100 to-orange-100 text-orange-700 px-2 py-1 rounded-full font-medium">{{ tag }}</span>
+          {% endfor %}
+          {% if recipe.tags.len() > 3 %}
+          <span class="text-xs text-gray-500 self-center">+{{ recipe.tags.len() - 3 }}</span>
+          {% endif %}
+        </div>
         {% endif %}
-        {% if recipe.ingredients == 1 %}
-        <span class="metadata-pill metadata-cuisine"><span aria-hidden="true">🥘</span> 1 ingredient</span>
-        {% else if recipe.ingredients > 1 %}
-        <span class="metadata-pill metadata-cuisine"><span aria-hidden="true">🥘</span> {{ recipe.ingredients }} ingredients</span>
-        {% endif %}
-        {% if recipe.private %}
-        <span class="metadata-pill metadata-difficulty"><span aria-hidden="true">🔒</span> Private</span>
-        {% endif %}
+
+        <p class="text-sm text-gray-600 mt-3 mb-0">Owned by {{ recipe.owner }}</p>
       </div>
-
-      <p class="text-sm text-gray-600 m-0">Owned by {{ recipe.owner }}</p>
     </a>
   </li>
   {% endfor %}

@@ -246,6 +246,8 @@ struct ShowTemplate {
     areas: Vec<RecipeArea>,
     warnings: Vec<String>,
     errors: Vec<String>,
+    /// The Recipe as JSON, for Cook mode.
+    cooking_data: String,
 }
 
 /// The last value that the address gives for a name.
@@ -359,12 +361,14 @@ async fn show(
         .unwrap_or_default();
 
     let areas = areas(&owner, &slug, &repository);
+    let title = parsed.title.unwrap_or_else(|| repository.name.clone());
+    let cooking_data = crate::cooking::json(&title, &cooked);
 
     respond(ShowTemplate {
         layout: Layout::new(current.as_ref()).on(&headers, &here),
         owner,
         slug,
-        title: parsed.title.unwrap_or_else(|| repository.name.clone()),
+        title,
         photo: photos.is_some(),
         can_change_photo,
         cooked,
@@ -373,6 +377,7 @@ async fn show(
         areas,
         warnings,
         errors,
+        cooking_data,
     })
 }
 

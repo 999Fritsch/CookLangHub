@@ -353,8 +353,10 @@ async fn a_recipe_card_carries_culinary_information_and_no_git_words() {
 
     assert!(body.contains("Green Goddess Salad"));
     assert!(body.contains("4 servings"), "a card says who it feeds");
-    assert!(body.contains("#vegan"), "a card carries the Cooklang tags");
-    assert!(body.contains("#quick"));
+    // CookCLI writes the tag plainly on a card and keeps the `#` for the
+    // Recipe page, so the card asserts the word and not the mark.
+    assert!(body.contains(">vegan<"), "a card carries the Cooklang tags");
+    assert!(body.contains(">quick<"));
     assert!(body.contains("2 ingredients"), "a card says what it needs");
     assert!(body.contains("Owned by sam"));
 

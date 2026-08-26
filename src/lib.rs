@@ -7,6 +7,7 @@
 pub mod auth;
 pub mod bootstrap;
 pub mod config;
+pub mod cooking;
 pub mod create_recipe;
 pub mod crypto;
 pub mod db;
