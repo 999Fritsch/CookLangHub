@@ -56,6 +56,14 @@ fn build_converter() -> Converter {
     }
 }
 
+/// The unit converter that the parser uses.
+///
+/// Scaling and unit conversion in the view use this one, so that a German
+/// Recipe converts with the same names that let it be created.
+pub fn converter() -> &'static Converter {
+    PARSER.converter()
+}
+
 /// One message from the parser.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {

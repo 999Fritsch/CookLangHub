@@ -15,6 +15,7 @@ pub mod git;
 pub mod health;
 pub mod recipe;
 pub mod render;
+pub mod scale;
 pub mod secret;
 pub mod session;
 pub mod telemetry;

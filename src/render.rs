@@ -6,9 +6,24 @@
 //!
 //! Nothing here writes. Reading a Recipe never changes the stored file, so
 //! a later parser release changes what a person sees and never what Git
-//! holds.
+//! holds. The same is true of the view options: a cook can scale the
+//! servings and convert the units, and the stored Cooklang source keeps
+//! every byte.
 
+use cooklang::convert::{ConvertTo, ConvertUnit, ConvertValue, Converter};
+use cooklang::quantity::{Quantity, Value};
 use cooklang::{Content, Item, Recipe};
+
+use crate::scale::{self, Units, View};
+
+/// The unit that a countdown counts in.
+const SECOND: &str = "s";
+
+/// The longest timer that gets a countdown, in seconds.
+///
+/// A timer longer than one day is a note to the cook and not something to
+/// watch on a screen, so it stays plain text.
+const MAX_TIMER_SECONDS: f64 = 24.0 * 60.0 * 60.0;
 
 /// What kind of thing a piece of a step is.
 ///
@@ -58,6 +73,12 @@ pub struct Piece {
     pub text: String,
     /// The amount, when the Recipe gives one.
     pub quantity: Option<String>,
+    /// How long a timer runs, in whole seconds.
+    ///
+    /// Set only for a timer that gives a plain number and a time unit. The
+    /// page needs the number for the countdown, and the badge reads as
+    /// plain text when the script does not run.
+    pub timer_seconds: Option<u32>,
 }
 
 impl Piece {
@@ -66,6 +87,20 @@ impl Piece {
             kind: PieceKind::Text,
             text: value.into(),
             quantity: None,
+            timer_seconds: None,
+        }
+    }
+
+    /// The words in the badge: the name and the amount together.
+    ///
+    /// The amount sits in the badge on purpose. CookCLI repeats every
+    /// amount in a list below the step, which makes a cook look away from
+    /// the sentence. See CLAUDE.md.
+    pub fn badge_text(&self) -> String {
+        match (&self.quantity, self.text.is_empty()) {
+            (Some(quantity), true) => quantity.clone(),
+            (Some(quantity), false) => format!("{} {quantity}", self.text),
+            (None, _) => self.text.clone(),
         }
     }
 }
@@ -107,6 +142,47 @@ pub struct Fact {
     pub link: Option<String>,
 }
 
+/// What the serving and units control shows.
+#[derive(Debug, Clone, Default)]
+pub struct ScaleState {
+    /// The serving count that the Recipe itself gives, when the page can
+    /// scale it. Nothing here means the Recipe gives no usable number.
+    pub base: Option<u32>,
+    /// The serving count on screen.
+    pub current: Option<u32>,
+    /// The units on screen.
+    pub units: Units,
+    /// True when the page shows something other than the Recipe as written.
+    pub changed: bool,
+    /// Set when the page cannot do what the address asks for.
+    pub note: Option<String>,
+}
+
+impl ScaleState {
+    /// True when the Recipe gives a serving count that the page can scale.
+    pub fn can_scale(&self) -> bool {
+        self.base.is_some()
+    }
+
+    /// The value the number control starts with.
+    pub fn value(&self) -> u32 {
+        self.current.or(self.base).unwrap_or(scale::MIN_SERVINGS)
+    }
+
+    pub fn min(&self) -> u32 {
+        scale::MIN_SERVINGS
+    }
+
+    pub fn max(&self) -> u32 {
+        scale::MAX_SERVINGS
+    }
+
+    /// The unit choices, in the order the control shows them.
+    pub fn choices(&self) -> [Units; 3] {
+        Units::all()
+    }
+}
+
 /// A Recipe ready for a template.
 #[derive(Debug, Clone, Default)]
 pub struct RenderedRecipe {
@@ -116,6 +192,8 @@ pub struct RenderedRecipe {
     pub ingredients: Vec<Component>,
     pub cookware: Vec<Component>,
     pub sections: Vec<RenderedSection>,
+    /// The state of the serving and units control.
+    pub scale: ScaleState,
 }
 
 impl RenderedRecipe {
@@ -129,8 +207,20 @@ impl RenderedRecipe {
 /// Metadata keys that the page shows on its own, so the fact list skips them.
 const HANDLED_KEYS: [&str; 3] = ["title", "tags", "servings"];
 
-/// Build the view model from a parsed Recipe.
+/// Build the view model from a parsed Recipe, exactly as it is stored.
 pub fn render(recipe: &Recipe) -> RenderedRecipe {
+    render_with(recipe, &View::default(), crate::recipe::converter())
+}
+
+/// Build the view model with the options that the address asks for.
+///
+/// This is a pure function of what it is given, which is what makes the
+/// serving counts and the unit conversions testable without Forgejo. It
+/// works on a copy, so the Recipe that came from Git is never touched.
+pub fn render_with(recipe: &Recipe, view: &View, converter: &Converter) -> RenderedRecipe {
+    let scaled = scale::apply(recipe, view, converter);
+    let recipe = &scaled.recipe;
+
     let ingredients: Vec<Component> = recipe
         .ingredients
         .iter()
@@ -162,7 +252,11 @@ pub fn render(recipe: &Recipe) -> RenderedRecipe {
                 .map(|content| match content {
                     Content::Step(step) => Block {
                         number: step.number,
-                        pieces: step.items.iter().map(|item| piece(recipe, item)).collect(),
+                        pieces: step
+                            .items
+                            .iter()
+                            .map(|item| piece(recipe, item, converter))
+                            .collect(),
                     },
                     Content::Text(text) => Block {
                         number: 0,
@@ -184,10 +278,17 @@ pub fn render(recipe: &Recipe) -> RenderedRecipe {
         ingredients,
         cookware,
         sections,
+        scale: ScaleState {
+            base: scaled.base_servings,
+            current: scaled.servings,
+            units: scaled.units,
+            changed: scaled.changed,
+            note: scaled.note,
+        },
     }
 }
 
-fn piece(recipe: &Recipe, item: &Item) -> Piece {
+fn piece(recipe: &Recipe, item: &Item, converter: &Converter) -> Piece {
     match item {
         Item::Text { value } => Piece::text(value.clone()),
         Item::Ingredient { index } => match recipe.ingredients.get(*index) {
@@ -195,6 +296,7 @@ fn piece(recipe: &Recipe, item: &Item) -> Piece {
                 kind: PieceKind::Ingredient,
                 text: ingredient.name.clone(),
                 quantity: ingredient.quantity.as_ref().map(ToString::to_string),
+                timer_seconds: None,
             },
             None => Piece::text(String::new()),
         },
@@ -203,6 +305,7 @@ fn piece(recipe: &Recipe, item: &Item) -> Piece {
                 kind: PieceKind::Cookware,
                 text: cookware.name.clone(),
                 quantity: cookware.quantity.as_ref().map(ToString::to_string),
+                timer_seconds: None,
             },
             None => Piece::text(String::new()),
         },
@@ -211,12 +314,49 @@ fn piece(recipe: &Recipe, item: &Item) -> Piece {
                 kind: PieceKind::Timer,
                 text: timer.name.clone().unwrap_or_default(),
                 quantity: timer.quantity.as_ref().map(ToString::to_string),
+                timer_seconds: timer
+                    .quantity
+                    .as_ref()
+                    .and_then(|quantity| timer_seconds(quantity, converter)),
             },
             None => Piece::text(String::new()),
         },
         // An inline quantity is a plain amount inside the text.
         other => Piece::text(inline_text(other)),
     }
+}
+
+/// How long a timer runs, in whole seconds.
+///
+/// The converter does the arithmetic, so `~{1%hour}` and `~{8%Min.}` both
+/// give a number. A range such as `~{5-10%minutes}`, a word such as
+/// `~{a while}`, and a unit that is not a time give nothing, and the badge
+/// then stays plain text.
+fn timer_seconds(quantity: &Quantity, converter: &Converter) -> Option<u32> {
+    let Value::Number(number) = quantity.value() else {
+        return None;
+    };
+    let unit = quantity.unit()?;
+
+    let (converted, _) = converter
+        .convert(
+            ConvertValue::Number(number.value()),
+            ConvertUnit::Key(unit),
+            ConvertTo::Unit(ConvertUnit::Key(SECOND)),
+        )
+        .ok()?;
+
+    let ConvertValue::Number(seconds) = converted else {
+        return None;
+    };
+
+    // A value that is not finite, shorter than a second, or longer than a
+    // day is not a countdown a cook can use.
+    if !seconds.is_finite() || !(1.0..=MAX_TIMER_SECONDS).contains(&seconds) {
+        return None;
+    }
+
+    Some(seconds.round() as u32)
 }
 
 fn inline_text(item: &Item) -> String {
@@ -327,6 +467,25 @@ mod tests {
 
     fn parse(source: &str) -> Recipe {
         recipe::parse_recipe(source).expect("the fixture must parse")
+    }
+
+    /// The one piece of a step that is of this kind.
+    fn only(recipe: &RenderedRecipe, kind: PieceKind) -> Piece {
+        recipe.sections[0].blocks[0]
+            .pieces
+            .iter()
+            .find(|p| p.kind == kind)
+            .unwrap_or_else(|| panic!("no {kind:?} in the step"))
+            .clone()
+    }
+
+    /// Render with the given view options.
+    fn view(recipe: &Recipe, servings: Option<u32>, units: Units) -> RenderedRecipe {
+        render_with(
+            recipe,
+            &View { servings, units },
+            crate::recipe::converter(),
+        )
     }
 
     #[test]
@@ -451,5 +610,152 @@ mod tests {
         assert_eq!(PieceKind::Timer.css_class(), "timer-badge");
         assert_eq!(PieceKind::Ingredient.label(), "Ingredient");
         assert!(PieceKind::Text.is_text());
+    }
+
+    #[test]
+    fn the_badge_holds_the_name_and_the_amount_together() {
+        let piece = Piece {
+            kind: PieceKind::Ingredient,
+            text: "onion".to_string(),
+            quantity: Some("2".to_string()),
+            timer_seconds: None,
+        };
+        assert_eq!(piece.badge_text(), "onion 2");
+
+        // A timer with no name is only its length.
+        let timer = Piece {
+            kind: PieceKind::Timer,
+            text: String::new(),
+            quantity: Some("5 minutes".to_string()),
+            timer_seconds: Some(300),
+        };
+        assert_eq!(timer.badge_text(), "5 minutes");
+
+        // Cookware usually carries no amount.
+        let pan = Piece {
+            kind: PieceKind::Cookware,
+            text: "pan".to_string(),
+            quantity: None,
+            timer_seconds: None,
+        };
+        assert_eq!(pan.badge_text(), "pan");
+    }
+
+    #[test]
+    fn a_timer_carries_its_length_in_seconds() {
+        for (source, seconds) in [
+            ("Wait ~{5%minutes}.", 300),
+            ("Wait ~{1%hour}.", 3600),
+            ("Wait ~{90%s}.", 90),
+            ("Wait ~{8%Min.}.", 480),
+            ("Wait ~cooking{2%Stunden}.", 7200),
+        ] {
+            let r = view(
+                &parse(&format!("---\ntitle: T\n---\n\n{source}")),
+                None,
+                Units::AsWritten,
+            );
+            assert_eq!(
+                only(&r, PieceKind::Timer).timer_seconds,
+                Some(seconds),
+                "`{source}` gave the wrong length"
+            );
+        }
+    }
+
+    #[test]
+    fn a_timer_that_cannot_be_counted_stays_plain_text() {
+        for source in [
+            // A range has no single length.
+            "Wait ~{5-10%minutes}.",
+            // No unit at all.
+            "Wait ~{5}.",
+            // Shorter than a second.
+            "Wait ~{0.5%s}.",
+            // Longer than a day.
+            "Rest ~{3%days}.",
+        ] {
+            let r = view(
+                &parse(&format!("---\ntitle: T\n---\n\n{source}")),
+                None,
+                Units::AsWritten,
+            );
+            assert_eq!(
+                only(&r, PieceKind::Timer).timer_seconds,
+                None,
+                "`{source}` must not get a countdown"
+            );
+        }
+    }
+
+    #[test]
+    fn scaling_the_view_changes_what_the_page_shows() {
+        let recipe = parse("---\ntitle: T\nservings: 4\n---\n\nMix @flour{500%g}.");
+
+        let doubled = view(&recipe, Some(8), Units::AsWritten);
+        assert_eq!(doubled.ingredients[0].quantity.as_deref(), Some("1 kg"));
+        assert_eq!(
+            only(&doubled, PieceKind::Ingredient).quantity.as_deref(),
+            Some("1 kg")
+        );
+        assert_eq!(doubled.servings.as_deref(), Some("8"));
+        assert_eq!(doubled.scale.current, Some(8));
+        assert_eq!(doubled.scale.base, Some(4));
+        assert!(doubled.scale.changed);
+        assert!(doubled.scale.can_scale());
+
+        // The Recipe as stored is untouched.
+        let written = view(&recipe, None, Units::AsWritten);
+        assert_eq!(written.ingredients[0].quantity.as_deref(), Some("500 g"));
+        assert_eq!(written.servings.as_deref(), Some("4"));
+        assert!(!written.scale.changed);
+    }
+
+    #[test]
+    fn converting_the_view_changes_the_units() {
+        let recipe = parse("---\ntitle: T\n---\n\nAdd @butter{4%oz}.");
+
+        let metric = view(&recipe, None, Units::Metric);
+        assert_eq!(metric.ingredients[0].quantity.as_deref(), Some("113.398 g"));
+        assert!(metric.scale.units.is("metric"));
+        assert!(metric.scale.changed);
+    }
+
+    #[test]
+    fn a_recipe_with_no_serving_count_cannot_be_scaled() {
+        let recipe = parse("---\ntitle: T\n---\n\nMix @flour{500%g}.");
+
+        let asked = view(&recipe, Some(8), Units::AsWritten);
+        assert!(!asked.scale.can_scale());
+        assert_eq!(asked.ingredients[0].quantity.as_deref(), Some("500 g"));
+        assert_eq!(
+            asked.scale.note.as_deref(),
+            Some(scale::NO_SERVINGS_MESSAGE)
+        );
+    }
+
+    #[test]
+    fn the_control_starts_at_a_number_it_can_use() {
+        let recipe = parse("---\ntitle: T\nservings: 4\n---\n\nMix @flour{500%g}.");
+
+        assert_eq!(view(&recipe, None, Units::AsWritten).scale.value(), 4);
+        assert_eq!(view(&recipe, Some(6), Units::AsWritten).scale.value(), 6);
+
+        // With no number anywhere, the control still has a usable value.
+        let plain = parse("---\ntitle: T\n---\n\nMix @flour{500%g}.");
+        let state = view(&plain, None, Units::AsWritten).scale;
+        assert_eq!(state.value(), state.min());
+        assert_eq!(state.max(), scale::MAX_SERVINGS);
+    }
+
+    #[test]
+    fn render_shows_the_recipe_as_written() {
+        // The plain entry point is the stored Recipe and nothing else.
+        let recipe = parse("---\ntitle: T\nservings: 4\n---\n\nMix @flour{500%g}.");
+        let r = render(&recipe);
+
+        assert_eq!(r.ingredients[0].quantity.as_deref(), Some("500 g"));
+        assert!(!r.scale.changed);
+        assert!(r.scale.units.is("as-written"));
     }
 }
