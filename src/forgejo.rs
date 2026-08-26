@@ -95,6 +95,14 @@ pub struct Repository {
     pub private: bool,
     #[serde(default)]
     pub empty: bool,
+    /// Whether Forgejo offers Issues for this repository.
+    ///
+    /// A Discussion is a Forgejo issue, so this field decides whether the
+    /// Recipe has a Discussions area at all. The application only reads it.
+    /// It never turns Issues on again. An answer without the field counts as
+    /// off, which keeps the application on the safe side of that rule.
+    #[serde(default)]
+    pub has_issues: bool,
     pub owner: RepositoryOwner,
 }
 
@@ -120,6 +128,61 @@ pub struct TokenResponse {
     pub refresh_token: Option<String>,
     #[serde(default)]
     pub expires_in: Option<i64>,
+}
+
+/// A Forgejo issue, which is one Discussion.
+///
+/// Forgejo holds every word of it. The application keeps no copy.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Issue {
+    /// The number a person sees in Forgejo, and the one in the address here.
+    pub number: i64,
+    #[serde(default)]
+    pub title: String,
+    /// The first message. Forgejo stores Markdown.
+    #[serde(default)]
+    pub body: String,
+    /// `open` or `closed`, in the words of Forgejo.
+    #[serde(default)]
+    pub state: String,
+    /// Forgejo answers with a Ghost user for a deleted account, but an
+    /// answer without the field must not stop the page.
+    #[serde(default)]
+    pub user: Option<ForgejoUser>,
+    #[serde(default)]
+    pub created_at: String,
+    /// How many comments follow the first message.
+    #[serde(default)]
+    pub comments: i64,
+    /// Forgejo puts pull requests in the same list and marks them with this
+    /// field. A Suggestion is a pull request, so an entry that carries it is
+    /// not a Discussion.
+    #[serde(default)]
+    pub pull_request: Option<serde_json::Value>,
+}
+
+impl Issue {
+    /// Whether this entry is a Discussion and not a Suggestion.
+    pub fn is_discussion(&self) -> bool {
+        self.pull_request.is_none()
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.state != "closed"
+    }
+}
+
+/// One comment inside a Discussion.
+#[derive(Debug, Clone, Deserialize)]
+pub struct IssueComment {
+    pub id: i64,
+    /// The text of the comment. Forgejo stores Markdown.
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub user: Option<ForgejoUser>,
+    #[serde(default)]
+    pub created_at: String,
 }
 
 /// A client for one Forgejo instance.
@@ -530,6 +593,157 @@ impl ForgejoClient {
         read_json(response).await
     }
 
+    /// List the Discussions of a Recipe.
+    ///
+    /// Forgejo puts pull requests in the same list, so the request asks for
+    /// issues only. A Suggestion is a pull request and belongs to the
+    /// Suggestions area.
+    ///
+    /// The token can be absent, because a public Recipe is readable without
+    /// a session. Forgejo applies the permissions of whoever asks, so the
+    /// application computes no permission of its own.
+    pub async fn list_issues(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        limit: u32,
+    ) -> Result<Vec<Issue>, ForgejoError> {
+        let limit = limit.to_string();
+        let mut request = self
+            .http
+            .get(format!(
+                "{}/api/v1/repos/{owner}/{repository}/issues",
+                self.api_url
+            ))
+            .query(&[
+                ("state", "all"),
+                ("type", "issues"),
+                ("limit", limit.as_str()),
+            ]);
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        let response = self.send(request).await?;
+        read_json(response).await
+    }
+
+    /// Read one Discussion.
+    pub async fn issue(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        number: i64,
+    ) -> Result<Issue, ForgejoError> {
+        let mut request = self.http.get(format!(
+            "{}/api/v1/repos/{owner}/{repository}/issues/{number}",
+            self.api_url
+        ));
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        let response = self.send(request).await?;
+        read_json(response).await
+    }
+
+    /// Start a Discussion. Forgejo records it as an issue of the repository.
+    pub async fn create_issue(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<Issue, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .post(format!(
+                        "{}/api/v1/repos/{owner}/{repository}/issues",
+                        self.api_url
+                    ))
+                    .bearer_auth(token.expose())
+                    .json(&serde_json::json!({ "title": title, "body": body })),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// List the comments of one Discussion.
+    pub async fn list_issue_comments(
+        &self,
+        token: Option<&Secret<String>>,
+        owner: &str,
+        repository: &str,
+        number: i64,
+    ) -> Result<Vec<IssueComment>, ForgejoError> {
+        let mut request = self.http.get(format!(
+            "{}/api/v1/repos/{owner}/{repository}/issues/{number}/comments",
+            self.api_url
+        ));
+        if let Some(token) = token {
+            request = request.bearer_auth(token.expose());
+        }
+
+        let response = self.send(request).await?;
+        read_json(response).await
+    }
+
+    /// Write a comment in a Discussion.
+    pub async fn create_issue_comment(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        number: i64,
+        body: &str,
+    ) -> Result<IssueComment, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .post(format!(
+                        "{}/api/v1/repos/{owner}/{repository}/issues/{number}/comments",
+                        self.api_url
+                    ))
+                    .bearer_auth(token.expose())
+                    .json(&serde_json::json!({ "body": body })),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Close a Discussion, or open it again.
+    ///
+    /// Forgejo names the two states `open` and `closed`. The caller passes
+    /// one of those two words and never a value that a person typed.
+    pub async fn set_issue_state(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        number: i64,
+        state: &str,
+    ) -> Result<Issue, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .patch(format!(
+                        "{}/api/v1/repos/{owner}/{repository}/issues/{number}",
+                        self.api_url
+                    ))
+                    .bearer_auth(token.expose())
+                    .json(&serde_json::json!({ "state": state })),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
     /// Send a request and turn a non-success status into an error.
     ///
     /// The body of a failed answer goes into the error so that an
@@ -713,5 +927,46 @@ mod tests {
     fn ordinary_words_are_left_alone() {
         let message = "cannot reach http://forgejo:3000/api/v1/user after 3 tries";
         assert_eq!(strip_credentials(message), message);
+    }
+
+    #[test]
+    fn a_repository_says_whether_forgejo_offers_issues() {
+        let with = r#"{"name":"chili","full_name":"sam/chili","html_url":"h","clone_url":"c","has_issues":true,"owner":{"login":"sam"}}"#;
+        let without = r#"{"name":"chili","full_name":"sam/chili","html_url":"h","clone_url":"c","has_issues":false,"owner":{"login":"sam"}}"#;
+
+        let on: Repository = serde_json::from_str(with).unwrap();
+        let off: Repository = serde_json::from_str(without).unwrap();
+        assert!(on.has_issues);
+        assert!(!off.has_issues);
+
+        // An answer that carries no such field counts as off, because the
+        // application must never turn Issues on.
+        let silent = r#"{"name":"chili","full_name":"sam/chili","html_url":"h","clone_url":"c","owner":{"login":"sam"}}"#;
+        let quiet: Repository = serde_json::from_str(silent).unwrap();
+        assert!(!quiet.has_issues);
+    }
+
+    #[test]
+    fn a_pull_request_in_the_issue_list_is_not_a_discussion() {
+        // Forgejo answers the issue endpoint with pull requests too. A
+        // Suggestion is a pull request, so it belongs to another area.
+        let discussion: Issue =
+            serde_json::from_str(r#"{"number":1,"title":"How much salt?","state":"open"}"#)
+                .unwrap();
+        let suggestion: Issue = serde_json::from_str(
+            r#"{"number":2,"title":"Less salt","state":"open","pull_request":{"merged":false}}"#,
+        )
+        .unwrap();
+
+        assert!(discussion.is_discussion());
+        assert!(discussion.is_open());
+        assert!(!suggestion.is_discussion());
+    }
+
+    #[test]
+    fn a_closed_discussion_reports_itself_as_closed() {
+        let closed: Issue =
+            serde_json::from_str(r#"{"number":1,"title":"Done","state":"closed"}"#).unwrap();
+        assert!(!closed.is_open());
     }
 }

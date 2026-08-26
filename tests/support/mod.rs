@@ -590,3 +590,24 @@ pub async fn forgejo_api(
 
     panic!("GET {path} answered {last}");
 }
+
+/// Change something in Forgejo directly.
+///
+/// [`forgejo_api`] reads. This one writes, so that a test can put Forgejo in
+/// a state that the application itself never creates. The answer comes back
+/// whole, because a test can expect a refusal as well as a success.
+pub async fn forgejo_write(
+    forgejo: &Forgejo,
+    token: &Secret<String>,
+    method: reqwest::Method,
+    path: &str,
+    body: serde_json::Value,
+) -> reqwest::Response {
+    reqwest::Client::new()
+        .request(method, format!("{}/api/v1{path}", forgejo.base_url))
+        .header("Authorization", format!("token {}", token.expose()))
+        .json(&body)
+        .send()
+        .await
+        .expect("cannot reach the Forgejo API")
+}

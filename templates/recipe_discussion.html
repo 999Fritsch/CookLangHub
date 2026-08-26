@@ -1,0 +1,122 @@
+{#
+  One Discussion of a Recipe. CookCLI has no screen like this, so the page is
+  built from its parts: the orange gradient title, the navigation pills, the
+  white rounded cards, the metadata pills, and the orange button.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+
+  Every message is shown as text. Forgejo stores Markdown, and the
+  application does not turn it into HTML, because the words come from another
+  person. `whitespace-pre-wrap` keeps the line breaks that they wrote.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ discussion.title }} &middot; {{ title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div>
+  <div class="mb-8">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
+        {{ title }}
+      </h1>
+      <div class="flex flex-wrap items-center gap-2 self-start">
+        <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
+      </div>
+    </div>
+
+    <p class="text-gray-600">Owned by {{ owner }}</p>
+  </div>
+
+  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Recipe">
+    <a class="nav-pill" href="/recipes/{{ owner }}/{{ slug }}">Recipe</a>
+    {% for area in areas %}
+    {% if area.name == "Discussions" %}
+    <span class="nav-pill active" aria-current="page">{{ area.name }}</span>
+    {% else %}
+    {% if let Some(href) = area.href %}
+    <a class="nav-pill" href="{{ href }}">{{ area.name }}</a>
+    {% else %}
+    <span class="nav-pill opacity-50" aria-disabled="true">{{ area.name }}</span>
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+  </nav>
+
+  {% if !errors.is_empty() %}
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-8" role="alert">
+    <h2 class="font-bold mb-2">This did not work</h2>
+    <ul class="list-disc pl-5 space-y-1">
+      {% for error in errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+      <h2 class="text-2xl font-bold text-gray-900">{{ discussion.title }}</h2>
+      {% if discussion.open %}
+      <span class="metadata-pill metadata-cuisine">Open</span>
+      {% else %}
+      <span class="metadata-pill metadata-servings">Closed</span>
+      {% endif %}
+    </div>
+
+    <p class="text-sm text-gray-600">Started by {{ discussion.author }} on {{ discussion.started }}</p>
+
+    {% if !discussion.body.is_empty() %}
+    <p class="mt-4 text-gray-700 whitespace-pre-wrap break-words">{{ discussion.body }}</p>
+    {% endif %}
+  </div>
+
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Comments</h2>
+
+    {% if comments.is_empty() %}
+    <p class="text-gray-600">This Discussion has no comment yet.</p>
+    {% else %}
+    <ul class="space-y-4">
+      {% for comment in comments %}
+      <li class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4">
+        <p class="text-sm text-gray-600">{{ comment.author }} wrote on {{ comment.written }}</p>
+        <p class="mt-2 text-gray-700 whitespace-pre-wrap break-words">{{ comment.body }}</p>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+
+  <div class="bg-white rounded-2xl shadow-lg p-6">
+    {% if layout.signed_in %}
+    <form method="post" action="/recipes/{{ owner }}/{{ slug }}/discussions/{{ discussion.number }}/comments" class="space-y-6">
+      <div>
+        <label for="message" class="block font-medium mb-2">Comment</label>
+        <textarea id="message" name="message" rows="5" required
+                  class="search-input w-full px-3 py-2 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-hidden">{{ form_message }}</textarea>
+      </div>
+
+      <div class="flex flex-wrap gap-3">
+        <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Write comment</button>
+      </div>
+    </form>
+
+    <form method="post" action="/recipes/{{ owner }}/{{ slug }}/discussions/{{ discussion.number }}/state" class="mt-6 pt-6 border-t border-gray-200">
+      {% if discussion.open %}
+      <input type="hidden" name="state" value="closed">
+      <p class="text-gray-600 mb-3">If the question has an answer, close the Discussion.</p>
+      <button type="submit" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Close Discussion</button>
+      {% else %}
+      <input type="hidden" name="state" value="open">
+      <p class="text-gray-600 mb-3">If you have more to say, open the Discussion again.</p>
+      <button type="submit" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Open Discussion again</button>
+      {% endif %}
+    </form>
+    {% else %}
+    <p class="text-gray-600 mb-4">To write a comment, sign in.</p>
+    <a class="btn-primary px-5 py-2 rounded-full font-medium text-white inline-block" href="/auth/sign-in">Sign in</a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

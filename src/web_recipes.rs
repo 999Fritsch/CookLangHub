@@ -13,7 +13,7 @@ use axum_extra::extract::CookieJar;
 use serde::Deserialize;
 
 use crate::create_recipe::{self, CreateError, NewRecipe};
-use crate::forgejo::ForgejoUser;
+use crate::forgejo::{ForgejoUser, Repository};
 use crate::recipe::{self, RECIPE_FILE};
 use crate::render::{self, RenderedRecipe};
 use crate::secret::Secret;
@@ -36,7 +36,7 @@ pub struct RecipeArea {
 /// A ticket that builds an area fills in that one line. This keeps the
 /// areas in one list, so no area is forgotten and no two tickets have to
 /// edit the same line.
-pub fn areas(owner: &str, slug: &str) -> Vec<RecipeArea> {
+pub fn areas(owner: &str, slug: &str, repository: &Repository) -> Vec<RecipeArea> {
     let _ = (owner, slug);
     vec![
         RecipeArea {
@@ -49,7 +49,7 @@ pub fn areas(owner: &str, slug: &str) -> Vec<RecipeArea> {
         },
         RecipeArea {
             name: "Discussions",
-            href: None,
+            href: crate::web_discussions::area_href(owner, slug, repository),
         },
         RecipeArea {
             name: "Variations",
@@ -278,7 +278,7 @@ async fn show(
         .map(render::render)
         .unwrap_or_default();
 
-    let areas = areas(&owner, &slug);
+    let areas = areas(&owner, &slug, &repository);
 
     respond(ShowTemplate {
         layout: Layout::new(current.as_ref()).on(&headers, &here),
