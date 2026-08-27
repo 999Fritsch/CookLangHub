@@ -11,24 +11,14 @@
 {% block title %}{{ title }} &middot; CookLangHub{% endblock %}
 
 {% block content %}
-<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">{{ title }}</h1>
-  <div class="flex flex-wrap items-center gap-2 self-start">
-    <a class="nav-pill" href="/cookbooks">All Cookbooks</a>
-    <a class="nav-pill" href="/cookbooks/{{ owner }}/{{ slug }}/history">History</a>
-    {% if can_change %}
-    <a class="nav-pill" href="/cookbooks/{{ owner }}/{{ slug }}/sharing">Sharing</a>
-    {% endif %}
-    <a class="nav-pill" href="{{ forgejo_url }}">Open in Forgejo</a>
-  </div>
-</div>
+{% include "cookbook_header.html" %}
+{% include "cookbook_areas.html" %}
 
+{% if private %}
 <div class="flex flex-wrap gap-2 mb-6">
-  <span class="metadata-pill metadata-servings"><span aria-hidden="true">👤</span> Owned by {{ owner }}</span>
-  {% if private %}
   <span class="metadata-pill metadata-custom"><span aria-hidden="true">🔒</span> Private</span>
-  {% endif %}
 </div>
+{% endif %}
 
 {% if !errors.is_empty() %}
 <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-6" role="alert">
@@ -97,14 +87,14 @@
       {# The owner is always here, so two Recipes with the same title stay
          apart. #}
       <span>
-        <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}">{{ recipe.title }}</a>
+        <a class="font-medium text-gray-900 hover:text-orange-700" href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}">{{ recipe.title }}</a>
         <span class="text-sm text-gray-600">Owned by {{ recipe.owner }}</span>
       </span>
       <span class="flex flex-wrap items-center gap-2">
         {% if recipe.following %}
-        <span class="metadata-pill metadata-servings"><span aria-hidden="true">🔄</span> Follows updates</span>
+        <span class="metadata-pill metadata-cuisine"><span aria-hidden="true">🔄</span> Follows updates</span>
         {% else %}
-        <span class="metadata-pill metadata-custom"><span aria-hidden="true">📌</span> This version</span>
+        <span class="metadata-pill metadata-servings"><span aria-hidden="true">📌</span> This version</span>
         {% endif %}
         {% if can_change %}
         {# One form for each way round. Following moves the Cookbook to the

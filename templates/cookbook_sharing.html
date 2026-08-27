@@ -19,23 +19,8 @@
 
 {% block content %}
 <div>
-  <div class="mb-8">
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-      <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
-        {{ title }}
-      </h1>
-      <div class="flex flex-wrap items-center gap-2 self-start">
-        <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
-      </div>
-    </div>
-
-    <p class="text-gray-600 mb-4">Owned by {{ owner }}</p>
-  </div>
-
-  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Cookbook">
-    <a class="nav-pill" href="{{ cookbook_path }}">Cookbook</a>
-    <span class="nav-pill active" aria-current="page">Sharing</span>
-  </nav>
+  {% include "cookbook_header.html" %}
+  {% include "cookbook_areas.html" %}
 
   {% if !errors.is_empty() %}
   <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-8" role="alert">

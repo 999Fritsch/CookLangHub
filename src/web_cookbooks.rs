@@ -552,6 +552,8 @@ struct ShowTemplate {
     /// Whether this person can add a Recipe and take one out.
     can_change: bool,
     forgejo_url: String,
+    /// Which area of the Cookbook this page is, for the shared areas nav.
+    area: &'static str,
     /// States that this interface cannot show properly. Each one is named
     /// and none of them is repaired.
     problems: Vec<String>,
@@ -683,6 +685,7 @@ async fn draw(
         recipes,
         can_change: book.can_change,
         forgejo_url: state.forgejo.web_url(&book.repository.full_name),
+        area: "cookbook",
         problems: readme.problems,
         follow_problems,
         errors,
@@ -1399,6 +1402,11 @@ struct HistoryTemplate {
     /// The Versions of this Cookbook, the newest first.
     versions: Vec<CookbookVersion>,
     forgejo_url: String,
+    /// Whether Forgejo says this person can change the Cookbook. The areas
+    /// nav offers Sharing only to them.
+    can_change: bool,
+    /// Which area of the Cookbook this page is, for the shared areas nav.
+    area: &'static str,
     /// A message about the state of the list, when there is one to give.
     notice: Option<String>,
 }
@@ -1471,6 +1479,8 @@ async fn history(
         slug,
         versions,
         forgejo_url: state.forgejo.web_url(&book.repository.full_name),
+        can_change: book.can_change,
+        area: "history",
         notice,
     })
 }
@@ -1681,16 +1691,20 @@ pub struct Gap {
 struct SharingTemplate {
     layout: Layout,
     owner: String,
+    slug: String,
     title: String,
     forgejo_url: String,
     /// Whether Forgejo says the person who asks owns this Cookbook.
     is_owner: bool,
+    /// Only a person who can change the Cookbook reaches this page, so the
+    /// areas nav always offers Sharing here.
+    can_change: bool,
+    /// Which area of the Cookbook this page is, for the shared areas nav.
+    area: &'static str,
     /// Whether Forgejo says that all users can read this Cookbook.
     public: bool,
     /// Where each form posts to, and where a cancel returns to.
     sharing_path: String,
-    /// Where the Cookbook itself is.
-    cookbook_path: String,
     people: Vec<Person>,
     /// Show the Private to Public confirmation instead of the controls.
     confirming: bool,
@@ -1885,9 +1899,11 @@ async fn draw_sharing(
         layout: Layout::new(current).on(headers, &sharing_path),
         title: cookbook_title(state, sharing).await,
         forgejo_url: state.forgejo.web_url(&sharing.repository.full_name),
-        cookbook_path: format!("/cookbooks/{owner}/{slug}"),
         owner,
+        slug,
         is_owner: sharing.is_owner,
+        can_change: true,
+        area: "sharing",
         public,
         sharing_path,
         people,

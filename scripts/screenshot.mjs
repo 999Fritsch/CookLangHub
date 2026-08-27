@@ -46,6 +46,11 @@ const PAGES = [
   { name: "cookbook-new", path: "/cookbooks/new", needsSession: true },
   { name: "profile", path: "/cooks/filip", needsSession: false },
   { name: "variations", path: "/recipes/filip/chili-sin-carne/variations", needsSession: false },
+  { name: "suggestions", path: "/recipes/filip/chili-sin-carne/suggestions", needsSession: false },
+  { name: "cookbook", path: "/cookbooks/filip/weeknight-dinners", needsSession: false },
+  { name: "cookbook-history", path: "/cookbooks/filip/weeknight-dinners/history", needsSession: false },
+  { name: "cookbook-sharing", path: "/cookbooks/filip/weeknight-dinners/sharing", needsSession: true },
+  { name: "cookbook-add", path: "/cookbooks/filip/weeknight-dinners/recipes", needsSession: true },
 ];
 
 const SIZES = [
@@ -143,7 +148,7 @@ for (const target of wanted) {
 
 // The fact colours are a choice, so both answers are worth a picture. One
 // page and one size is enough to see the difference.
-for (const target of wanted.filter((p) => p.name === "preferences" || p.name === "recipe")) {
+for (const target of wanted.filter((p) => p.name === "preferences" || p.name === "recipe" || p.name === "cookbook")) {
   const shot = await shoot(browser, target, SIZES[0], "light", "coloured");
   if (shot) taken.push({ target: target.name, size: "desktop", palette: "light-coloured", ...shot });
 }
