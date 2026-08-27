@@ -136,7 +136,9 @@ async function shoot(browser, { name, path, needsSession, open }, size, palette,
 }
 
 const browser = await chromium.launch();
-await rm(OUT, { recursive: true, force: true });
+// A run of one page must not throw away the pictures of every other page.
+// Only a full run starts from an empty directory.
+if (!ONLY) await rm(OUT, { recursive: true, force: true });
 await mkdir(OUT, { recursive: true });
 
 const wanted = [...PAGES, ...OVERLAYS].filter((p) => !ONLY || p.name === ONLY);

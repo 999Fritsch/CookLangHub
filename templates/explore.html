@@ -12,10 +12,11 @@
 {% block content %}
 <div class="flex items-center justify-between flex-wrap gap-4 mb-6">
   <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">Explore</h1>
+  {# A visitor with no account is offered Sign in by the navigation, one row
+     above this. A second one of the same button, in the same colour, reads
+     as two different things to do. #}
   {% if layout.signed_in %}
   <a href="/recipes/new" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">New Recipe</a>
-  {% else %}
-  <a href="/auth/sign-in" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">Sign in</a>
   {% endif %}
 </div>
 
