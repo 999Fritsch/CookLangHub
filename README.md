@@ -113,6 +113,67 @@ an application fault from a Forgejo fault:
 The endpoint answers with 200 when every component answers, and with 503 when
 one does not.
 
+## Diagnostics
+
+`/admin/index` reports the six parts that can fail on their own: the
+application, Forgejo, the webhook, the reconciliation, the automation, and
+the parser. Each part carries its own state, the facts behind it, and what
+to do when it is not working. An administrator therefore finds the cause of
+a fault without a read of the source code.
+
+Only an administrator sees the detail. Forgejo decides who that is.
+
+The page also starts a reconciliation. The sweep reads Forgejo and Git
+again, writes to neither, makes both indexes match, and moves every Cookbook
+that follows a Recipe to the Version that the Recipe has now. It is safe at
+any moment, and it is what brings the installation back after a Forgejo
+outage.
+
+No credential reaches the page. The automation token, the webhook secret,
+and the session secret are used to ask a question and none of them is
+rendered or logged.
+
+## During a Forgejo outage
+
+Forgejo is the authority for identity, permissions, and every repository. So
+while it does not answer:
+
+- Every page says that CookLangHub cannot reach Forgejo.
+- CookLangHub refuses every edit, before it starts. Nothing half-finished
+  reaches Git.
+- No list shows a Recipe or a Cookbook. The index is a cache, and
+  CookLangHub never shows that copy as the Recipes a person has now.
+- A person can still sign out and still change the appearance. Both are held
+  by this application alone.
+
+When Forgejo answers again, open **Diagnostics** and select **Start a
+reconciliation**.
+
+## Backup, restore, and upgrade
+
+`docs/operations.md` has the procedures. A backup covers the whole instance:
+the Forgejo dump, the CookLangHub database, and `.env`. Forgejo holds the
+users, the permissions, the Recipes, the Cookbooks, the forks, the
+Suggestions, the Discussions, and the History, so a backup of the Recipe
+repositories alone is not enough.
+
+`docker-compose.yml` names one exact Forgejo release, and the integration
+tests run against that same release. The tag never floats, so
+`docker compose pull` cannot move an installation to a new major release.
+An administrator decides when to upgrade, and backs up first.
+
+## Telemetry
+
+CookLangHub sends nothing to an external service. It has no analytics, no
+tracking pixel, and no crash report service. The only host it talks to is
+the Forgejo of this installation. Every page carries
+`Content-Security-Policy: default-src 'self'`, so a browser cannot load a
+script, a style, a font, or an image from another host.
+
+The logs stay on the machine and carry no access token, no session secret,
+no Git credential, and no Recipe content. `tests/diagnostics.rs` holds all
+of this.
+
 ## Develop
 
 The application needs Rust 1.97 or later.
@@ -200,8 +261,8 @@ builds it again from Forgejo and Git. Three things keep it current:
   HMAC-SHA256, and the application refuses a body whose signature does not
   match.
 - **Reconciliation.** The application reads Forgejo again when it starts, and
-  whenever an administrator asks for it at `/admin/index`. It reads Forgejo
-  and Git, and writes to neither.
+  whenever an administrator asks for it on the Diagnostics page. It reads
+  Forgejo and Git, and writes to neither.
 - **The pages themselves.** A page reads a Recipe again when Forgejo reports
   a change that the index does not hold yet.
 

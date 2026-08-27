@@ -20,9 +20,11 @@ use axum::routing::{get, post};
 use axum_extra::extract::CookieJar;
 use serde::Deserialize;
 
+use crate::diagnostics;
 use crate::favorite;
 use crate::forgejo::Ownership;
 use crate::index;
+use crate::outage;
 use crate::secret::Secret;
 use crate::session::CurrentUser;
 
@@ -32,9 +34,9 @@ use crate::web::{AppState, Layout, MaybeUser, RecipeCard};
 const PAGE_SIZE: usize = 60;
 
 /// Shown when Forgejo cannot answer. The list is empty because nothing is
-/// known, and not because the person has no Recipes.
-const NO_FORGEJO: &str =
-    "CookLangHub cannot reach Forgejo now, so this list is not complete. Try again in a moment.";
+/// known, and not because the person has no Recipes. One message covers
+/// every list, so that no page says a softer thing than another.
+const NO_FORGEJO: &str = outage::LIST_MESSAGE;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -399,6 +401,12 @@ async fn explore(
     })
 }
 
+/// The Diagnostics page.
+///
+/// Six subsystems can fail on their own, so the page gives each of them its
+/// own state instead of one combined answer. Only an administrator sees the
+/// detail: the address is public, and a person who does not administer the
+/// installation gets cooking words and nothing internal.
 #[derive(Template)]
 #[template(path = "admin_index.html")]
 struct AdminIndexTemplate {
@@ -407,10 +415,44 @@ struct AdminIndexTemplate {
     /// Whether Forgejo says this person administers the installation.
     administrator: bool,
     signed_in: bool,
-    /// How many Recipes the index holds now.
-    held: i64,
-    /// Set after a rebuild.
+    /// One card for each subsystem. Empty for anybody but an administrator.
+    parts: Vec<diagnostics::Subsystem>,
+    /// Set after a reconciliation.
     report: Option<String>,
+}
+
+/// Build the page for whoever is looking.
+async fn diagnostics_page(
+    state: &AppState,
+    headers: &HeaderMap,
+    admin_token: Option<&Secret<String>>,
+    user: Option<&CurrentUser>,
+    report: Option<String>,
+) -> Response {
+    let parts = match admin_token {
+        Some(token) => {
+            diagnostics::report(&state.pool, &state.cipher, &state.forgejo, token)
+                .await
+                .subsystems
+        }
+        // Forgejo says who administers this installation, so while it is
+        // away nobody can be shown the detail. The Forgejo card still
+        // appears, because the page must say why it is empty, and the
+        // address of Forgejo is on every page already.
+        None => diagnostics::forgejo_outage(&state.forgejo)
+            .await
+            .into_iter()
+            .collect(),
+    };
+
+    respond(AdminIndexTemplate {
+        layout: Layout::new(user).on(headers, "/admin/index"),
+        forgejo_url: state.forgejo.public_url().to_string(),
+        administrator: admin_token.is_some(),
+        signed_in: user.is_some(),
+        parts,
+        report,
+    })
 }
 
 async fn admin_index(
@@ -419,64 +461,81 @@ async fn admin_index(
     jar: CookieJar,
     MaybeUser(user): MaybeUser,
 ) -> Response {
-    let administrator = is_administrator(&state, &jar).await;
-    let held = index::count(&state.pool).await.unwrap_or_default();
+    let admin_token = administrator_token(&state, &jar).await;
 
-    respond(AdminIndexTemplate {
-        layout: Layout::new(user.as_ref()).on(&headers, "/admin/index"),
-        forgejo_url: state.forgejo.public_url().to_string(),
-        administrator,
-        signed_in: user.is_some(),
-        held,
-        report: None,
-    })
+    diagnostics_page(&state, &headers, admin_token.as_ref(), user.as_ref(), None).await
 }
 
+/// Start a reconciliation of everything that a sweep can repair.
+///
+/// This is what the application does when it starts, and it is what brings
+/// the installation back after a Forgejo outage. Both indexes are read from
+/// Forgejo and Git again, and every Cookbook that follows a Recipe moves to
+/// the Version that the Recipe has now. Nothing else is written.
 async fn rebuild(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     jar: CookieJar,
     MaybeUser(user): MaybeUser,
 ) -> Response {
-    if !is_administrator(&state, &jar).await {
+    let Some(admin_token) = administrator_token(&state, &jar).await else {
         return (
             StatusCode::FORBIDDEN,
-            "Only an administrator can rebuild the index.",
+            "Only an administrator can start a reconciliation.",
         )
             .into_response();
-    }
-
-    let report = index::reconcile(&state.pool, &state.cipher, &state.forgejo).await;
-    let held = index::count(&state.pool).await.unwrap_or_default();
-
-    let message = format!(
-        "The index is complete again. Forgejo named {} Recipes, and the index holds {held}.",
-        report.scanned
-    );
-
-    respond(AdminIndexTemplate {
-        layout: Layout::new(user.as_ref()).on(&headers, "/admin/index"),
-        forgejo_url: state.forgejo.public_url().to_string(),
-        administrator: true,
-        signed_in: true,
-        held,
-        report: Some(message),
-    })
-}
-
-/// Whether Forgejo says the person behind this session administers it.
-///
-/// Forgejo decides, the same as it decides every other permission.
-async fn is_administrator(state: &AppState, jar: &CookieJar) -> bool {
-    let Some(token) = viewer_token(state, jar).await else {
-        return false;
     };
 
+    let recipes = index::reconcile(&state.pool, &state.cipher, &state.forgejo).await;
+    let cookbooks = crate::cookbook::reconcile(&state.pool, &state.cipher, &state.forgejo).await;
+    let moved = crate::automation::advance(
+        &state.pool,
+        &state.cipher,
+        &state.forgejo,
+        state.git.as_ref(),
+        &state.forgejo_noreply_domain,
+        None,
+    )
+    .await;
+
+    let held = index::count(&state.pool).await.unwrap_or_default();
+    let held_cookbooks = crate::cookbook::count(&state.pool)
+        .await
+        .unwrap_or_default();
+
+    let message = format!(
+        "The indexes are complete again. Forgejo named {} Recipes and {} Cookbooks. \
+         The index holds {held} Recipes and {held_cookbooks} Cookbooks. \
+         {} Cookbooks moved to a new Version of a Recipe they follow.",
+        recipes.scanned, cookbooks.scanned, moved.advanced
+    );
+
+    diagnostics_page(
+        &state,
+        &headers,
+        Some(&admin_token),
+        user.as_ref(),
+        Some(message),
+    )
+    .await
+}
+
+/// The credential of the person behind this session, when Forgejo says they
+/// administer the installation.
+///
+/// Forgejo decides, the same as it decides every other permission. The
+/// credential comes back as well, because the Diagnostics page asks Forgejo
+/// questions that only an administrator may ask, and it asks them with the
+/// credential of the administrator who is already reading the page.
+async fn administrator_token(state: &AppState, jar: &CookieJar) -> Option<Secret<String>> {
+    let token = viewer_token(state, jar).await?;
+
     match state.forgejo.is_administrator(&token).await {
-        Ok(answer) => answer,
+        Ok(true) => Some(token),
+        Ok(false) => None,
         Err(error) => {
             tracing::warn!(%error, "cannot ask Forgejo who administers it");
-            false
+            None
         }
     }
 }

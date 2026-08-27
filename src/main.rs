@@ -132,8 +132,24 @@ async fn serve() -> anyhow::Result<()> {
 
     // Forgejo can be absent at start. The application still serves pages and
     // reports the fault at /health, instead of a refusal to start.
+    //
+    // A Forgejo of another major release is not a refusal either. The
+    // adapter was never exercised against it, so an administrator has to
+    // know, and the Diagnostics page says the same thing on the page.
     match forgejo.version().await {
-        Ok(version) => tracing::info!(forgejo_version = %version, "Forgejo answers"),
+        Ok(version) => {
+            tracing::info!(forgejo_version = %version, "Forgejo answers");
+
+            let tested = cooklanghub::diagnostics::TESTED_FORGEJO_MAJOR;
+            if cooklanghub::diagnostics::major(&version).as_deref() != Some(tested) {
+                tracing::warn!(
+                    forgejo_version = %version,
+                    tested_major = %tested,
+                    "this Forgejo is not the release that CookLangHub was tested against; \
+                     read docs/operations.md"
+                );
+            }
+        }
         Err(error) => tracing::warn!(%error, "Forgejo does not answer at start"),
     }
 

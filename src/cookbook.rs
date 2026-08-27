@@ -2259,6 +2259,17 @@ pub async fn reconcile(pool: &SqlitePool, cipher: &Cipher, forgejo: &ForgejoClie
         "the Cookbook index matches Forgejo again"
     );
 
+    // The Diagnostics page reports when this last ran and what it found.
+    crate::diagnostics::record_sweep(
+        pool,
+        crate::diagnostics::COOKBOOK_INDEX,
+        report.scanned as i64,
+        report.written as i64,
+        report.removed as i64,
+        report.failures as i64,
+    )
+    .await;
+
     report
 }
 

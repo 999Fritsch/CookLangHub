@@ -47,6 +47,10 @@ pub struct AppState {
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 pub fn router(state: AppState, static_dir: &str) -> Router {
+    // The guard below needs the same state that the handlers get, so the
+    // shared value is made here rather than at the end.
+    let shared = Arc::new(state);
+
     // Every page a person sees. These carry the no-store rule below; the
     // files under /static do not, because they are the same for everybody
     // and a browser should keep them.
@@ -70,6 +74,16 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::web_suggestions::router())
         .merge(crate::web_variations::router())
         .merge(crate::webhook::router())
+        // Forgejo is the authority. While it does not answer, no edit
+        // happens and no page presents the local cache as current. One
+        // layer holds both rules, so that no handler can forget one.
+        //
+        // It sits inside the header layers below, so the answer it makes
+        // carries the same rules as every other page.
+        .layer(axum::middleware::from_fn_with_state(
+            shared.clone(),
+            crate::outage::guard,
+        ))
         // A page holds somebody's Recipes, and some of them are private.
         // Without this the browser keeps the page, so after a person signs
         // out the Back button still shows what they were reading. That
@@ -99,7 +113,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             HeaderValue::from_static("no-referrer"),
         ))
         .layer(TraceLayer::new_for_http())
-        .with_state(Arc::new(state))
+        .with_state(shared)
 }
 
 /// The signed-in user, or nobody.

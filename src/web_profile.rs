@@ -60,9 +60,10 @@ const SEARCH_PAGE: u32 = 50;
 /// that reaches it says so.
 const MAX_LISTED: usize = 200;
 
-/// Shown when Forgejo cannot answer.
-const NO_FORGEJO: &str =
-    "CookLangHub cannot reach Forgejo now, so this page is not complete. Try again in a moment.";
+/// Shown when Forgejo cannot answer. The page shows nothing because nothing
+/// is known, and not because this cook has no Recipes. One message covers
+/// every list, so that no page says a softer thing than another.
+const NO_FORGEJO: &str = crate::outage::LIST_MESSAGE;
 
 /// Shown when a profile holds more than one page shows.
 const TOO_MANY: &str = "This cook has more Recipes and Cookbooks than one page shows. The ones that changed last come first.";
