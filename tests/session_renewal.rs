@@ -229,3 +229,60 @@ async fn the_refresh_token_never_reaches_a_message_a_person_can_read() {
         assert!(clean.contains("[redacted]"));
     }
 }
+
+/// A sweep never asks Forgejo with a credential that cannot work.
+///
+/// A sweep must not renew: renewing spends a one-use refresh token, and a
+/// webhook can start a sweep, so an outsider could otherwise drive a
+/// credential operation. That rule left the sweep carrying dead tokens,
+/// which Forgejo refuses, and the Diagnostics page reported a fault that no
+/// administrator could clear while the person stayed away.
+#[tokio::test]
+async fn a_sweep_leaves_out_a_person_whose_credential_has_run_out() {
+    let forgejo = support::start_forgejo_with_token_lifetime(Some(TOKEN_SECONDS)).await;
+    forgejo.create_user("alex", true);
+    forgejo.create_user("sam", false);
+    let app = support::start_app(&forgejo.base_url).await;
+    app.bootstrap(&forgejo.access_token("alex")).await;
+    let session = support::sign_in(&app, &forgejo, "sam").await;
+
+    support::create_recipe(
+        &app,
+        &session,
+        "Chili Sin Carne",
+        "---
+servings: 4
+---
+
+Chop the @onion{1}.",
+        true,
+    )
+    .await;
+
+    // While the credential works, the sweep asks with it and answers every
+    // question it asks.
+    let fresh = app.reconcile().await;
+    assert_eq!(
+        fresh.failures, 0,
+        "a live credential must answer, got {fresh:?}"
+    );
+
+    tokio::time::sleep(std::time::Duration::from_secs(u64::from(TOKEN_SECONDS) + 3)).await;
+
+    // Now the stored token is refused by Forgejo. The sweep must not carry
+    // it, and must not report a fault for a person who is simply away.
+    let stale = app.reconcile().await;
+    assert_eq!(
+        stale.failures, 0,
+        "a sweep must not ask with a credential it knows is spent, got {stale:?}"
+    );
+
+    // The Recipe stays in the index. Nothing was removed because nobody was
+    // asked about it.
+    let (status, body) = page(&app, "/", &session).await;
+    assert_eq!(status, 200);
+    assert!(
+        body.contains("Chili Sin Carne"),
+        "the Recipe must survive a sweep that left its owner out"
+    );
+}

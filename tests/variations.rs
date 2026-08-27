@@ -857,7 +857,8 @@ async fn forgejo_keeps_a_variation_public_and_the_page_says_so() {
 
     let before = repository(&world, "kim/chili").await;
     assert_eq!(
-        before["private"], json!(false),
+        before["private"],
+        json!(false),
         "a Variation of a public Recipe starts public"
     );
 
@@ -875,7 +876,8 @@ async fn forgejo_keeps_a_variation_public_and_the_page_says_so() {
     // Forgejo did not do it, so the page must not say that it did.
     let after = repository(&world, "kim/chili").await;
     assert_eq!(
-        after["private"], json!(false),
+        after["private"],
+        json!(false),
         "Forgejo keeps a fork of a public Recipe public"
     );
     assert!(

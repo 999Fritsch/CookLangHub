@@ -394,21 +394,40 @@ pub struct SignedInPerson {
     pub token: Secret<String>,
 }
 
-/// Every person who is signed in, once each.
+/// Every person who is signed in and whose credential still works, once each.
 ///
 /// The reconciliation asks Forgejo what each of these people may see. It
 /// reads only, and it never reaches further than that person reaches for
 /// themselves, because it carries their credential and no other.
+///
+/// A sweep never renews a credential. Renewing spends a one-use refresh
+/// token, and a sweep can be started by a webhook, which is an outside
+/// event: an outsider must not be able to drive a credential operation.
+///
+/// So a person whose access token has run out is left out rather than asked
+/// with a credential that cannot work. Forgejo refuses such a token, and
+/// the sweep would report that refusal as a fault of its own for as long as
+/// the person stayed away. Their Recipes stay in the index, the webhook
+/// keeps them current, and the next page they open renews the credential.
 pub async fn signed_in_people(
     pool: &SqlitePool,
     cipher: &Cipher,
 ) -> Result<Vec<SignedInPerson>, SessionError> {
+    // The same margin the renewing path uses, so a credential that is about
+    // to run out is not picked up here either. An unknown deadline counts as
+    // spent, exactly as `Credential::is_spent` treats it.
+    let moment = now();
     let rows: Vec<(i64, String, Vec<u8>)> = sqlx::query_as(
         "SELECT forgejo_user_id, login, access_token
-         FROM session WHERE expires_at > ?
+         FROM session
+         WHERE expires_at > ?
+           AND access_token_expires_at IS NOT NULL
+           AND access_token_expires_at - ? > ?
          ORDER BY created_at DESC",
     )
-    .bind(now())
+    .bind(moment)
+    .bind(RENEW_MARGIN_SECONDS)
+    .bind(moment)
     .fetch_all(pool)
     .await?;
 
