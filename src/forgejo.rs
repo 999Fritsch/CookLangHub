@@ -113,6 +113,20 @@ pub struct Repository {
     #[serde(default)]
     pub updated_at: String,
     pub owner: RepositoryOwner,
+    /// Whether Forgejo holds this repository as archived.
+    ///
+    /// Forgejo owns this state, exactly as it owns visibility. An archived
+    /// repository refuses every write to its content and to its
+    /// conversations, and Forgejo answers 423 for one. The application holds
+    /// no archived flag of its own: it reads this field again on every
+    /// request that could change a Recipe.
+    ///
+    /// An answer without the field counts as not archived, which is the
+    /// state that lets a person act. A Recipe that Forgejo does report as
+    /// archived is then refused by Forgejo as well, so a missing field can
+    /// never make the application write where Forgejo would not.
+    #[serde(default)]
+    pub archived: bool,
 }
 
 impl Repository {
@@ -1923,6 +1937,35 @@ impl ForgejoClient {
                     ))
                     .bearer_auth(token.expose())
                     .json(&serde_json::Value::Object(fields)),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Archive a repository, or take it out of the archive.
+    ///
+    /// Forgejo owns this state. An archived repository refuses every write
+    /// to its content, to its Discussions, and to its Suggestions, and it
+    /// answers 423 for one. Forgejo still allows the settings of the
+    /// repository to change: visibility, topics, and who can reach it. The
+    /// application reads the state back from the answer and keeps no copy.
+    pub async fn set_repository_archived(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        archived: bool,
+    ) -> Result<Repository, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .patch(format!(
+                        "{}/api/v1/repos/{owner}/{repository}",
+                        self.api_url
+                    ))
+                    .bearer_auth(token.expose())
+                    .json(&serde_json::json!({ "archived": archived })),
             )
             .await?;
 

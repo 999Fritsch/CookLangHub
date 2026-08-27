@@ -47,6 +47,10 @@ pub struct AppState {
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 pub fn router(state: AppState, static_dir: &str) -> Router {
+    // The guard over every change needs the same state that the handlers
+    // get, so the shared value is made here and used twice.
+    let shared = Arc::new(state);
+
     // Every page a person sees. These carry the no-store rule below; the
     // files under /static do not, because they are the same for everybody
     // and a browser should keep them.
@@ -54,6 +58,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .route("/", get(index))
         .route("/health", get(health_endpoint))
         .route("/avatar", get(avatar))
+        .merge(crate::web_archive::router())
         .merge(crate::auth::router())
         .merge(crate::web_recipes::router())
         .merge(crate::theme::router())
@@ -70,6 +75,18 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::web_suggestions::router())
         .merge(crate::web_variations::router())
         .merge(crate::webhook::router())
+        // An archived Recipe is read-only, and one guard over every change
+        // is what makes that true. It sits here and not in each handler,
+        // because Forgejo keeps reporting write access for an archived
+        // repository: no permission answer carries the state, so no handler
+        // could learn it from the check it already makes.
+        //
+        // It is inside the header layers below, so a refusal carries the
+        // same headers as a page.
+        .layer(axum::middleware::from_fn_with_state(
+            shared.clone(),
+            crate::archive::read_only,
+        ))
         // A page holds somebody's Recipes, and some of them are private.
         // Without this the browser keeps the page, so after a person signs
         // out the Back button still shows what they were reading. That
@@ -99,7 +116,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             HeaderValue::from_static("no-referrer"),
         ))
         .layer(TraceLayer::new_for_http())
-        .with_state(Arc::new(state))
+        .with_state(shared)
 }
 
 /// The signed-in user, or nobody.

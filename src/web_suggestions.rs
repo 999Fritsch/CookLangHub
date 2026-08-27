@@ -486,6 +486,16 @@ async fn open(state: &AppState, actor: &Actor, owner: &str, slug: &str) -> Resul
         forgejo_url: forgejo_url.clone(),
     };
 
+    // An archived Recipe is read-only. Forgejo refuses to hold a Suggestion
+    // for one, so the editor says so before a person types instead of after.
+    if subject.repository.archived {
+        tracing::info!(%owner, %slug, "a Suggestion was asked for on an archived Recipe");
+        return Err(blocked(
+            StatusCode::LOCKED,
+            crate::archive::ARCHIVED_MESSAGE,
+        ));
+    }
+
     // Git holds History, so Git says which Version is published now.
     let remote = state.forgejo.git_url(&format!("{owner}/{slug}"));
     let base_version = match state

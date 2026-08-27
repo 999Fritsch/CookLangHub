@@ -955,6 +955,7 @@ mod tests {
                 id: 1,
                 login: "sam".to_string(),
             },
+            archived: false,
         };
 
         assert_eq!(branch_of(&repository("live")), "live");
