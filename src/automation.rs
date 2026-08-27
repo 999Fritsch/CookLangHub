@@ -385,6 +385,19 @@ pub async fn advance(
         );
     }
 
+    // The Diagnostics page reports when this last ran and what it found. A
+    // Cookbook that the automation cannot write to is counted as a failure
+    // there, because somebody has to give the access again in Forgejo.
+    crate::diagnostics::record_sweep(
+        pool,
+        crate::diagnostics::AUTOMATION,
+        report.scanned as i64,
+        report.advanced as i64,
+        0,
+        report.stopped as i64,
+    )
+    .await;
+
     report
 }
 

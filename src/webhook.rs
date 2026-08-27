@@ -282,6 +282,12 @@ async fn receive(State(state): State<Arc<AppState>>, headers: HeaderMap, body: B
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
+    // The signature matched, so Forgejo reaches this application and both
+    // sides hold the same secret. The Diagnostics page reports that moment:
+    // a webhook that Forgejo holds but can never post to leaves the indexes
+    // looking correct, and nothing else in the system shows it.
+    crate::diagnostics::record_webhook_message(&state.pool).await;
+
     let event = first_header(&headers, &EVENT_HEADERS).unwrap_or_default();
 
     let message: Message = match serde_json::from_slice(&body) {

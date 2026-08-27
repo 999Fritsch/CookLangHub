@@ -187,6 +187,15 @@ pub async fn live_token(
             tracing::info!("renewed a sign-in with Forgejo");
             Ok(Some(Secret::new(fresh.access_token)))
         }
+        // Forgejo is away. It refused nothing, because it answered nothing,
+        // so the sign-in stays. A short outage must not sign everybody out,
+        // and the renewal happens on the next request that finds Forgejo
+        // again. The page has no credential now and says so.
+        Err(error) if crate::outage::is_outage(&error) => {
+            tracing::warn!(%error, "cannot renew a sign-in while Forgejo is away");
+            release(pool, &id).await?;
+            Ok(None)
+        }
         Err(error) => {
             // Forgejo refused: the person withdrew the permission, an
             // administrator closed the account, or the refresh token is
@@ -267,6 +276,19 @@ async fn claim(pool: &SqlitePool, id: &str) -> Result<bool, SessionError> {
     .await?;
 
     Ok(result.rows_affected() == 1)
+}
+
+/// Let go of the claim without a renewal.
+///
+/// A renewal that Forgejo never answered has to be tried again as soon as
+/// Forgejo is back, and a claim that is still held would make the next
+/// request wait for a renewal that is not happening.
+async fn release(pool: &SqlitePool, id: &str) -> Result<(), SessionError> {
+    sqlx::query("UPDATE session SET renewing_at = NULL WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 /// Wait for the request that holds the claim, then read what it wrote.

@@ -1,0 +1,52 @@
+{#
+  Shown while Forgejo does not answer.
+
+  Forgejo holds the accounts, the Recipes, and the Cookbooks. Without it
+  this application knows nothing current, so this page says exactly that
+  and offers no list built from the copy that it keeps. A short list would
+  read as "you have these Recipes", and that is not what an old copy says.
+
+  Anybody can reach this page, so it uses cooking words and names no
+  internal part of the system.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}Not available now &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent mb-6">CookLangHub cannot reach Forgejo</h1>
+
+<div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-8" role="alert">
+  <h2 class="font-bold mb-2">This page is not available now</h2>
+  <p class="mb-2">
+    Forgejo does not answer. Forgejo holds the accounts, the Recipes, and the
+    Cookbooks, so CookLangHub cannot show this page.
+  </p>
+  <p class="m-0">
+    CookLangHub refuses every change while this continues. Nothing is lost.
+    Forgejo and Git keep every Recipe, every Cookbook, and every Version.
+  </p>
+</div>
+
+<div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+  <h2 class="text-xl font-bold mb-4 text-gray-900">Why this page shows nothing</h2>
+  <p class="text-gray-700 mb-4">
+    CookLangHub keeps a copy of the Recipe titles and the Cookbook titles, so
+    that a search is fast. That copy can be old, and Forgejo cannot say now
+    what you can see. CookLangHub therefore shows none of it, because an old
+    copy is not what you have.
+  </p>
+  <p class="text-gray-600 m-0">
+    Wait a moment and select <strong>Try again</strong>. If the fault
+    continues, tell the administrator of this installation.
+  </p>
+</div>
+
+<div class="flex flex-wrap items-center gap-2">
+  <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ here }}">Try again</a>
+  <a class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
+  <a class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap" href="/admin/index">Diagnostics</a>
+</div>
+{% endblock %}

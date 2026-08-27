@@ -3,7 +3,12 @@
 
 services:
   forgejo:
-    image: codeberg.org/forgejo/forgejo:15
+    # One exact release, never a floating tag. A floating tag would upgrade
+    # Forgejo whenever the image is pulled, and an upgrade must be a thing
+    # that an administrator decides, after a backup. The integration tests
+    # run against this same release, and a test holds the two together.
+    # `docs/operations.md` has the upgrade procedure.
+    image: codeberg.org/forgejo/forgejo:15.0.7
     restart: unless-stopped
     environment:
       USER_UID: "1000"

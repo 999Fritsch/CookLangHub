@@ -31,9 +31,9 @@ use crate::web_browse::{BrowseQuery, Controls, Sort, Tab};
 const PAGE_SIZE: usize = 60;
 
 /// Shown when Forgejo cannot answer. The list is empty because nothing is
-/// known, and not because the person has no Cookbooks.
-const NO_FORGEJO: &str =
-    "CookLangHub cannot reach Forgejo now, so this list is not complete. Try again in a moment.";
+/// known, and not because the person has no Cookbooks. One message covers
+/// every list, so that no page says a softer thing than another.
+const NO_FORGEJO: &str = crate::outage::LIST_MESSAGE;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()

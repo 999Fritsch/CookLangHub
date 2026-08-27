@@ -216,6 +216,23 @@
             color: #fde68a;
         }
 
+        /* Not from CookCLI. The box that says a run finished draws with
+           `bg-green-50`, `border-green-200`, and `text-green-900`, and only
+           the border of the three had a dark rule, so the box stayed a pale
+           green card with dark green words on a dark page. The Diagnostics
+           page reports a finished reconciliation in it.
+
+           No badge carries these two, so the rules can name the classes
+           themselves. Written in the shape of the red and yellow rules
+           above, from the same green ramp CookCLI uses for cookware. */
+        .dark .bg-green-50 {
+            background-color: #052e21;
+        }
+
+        .dark .text-green-900 {
+            color: #a7f3d0;
+        }
+
         /* Dark mode hover states */
         .dark .hover\:bg-gradient-to-r:hover {
             background: #374151 !important;

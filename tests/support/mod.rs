@@ -17,11 +17,15 @@ use cooklanghub::secret::Secret;
 use cooklanghub::web::{self, AppState};
 use testcontainers::core::ContainerPort;
 use testcontainers::runners::AsyncRunner;
-use testcontainers::{ContainerAsync, GenericImage, ImageExt};
+use testcontainers::{ContainerAsync, ContainerRequest, GenericImage, ImageExt};
 
 /// The Forgejo LTS release that this application is tested against.
+///
+/// One exact release, and the same one that `docker-compose.yml` names. A
+/// test in `tests/diagnostics.rs` holds the two together, so a deployment
+/// can never run a Forgejo that no test exercised.
 pub const FORGEJO_IMAGE: &str = "codeberg.org/forgejo/forgejo";
-pub const FORGEJO_TAG: &str = "15";
+pub const FORGEJO_TAG: &str = "15.0.7";
 
 const FORGEJO_PORT: u16 = 3000;
 const READY_TIMEOUT: Duration = Duration::from_secs(120);
@@ -87,6 +91,33 @@ impl Forgejo {
         self.cli(&args);
     }
 
+    /// Stop the container, so a test can look at a real Forgejo outage.
+    ///
+    /// This is the honest way to test outage behavior: the same running
+    /// application, the same address, and a Forgejo that is really gone.
+    /// A port that nothing listens on gives a client error of the same
+    /// shape, but it never exercises the recovery, because nothing can come
+    /// back on it.
+    pub async fn stop(&self) {
+        self.container
+            .stop_with_timeout(Some(0))
+            .await
+            .expect("cannot stop the Forgejo container");
+    }
+
+    /// Start the container again and wait until its API answers.
+    ///
+    /// The host port is fixed by [`start_forgejo_on_a_fixed_port`], so the
+    /// address does not change and the application that was running before
+    /// the outage reaches Forgejo again with no restart.
+    pub async fn start(&self) {
+        self.container
+            .start()
+            .await
+            .expect("cannot start the Forgejo container again");
+        wait_until_forgejo_answers(&self.base_url).await;
+    }
+
     /// Make an access token that the bootstrap command can use.
     pub fn access_token(&self, login: &str) -> Secret<String> {
         let raw = self.cli(&[
@@ -108,34 +139,61 @@ pub async fn start_forgejo() -> Forgejo {
     start_forgejo_with_token_lifetime(None).await
 }
 
+/// Start Forgejo on a host port that does not change when it is stopped.
+///
+/// Docker picks a new host port each time a container with an unbound
+/// published port starts, and a changed address is not what a Forgejo
+/// outage looks like. An outage test therefore fixes the port, so the same
+/// application reaches the same address before, during, and after.
+///
+/// The port is one that the operating system said was free a moment ago.
+/// Another container can still take it between the question and the answer,
+/// because every other test lets Docker choose a port for itself. That is a
+/// lost race and not a fault, so this asks for another port and tries again.
+pub async fn start_forgejo_on_a_fixed_port() -> Forgejo {
+    let mut last = String::new();
+
+    for _ in 0..FIXED_PORT_TRIES {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("cannot bind a probe listener");
+        let port = listener
+            .local_addr()
+            .expect("cannot read the probe address")
+            .port();
+        drop(listener);
+
+        match image(None)
+            .with_mapped_port(port, ContainerPort::Tcp(FORGEJO_PORT))
+            .start()
+            .await
+        {
+            Ok(container) => {
+                let base_url = format!("http://127.0.0.1:{port}");
+                wait_until_forgejo_answers(&base_url).await;
+
+                return Forgejo {
+                    container,
+                    base_url,
+                };
+            }
+            Err(error) => last = error.to_string(),
+        }
+    }
+
+    panic!("cannot start Forgejo on a port of its own after {FIXED_PORT_TRIES} tries: {last}");
+}
+
+/// How many ports to try before a lost race counts as a fault.
+const FIXED_PORT_TRIES: usize = 5;
+
 /// Start Forgejo with a chosen lifetime for an OAuth access token.
 ///
 /// The default lifetime is one hour, which no test can wait out. A test
 /// about a spent credential asks for a few seconds instead, so the primary
 /// acceptance seam can exercise the state that a person really reaches.
 pub async fn start_forgejo_with_token_lifetime(seconds: Option<u32>) -> Forgejo {
-    // Readiness comes from the API poll below, not from a log message. Log
-    // wording is not part of the Forgejo API and can change between
-    // releases, so a test must not depend on it.
-    let container = GenericImage::new(FORGEJO_IMAGE, FORGEJO_TAG)
-        .with_exposed_port(ContainerPort::Tcp(FORGEJO_PORT))
-        // The same settings as the bundled deployment, so a test exercises
-        // the configuration that a self-hoster actually gets.
-        .with_env_var("FORGEJO__security__INSTALL_LOCK", "true")
-        .with_env_var("FORGEJO__database__DB_TYPE", "sqlite3")
-        .with_env_var("FORGEJO__database__PATH", "/data/gitea/forgejo.db")
-        .with_env_var("FORGEJO__server__HTTP_PORT", "3000")
-        .with_env_var("FORGEJO__service__DEFAULT_KEEP_EMAIL_PRIVATE", "true");
-
-    let container = match seconds {
-        Some(seconds) => container.with_env_var(
-            "FORGEJO__oauth2__ACCESS_TOKEN_EXPIRATION_TIME",
-            seconds.to_string(),
-        ),
-        None => container,
-    };
-
-    let container = container
+    let container = image(seconds)
         .start()
         .await
         .expect("cannot start the Forgejo container");
@@ -158,6 +216,32 @@ pub async fn start_forgejo_with_token_lifetime(seconds: Option<u32>) -> Forgejo 
         container,
         base_url,
     }
+}
+
+/// The Forgejo image, configured the way the bundled deployment is.
+///
+/// Readiness comes from the API poll below, not from a log message. Log
+/// wording is not part of the Forgejo API and can change between releases,
+/// so a test must not depend on it.
+fn image(token_lifetime_seconds: Option<u32>) -> ContainerRequest<GenericImage> {
+    let mut request = GenericImage::new(FORGEJO_IMAGE, FORGEJO_TAG)
+        .with_exposed_port(ContainerPort::Tcp(FORGEJO_PORT))
+        // The same settings as the bundled deployment, so a test exercises
+        // the configuration that a self-hoster actually gets.
+        .with_env_var("FORGEJO__security__INSTALL_LOCK", "true")
+        .with_env_var("FORGEJO__database__DB_TYPE", "sqlite3")
+        .with_env_var("FORGEJO__database__PATH", "/data/gitea/forgejo.db")
+        .with_env_var("FORGEJO__server__HTTP_PORT", "3000")
+        .with_env_var("FORGEJO__service__DEFAULT_KEEP_EMAIL_PRIVATE", "true");
+
+    if let Some(seconds) = token_lifetime_seconds {
+        request = request.with_env_var(
+            "FORGEJO__oauth2__ACCESS_TOKEN_EXPIRATION_TIME",
+            seconds.to_string(),
+        );
+    }
+
+    request
 }
 
 /// Poll the version endpoint until Forgejo answers or the timeout expires.

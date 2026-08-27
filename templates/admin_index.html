@@ -1,49 +1,108 @@
 {#
-  The Recipe index, for an administrator.
+  Diagnostics, for an administrator.
 
-  The index is a cache. This page says how large it is and lets an
-  administrator build the whole of it again from Forgejo and Git.
+  Six things can fail on their own, and each one fails differently. The page
+  gives each of them its own card, its own state, and its own instruction,
+  so that an administrator finds the cause without a read of the source
+  code. This is the one page that names a real subsystem, because the person
+  reading it has to act on the real subsystem.
+
+  Forgejo says who administers the installation. A person it does not name
+  reads cooking words and no internal detail. While Forgejo is away nobody
+  can be named, so the page then shows the Forgejo card alone: it has to say
+  why it is empty, and the address of Forgejo is on every page already.
+
+  No credential reaches this page. The automation token, the webhook secret,
+  and the session secret are used to ask a question and none of them is
+  rendered. `no_secret_reaches_the_diagnostics_page` holds that.
+
+  A green badge is the working state and a grey badge is the quiet one, both
+  through the CookCLI classes. A fault carries the grey badge and a card
+  that says what to do, because the words carry the state and never the
+  colour alone.
 
   CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
 #}
 {% extends "base.html" %}
 
-{% block title %}Recipe index &middot; CookLangHub{% endblock %}
+{% block title %}Diagnostics &middot; CookLangHub{% endblock %}
 
 {% block content %}
-<h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent mb-6">Recipe index</h1>
+<h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent mb-6">Diagnostics</h1>
+
+{% if administrator %}
+
+{% if let Some(message) = report %}
+<p class="bg-green-50 border border-green-200 text-green-900 rounded-xl p-4 mb-6" role="status">{{ message }}</p>
+{% endif %}
 
 <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
-  <p class="text-gray-600 mb-4">
-    The index makes a search of Recipe titles possible. Forgejo and Git hold
-    the Recipes. This index holds a copy of the titles, so you can delete it
-    at any time. A rebuild reads Forgejo and Git again, and changes neither.
+  <p class="text-gray-700 mb-4">
+    Each card below reports one part of this installation. Forgejo and Git
+    hold every Recipe, every Cookbook, and every Version. This application
+    holds operational state only, and a reconciliation builds all of it
+    again from Forgejo and Git.
   </p>
-
-  <div class="flex flex-wrap gap-2 mb-4">
-    <span class="metadata-pill metadata-servings"><span aria-hidden="true">📇</span> {{ held }} Recipes in the index</span>
-  </div>
-
-  {% if let Some(message) = report %}
-  <p class="bg-green-50 border border-green-200 text-green-900 rounded-xl p-4 mb-4" role="status">{{ message }}</p>
-  {% endif %}
-
-  {% if administrator %}
   <form method="post" action="/admin/index/rebuild">
-    <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Rebuild the index</button>
+    <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Start a reconciliation</button>
   </form>
-  {% else if signed_in %}
-  <p class="text-gray-600 m-0">Only an administrator can rebuild the index.</p>
+</div>
+
+{% else %}
+
+<div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
+  <p class="text-gray-700 mb-4">
+    This page reports the state of this installation. Only an administrator
+    can read it, and Forgejo says who that is.
+  </p>
+  {% if signed_in %}
+  <p class="text-gray-600 m-0">If something is wrong, tell the administrator of this installation.</p>
   {% else %}
   <p class="text-gray-600 m-0">
     <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/auth/sign-in">Sign in</a>
-    to rebuild the index.
+    to read this page.
   </p>
   {% endif %}
 </div>
 
+{% endif %}
+
+{% for part in parts %}
+<section class="bg-white rounded-2xl shadow-lg p-6 mb-6" aria-labelledby="part-{{ loop.index }}">
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+    <h2 id="part-{{ loop.index }}" class="text-lg font-bold m-0 text-orange-600">{{ part.name }}</h2>
+    <span class="metadata-pill {{ part.state.badge() }}">{{ part.summary }}</span>
+  </div>
+
+  <p class="text-gray-600 mb-4">{{ part.purpose }}</p>
+
+  {% if !part.facts.is_empty() %}
+  <ul class="list-disc pl-5 space-y-1 text-gray-700 m-0">
+    {% for fact in part.facts %}
+    <li><span class="font-medium">{{ fact.label }}:</span> {{ fact.value }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if !part.problems.is_empty() %}
+  {# The shape a Cookbook uses for a state it cannot show: name it, list it,
+     and hand the person the tool that can act on it. #}
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mt-4" role="alert">
+    <h3 class="font-bold mb-2">What to do</h3>
+    <ul class="list-disc pl-5 space-y-1 mb-2">
+      {% for problem in part.problems %}
+      <li>{{ problem }}</li>
+      {% endfor %}
+    </ul>
+    <a class="text-blue-600 hover:text-blue-800 hover:underline" href="{{ forgejo_url }}">Open in Forgejo</a>
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
+
 <div class="text-sm text-gray-600">
   Forgejo: <a href="{{ forgejo_url }}" class="text-blue-600 hover:text-blue-800 hover:underline">{{ forgejo_url }}</a>
   &middot; <a href="/health" class="text-blue-600 hover:text-blue-800 hover:underline">/health</a>
+  {% if administrator %}&middot; backup and upgrade: <code>docs/operations.md</code>{% endif %}
 </div>
 {% endblock %}
