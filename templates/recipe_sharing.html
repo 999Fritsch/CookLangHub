@@ -122,7 +122,7 @@
       <ul class="space-y-2 list-none p-0 m-0">
         {% for book in affected %}
         <li>
-          <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/cookbooks/{{ book.owner }}/{{ book.slug }}">{{ book.title }}</a>
+          <a class="text-blue-600 hover:text-blue-800 underline" href="/cookbooks/{{ book.owner }}/{{ book.slug }}">{{ book.title }}</a>
           <span class="text-sm text-gray-600">Owned by {{ book.owner }}</span>
         </li>
         {% endfor %}

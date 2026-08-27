@@ -8,7 +8,8 @@
     "build-theme": "node scripts/build-theme-css.mjs",
     "build-editor": "node scripts/build-editor.mjs",
     "build": "npm run build-theme && npm run build-editor && npm run build-css",
-    "shot": "node scripts/screenshot.mjs"
+    "shot": "node scripts/screenshot.mjs",
+    "audit": "node scripts/accessibility.mjs"
   },
   "devDependencies": {
     "@codemirror/commands": "^6.10.4",

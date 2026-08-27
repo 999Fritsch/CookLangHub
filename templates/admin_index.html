@@ -36,14 +36,14 @@
   <p class="text-gray-600 m-0">Only an administrator can rebuild the index.</p>
   {% else %}
   <p class="text-gray-600 m-0">
-    <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/auth/sign-in">Sign in</a>
+    <a class="text-blue-600 hover:text-blue-800 underline" href="/auth/sign-in">Sign in</a>
     to rebuild the index.
   </p>
   {% endif %}
 </div>
 
 <div class="text-sm text-gray-600">
-  Forgejo: <a href="{{ forgejo_url }}" class="text-blue-600 hover:text-blue-800 hover:underline">{{ forgejo_url }}</a>
-  &middot; <a href="/health" class="text-blue-600 hover:text-blue-800 hover:underline">/health</a>
+  Forgejo: <a href="{{ forgejo_url }}" class="text-blue-600 hover:text-blue-800 underline">{{ forgejo_url }}</a>
+  &middot; <a href="/health" class="text-blue-600 hover:text-blue-800 underline">/health</a>
 </div>
 {% endblock %}

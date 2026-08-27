@@ -256,16 +256,20 @@
         }
 
 /* Fix for navigation pill hover states */
-        .dark a[href="{{ prefix }}
+        /*
+          CookCLI keeps these rules inside its base template, where
+          `{{ prefix }}` and `{% if %}` are template syntax that Askama
+          expands. Here the rules are a plain stylesheet, so the template
+          syntax was written straight into the CSS and a browser read it as
+          a fault. It stopped reading the file at this rule, and every dark
+          rule below was lost: the navigation pills, the badges, the cards,
+          and the whole print block. The light palette looked right, so
+          nothing showed it.
 
-/"].hover\:bg-gradient-to-r:hover{% if !static_mode %}
-
-,
-        .dark a[href="{{ prefix }}
-
-/shopping-list"].hover\:bg-gradient-to-r:hover{% endif %}
-
-{
+          The addresses are now the addresses of this application. It has no
+          prefix and no shopping list.
+        */
+        .dark a[href="/"].hover\:bg-gradient-to-r:hover {
             background: #374151 !important;
         }
 
@@ -596,7 +600,10 @@
             }
 
             /* Hide all navigation links */
-            a[href="{{ prefix }}/"]{% if !static_mode %}, a[href="{{ prefix }}/shopping-list"], a[href="{{ prefix }}/preferences"]{% endif %} {
+            /* The same template syntax as above, and the same fault: it
+               stopped a browser from reading the rest of this print block.
+               The addresses are the addresses of this application. */
+            a[href="/"], a[href="/preferences"] {
                 display: none !important;
             }
 
@@ -1016,8 +1023,6 @@
             background: #374151 !important;
             color: #e5e7eb !important;
         }
-  html:not(.dark):not(.light) a[href=" {{ prefix }}
-  html:not(.dark):not(.light) a[href=" {{ prefix }}
   html:not(.dark):not(.light) .hover\:text-orange-700:hover {
             color: #fb923c !important;
         }

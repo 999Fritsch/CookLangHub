@@ -8,10 +8,19 @@
  *
  * Used here so that CookLangHub and CookCLI read as one family. See NOTICE.
  *
- * One change was needed. CookCLI starts this from an `onclick` attribute on
- * its button. The Content Security Policy of this application does not allow
- * an inline handler, so the button is found and bound at the end of this
- * file instead. Nothing else was changed.
+ * Four changes were needed.
+ *
+ * 1. CookCLI starts this from an `onclick` attribute on its button. The
+ *    Content Security Policy of this application does not allow an inline
+ *    handler, so the button is found and bound at the end of this file.
+ * 2. The focus stays inside the dialog. The overlay says `aria-modal`, and
+ *    a person who pressed Tab left it and walked into the page behind,
+ *    which they cannot see.
+ * 3. A card that is not the current one is `inert`. Its buttons were in the
+ *    order of the keyboard while the card was invisible, so Tab stopped on
+ *    a timer of a step that was not on the screen.
+ * 4. An ingredient to gather is a checkbox. CookCLI ticks it off with a
+ *    click alone, and a person who uses a keyboard could not tick one.
  */
 (function() {
     'use strict';
@@ -123,6 +132,9 @@
     function renderCard(card) {
         const div = document.createElement('div');
         div.className = 'cooking-card hidden-card';
+        // Only the card on the screen answers the keyboard. `updateCards`
+        // takes this off the current one and puts it back on the others.
+        div.inert = true;
 
         if (card.type === 'section') {
             div.classList.add('cooking-card-section');
@@ -140,8 +152,30 @@
             }
             div.innerHTML = '<h2>' + escapeHTML(card.name) + '</h2>' + ingredientsHTML;
             div.querySelectorAll('.cooking-mise-item').forEach(function(item) {
-                item.addEventListener('click', function() {
-                    item.classList.toggle('checked');
+                /*
+                 * Gathering an ingredient is a checkbox.
+                 *
+                 * CookCLI ticks the row off with a click. A cook with a
+                 * keyboard could not reach the row at all, so the row now
+                 * says what it is, takes the focus, and answers Space and
+                 * Enter as well as a tap.
+                 */
+                item.setAttribute('role', 'checkbox');
+                item.setAttribute('aria-checked', 'false');
+                item.setAttribute('tabindex', '0');
+
+                function toggle() {
+                    const on = item.classList.toggle('checked');
+                    item.setAttribute('aria-checked', on ? 'true' : 'false');
+                }
+
+                item.addEventListener('click', toggle);
+                item.addEventListener('keydown', function(event) {
+                    if (event.key !== ' ' && event.key !== 'Enter') return;
+                    // Space scrolls a page and Enter can send a form. This
+                    // row is neither.
+                    event.preventDefault();
+                    toggle();
                 });
             });
         }
@@ -239,10 +273,26 @@
         // Click on prev/next card to navigate
         container.addEventListener('click', function(e) {
             const card = e.target.closest('.cooking-card');
-            if (!card) return;
-            if (card.classList.contains('prev')) {
+            if (card) {
+                if (card.classList.contains('prev')) {
+                    navigateTo(state.currentIndex - 1);
+                } else if (card.classList.contains('next')) {
+                    navigateTo(state.currentIndex + 1);
+                }
+                return;
+            }
+
+            /*
+             * A card that is not the current one is `inert`, so a click
+             * over it reaches this container and not the card. The card
+             * before is above the current one and the card after is below
+             * it, so where the click landed says which one was meant.
+             */
+            const above = state.cardEls[state.currentIndex - 1];
+            const below = state.cardEls[state.currentIndex + 1];
+            if (above && within(above, e)) {
                 navigateTo(state.currentIndex - 1);
-            } else if (card.classList.contains('next')) {
+            } else if (below && within(below, e)) {
                 navigateTo(state.currentIndex + 1);
             }
         });
@@ -266,6 +316,17 @@
 
     // ─── Navigation ───────────────────────────────────────────────
 
+    /** Did this pointer event land on this element? */
+    function within(element, event) {
+        const box = element.getBoundingClientRect();
+        return (
+            event.clientX >= box.left &&
+            event.clientX <= box.right &&
+            event.clientY >= box.top &&
+            event.clientY <= box.bottom
+        );
+    }
+
     function updateCards() {
         const cardEls = state.cardEls;
         if (cardEls.length === 0) return;
@@ -286,6 +347,9 @@
             const el = cardEls[i];
             el.classList.remove('current', 'prev', 'next', 'hidden-card', 'swiping');
             el.style.transform = '';
+            // A card that is not on the screen answers nothing: not a tap,
+            // not the keyboard, and not a reader.
+            el.inert = i !== state.currentIndex;
             if (i === state.currentIndex) {
                 el.classList.add('current');
             } else if (i === state.currentIndex - 1) {
@@ -456,10 +520,61 @@
 
     // ─── Keyboard Handling ────────────────────────────────────────
 
+    /**
+     * Everything in the dialog that the keyboard can stop on.
+     *
+     * A card that is not the current one is `inert`, and nothing inside an
+     * inert element takes the focus, so nothing inside one belongs here.
+     */
+    function reachable() {
+        if (!state.overlay) return [];
+        const controls = state.overlay.querySelectorAll(
+            'a[href], button:not([disabled]), input:not([disabled]),' +
+            ' select:not([disabled]), textarea:not([disabled]),' +
+            ' [tabindex]:not([tabindex="-1"])'
+        );
+        return Array.prototype.filter.call(controls, function(el) {
+            return !el.closest('[inert]') && el.getClientRects().length > 0;
+        });
+    }
+
+    /**
+     * Hold the focus inside the dialog.
+     *
+     * The overlay says `aria-modal`, which tells a reader that the page
+     * behind it is not there. The keyboard must say the same. Without this,
+     * Tab walked out of Cook mode and on to a page that the cook cannot see
+     * and cannot get back from.
+     */
+    function onTab(e) {
+        const stops = reachable();
+        if (stops.length === 0) {
+            e.preventDefault();
+            state.overlay.focus();
+            return;
+        }
+
+        const first = stops[0];
+        const last = stops[stops.length - 1];
+        const here = document.activeElement;
+        const inside = state.overlay.contains(here);
+
+        if (e.shiftKey && (!inside || here === first || here === state.overlay)) {
+            e.preventDefault();
+            last.focus();
+        } else if (!e.shiftKey && (!inside || here === last)) {
+            e.preventDefault();
+            first.focus();
+        }
+    }
+
     function onKeyDown(e) {
         if (!state.overlay) return;
 
         switch (e.key) {
+            case 'Tab':
+                onTab(e);
+                break;
             case 'ArrowDown':
             case 'ArrowRight':
                 e.preventDefault();
@@ -552,6 +667,15 @@
         state.overlay = renderOverlay(data, state.cards);
         document.body.appendChild(state.overlay);
         document.body.style.overflow = 'hidden';
+
+        /*
+         * The cards hold a copy of the words of each step, and a copy of a
+         * timer button carries no timer. Without this the timer in Cook
+         * mode looked like a button and did nothing at all.
+         */
+        if (typeof window.buildTimers === 'function') {
+            window.buildTimers(state.overlay);
+        }
 
         updateCards();
 

@@ -72,6 +72,11 @@
     var button = document.createElement("button");
     button.type = "button";
     button.className = IDLE_CLASSES.join(" ");
+    // The button carries what it was made from. Cook mode copies the words
+    // of a step, and a copy of this button has no timer behind it. With the
+    // length still on it, `buildTimers` can make the copy work.
+    button.setAttribute("data-timer-seconds", String(total));
+    button.setAttribute("data-timer-label", label);
 
     var hidden = document.createElement("span");
     hidden.className = "sr-only";
@@ -158,8 +163,26 @@
     badge.parentNode.replaceChild(button, badge);
   }
 
-  var badges = document.querySelectorAll("[data-timer-seconds]");
-  for (var i = 0; i < badges.length; i++) {
-    build(badges[i]);
+  /**
+   * Make every badge under `root` a timer that counts down.
+   *
+   * Cook mode copies the words of a step into a card of its own. The copy
+   * holds a copy of the button, and a copy carries no behaviour, so the
+   * timer in Cook mode did nothing at all. Cook mode calls this on the
+   * cards it made, and each copy becomes a timer.
+   *
+   * A timer that a cook started goes on counting after the card that holds
+   * it is gone. That is what a cook wants: they asked for the time, and the
+   * tab still says when it is up.
+   */
+  function buildTimers(root) {
+    var badges = (root || document).querySelectorAll("[data-timer-seconds]");
+    for (var i = 0; i < badges.length; i++) {
+      build(badges[i]);
+    }
   }
+
+  window.buildTimers = buildTimers;
+
+  buildTimers(document);
 })();

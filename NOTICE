@@ -29,11 +29,24 @@ close adaptations:
     static/css/input.css         copied, then extended
     static/css/custom-styles.css copied
     static/css/cooking-mode.css  copied
-    static/js/cooking-mode.js    copied, with one change: CookCLI starts
-                                 Cook mode from an `onclick` attribute,
-                                 which the Content Security Policy here
-                                 does not allow, so the button is bound
-                                 in the file instead
+    static/css/theme.src.css     copied from the inline style of their
+                                 base template, then corrected in two
+                                 rules: CookCLI writes template syntax
+                                 inside those two selectors, which their
+                                 template expands and a plain stylesheet
+                                 cannot, so the addresses are now the
+                                 addresses of this application
+    static/js/cooking-mode.js    copied, with four changes, each one
+                                 recorded in the header of the file:
+                                 CookCLI starts Cook mode from an
+                                 `onclick` attribute, which the Content
+                                 Security Policy here does not allow, so
+                                 the button is bound in the file instead;
+                                 the focus stays inside the dialog; a
+                                 card that is not on the screen is
+                                 `inert`; and an ingredient to gather is
+                                 a checkbox, so a cook with a keyboard
+                                 can tick one off
     static/js/src/cooklang-mode.js
                                  copied, then corrected: the mode gave
                                  CodeMirror its own words for a token
@@ -73,3 +86,21 @@ comes from the class that the server wrote on the page, to match how the
 rest of CookLangHub picks light or dark. And the editor lives in a shadow
 root, so that the CSS of CodeMirror is adopted rather than put inside the
 page, which keeps the Content Security Policy at `default-src 'self'`.
+
+
+axe-core
+--------
+
+The accessibility check uses axe-core, which is copyright Deque Systems,
+Inc. and is licensed under the Mozilla Public License, version 2.0.
+
+    scripts/vendor/axe.min.js           copied, unchanged
+    scripts/vendor/LICENSE-MPL-axe-core the full MPL-2.0 text
+
+The file is in this repository and not on another host, because the check
+must run with no network and the policy of this application is
+`default-src 'self'`. It is a development tool. The runtime is the Rust
+binary plus the files in `static/`, and axe-core is in neither.
+
+The MPL-2.0 is a licence on the file. It does not reach the rest of this
+work, which stays under the AGPL-3.0-or-later.

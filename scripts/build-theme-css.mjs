@@ -107,6 +107,36 @@ function mirrorSelector(selector) {
 
 const source = await readFile(SOURCE, "utf8");
 
+/*
+ * Refuse a source that still holds template syntax.
+ *
+ * CookCLI keeps these rules inside its base template, so some of them carry
+ * `{{ prefix }}` and `{% if %}`. Here they are a plain stylesheet, and a
+ * browser reads that syntax as a fault. It then stops reading the file, and
+ * every rule below is lost. That happened twice, and the light palette
+ * showed neither of them.
+ *
+ * A comment can name the syntax, so comments are taken out first. The
+ * lengths stay the same, so the line number still points at the rule.
+ */
+const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, (block) =>
+  block.replace(/[^\n]/g, " "),
+);
+const templateSyntax = withoutComments.match(
+  /\{\{[\s\S]{0,60}?\}\}|\{%[\s\S]{0,60}?%\}/,
+);
+if (templateSyntax) {
+  const line = source.slice(0, templateSyntax.index).split("\n").length;
+  console.error(
+    `${SOURCE}:${line}: template syntax in a stylesheet: ${templateSyntax[0]}`,
+  );
+  console.error(
+    "A browser reads this as a fault and stops reading the file. Write the",
+  );
+  console.error("address of this application instead.");
+  process.exit(1);
+}
+
 const kept = [];
 const mirrored = [];
 
