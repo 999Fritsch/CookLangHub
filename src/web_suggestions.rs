@@ -23,10 +23,11 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Form, Json, Router};
 use axum_extra::extract::CookieJar;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::create_recipe::{self, MAIN_BRANCH};
-use crate::forgejo::{ForgejoUser, PullRequest, Repository};
+use crate::forgejo::{ForgejoUser, Ownership, PullRequest, Repository};
 use crate::git::Identity;
 use crate::recipe::{self, MAX_SOURCE_BYTES, RECIPE_FILE};
 use crate::render::{self, RenderedRecipe};
@@ -34,6 +35,7 @@ use crate::secret::Secret;
 use crate::suggestion::{self, Mine, State as SuggestionState, SuggestionError};
 use crate::web::{AppState, Layout, MaybeUser};
 use crate::web_edit::{Refused, refusal};
+use crate::web_history::Comparison;
 use crate::web_recipes::{Actor, RecipeArea, actor, areas};
 
 /// Where the Suggestions area of a Recipe lives.
@@ -46,10 +48,29 @@ pub fn editor_href(owner: &str, slug: &str) -> String {
     format!("/recipes/{owner}/{slug}/suggest")
 }
 
+/// Where the Suggestions of one person come together.
+///
+/// The area covers every Recipe, so it belongs to the person and not to one
+/// Recipe. That is why it has no owner and no name in its address.
+pub const INBOX_HREF: &str = "/suggestions";
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        .route(INBOX_HREF, get(inbox))
         .route("/recipes/{owner}/{slug}/suggestions", get(list))
         .route("/recipes/{owner}/{slug}/suggestions/{number}", get(one))
+        .route(
+            "/recipes/{owner}/{slug}/suggestions/{number}/comments",
+            post(write_comment),
+        )
+        .route(
+            "/recipes/{owner}/{slug}/suggestions/{number}/accept",
+            post(accept),
+        )
+        .route(
+            "/recipes/{owner}/{slug}/suggestions/{number}/decline",
+            post(decline),
+        )
         .route(
             "/recipes/{owner}/{slug}/suggest",
             get(editor).post(save_while_writing),
@@ -66,6 +87,23 @@ const NOT_TEXT_MESSAGE: &str = "This Recipe is not UTF-8 text, so the editor can
 /// Shown when Git does not answer.
 const UNREACHABLE_MESSAGE: &str =
     "CookLangHub cannot read this Recipe at the moment. Nothing changed. Try again.";
+
+/// Shown when Forgejo does not give the conversation of a Suggestion.
+const NO_CONVERSATION_MESSAGE: &str = "CookLangHub cannot read the conversation of this Suggestion. Open the Recipe in Forgejo to read it there.";
+
+/// Shown when Forgejo does not give the Suggestions of a person.
+const NO_INBOX_MESSAGE: &str =
+    "CookLangHub cannot read your Suggestions at the moment. Open Forgejo to see them.";
+
+/// Shown when the person can reach more Recipes than one page reads.
+const PARTIAL_INBOX_MESSAGE: &str =
+    "You can reach more Recipes than this page shows. To see every Suggestion, open Forgejo.";
+
+/// How many Recipes the inbox reads at the same time.
+const INBOX_CONCURRENCY: usize = 8;
+
+/// How many Suggestions one list of the inbox shows.
+const MAX_INBOX_ROWS: usize = 50;
 
 /// The Recipe that a Suggestion belongs to.
 struct Subject {
@@ -149,6 +187,40 @@ struct SuggestionRow {
     comments: i64,
     /// Whether the person who is looking made this Suggestion.
     mine: bool,
+    /// Whether Forgejo cannot put this Suggestion into the Recipe.
+    conflict: bool,
+}
+
+/// One comment in the conversation of a Suggestion.
+struct CommentView {
+    author: String,
+    written: String,
+    /// The comment, as text.
+    ///
+    /// Forgejo stores Markdown. The application shows the characters that
+    /// the person wrote, escaped, and keeps the line breaks with a CSS rule.
+    /// It does not turn Markdown into HTML: text from another person is not
+    /// trusted.
+    body: String,
+}
+
+/// One Suggestion in the inbox of a person.
+///
+/// The inbox covers every Recipe, so each row has to name the Recipe it
+/// belongs to as well as the Suggestion itself.
+struct InboxRow {
+    owner: String,
+    slug: String,
+    /// The title a cook reads for the Recipe.
+    recipe: String,
+    number: i64,
+    title: String,
+    author: String,
+    made: String,
+    state: &'static str,
+    /// The class that colours the state. See [`pill`].
+    pill: &'static str,
+    comments: i64,
 }
 
 /// One Suggestion on its own page.
@@ -176,6 +248,13 @@ struct SuggestionView {
     /// Whether this application can write in the Suggestion. A Suggestion
     /// that somebody made outside CookLangHub is changed in Forgejo.
     here: bool,
+    /// Whether Forgejo cannot put this Suggestion into the Recipe, because
+    /// the Suggestion and the published Recipe changed the same words.
+    conflict: bool,
+    /// Whether an Editor can accept it now. This says nothing about who is
+    /// looking: Forgejo decides that, and [`SuggestionTemplate::can_act`]
+    /// carries the answer.
+    acceptable: bool,
 }
 
 #[derive(Template)]
@@ -221,6 +300,20 @@ struct SuggestionTemplate {
     notice: &'static str,
     /// The note that goes with the Suggestion.
     note: String,
+    // The review. These carry nothing while a person writes: the editor
+    // draws the Suggestion of that person and never the review of it.
+    /// What the Suggestion changes in the published Recipe.
+    comparison: Comparison,
+    /// The conversation, oldest first, as Forgejo holds it.
+    comments: Vec<CommentView>,
+    /// What the person typed in the comment box, kept when it did not work.
+    form_message: String,
+    /// Whether Forgejo lets this person accept and decline here.
+    can_act: bool,
+    /// What a person reads when the two sides changed the same words.
+    conflict_note: &'static str,
+    /// What a person reads while the Suggestion is still being written.
+    not_ready_note: &'static str,
     // The preview fields. `recipe_preview.html` is included here and reads
     // them, so this page and the Recipe page render from one parser.
     preview_title: String,
@@ -280,6 +373,7 @@ async fn list(
                 state: suggestion::state_of(&pull).label(),
                 pill: pill(suggestion::state_of(&pull)),
                 comments: pull.comments,
+                conflict: suggestion::has_conflict(&pull),
                 title: suggestion::plain_title(&pull.title).to_string(),
             })
             .collect(),
@@ -307,8 +401,8 @@ async fn list(
 
 /// One Suggestion, as anybody who can read the Recipe sees it.
 ///
-/// Ticket #15 grows this page into the review: the Changes, the
-/// conversation, **Accept**, and **Decline**.
+/// This is the review. It carries the Changes, the conversation, and the two
+/// actions of an Editor.
 async fn one(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -317,15 +411,42 @@ async fn one(
     Path((owner, slug, number)): Path<(String, String, i64)>,
 ) -> Response {
     let token = crate::web::viewer_token(&state, &jar).await;
-    let Some(subject) = subject(&state, token.as_ref(), &owner, &slug).await else {
+
+    review(
+        &state,
+        &headers,
+        current.as_ref(),
+        token.as_ref(),
+        &owner,
+        &slug,
+        number,
+        String::new(),
+        Vec::new(),
+    )
+    .await
+}
+
+/// Read one Suggestion and draw the review of it.
+///
+/// Everything on the page comes from Forgejo and from Git. The application
+/// keeps no part of a Suggestion, so a page drawn here can only report.
+#[allow(clippy::too_many_arguments)]
+async fn review(
+    state: &AppState,
+    headers: &HeaderMap,
+    current: Option<&crate::session::CurrentUser>,
+    token: Option<&Secret<String>>,
+    owner: &str,
+    slug: &str,
+    number: i64,
+    form_message: String,
+    mut errors: Vec<String>,
+) -> Response {
+    let Some(subject) = subject(state, token, owner, slug).await else {
         return no_recipe();
     };
 
-    let pull = match state
-        .forgejo
-        .pull_request(token.as_ref(), &owner, &slug, number)
-        .await
-    {
+    let pull = match state.forgejo.pull_request(token, owner, slug, number).await {
         Ok(pull) => pull,
         Err(error) => {
             tracing::info!(%error, %owner, %slug, number, "cannot read the Suggestion");
@@ -333,35 +454,78 @@ async fn one(
         }
     };
 
-    let me = current
-        .as_ref()
-        .map(|user| user.login.clone())
-        .unwrap_or_default();
+    let me = current.map(|user| user.login.clone()).unwrap_or_default();
 
     // The Cooklang that the Suggestion proposes. A Recipe that this
     // application cannot read is not drawn as one.
     let source = state
         .forgejo
-        .raw_file(token.as_ref(), &owner, &slug, &pull.head.sha, RECIPE_FILE)
+        .raw_file(token, owner, slug, &pull.head.sha, RECIPE_FILE)
         .await
         .ok()
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .unwrap_or_default();
 
+    // What the Recipe becomes if an Editor accepts this. Forgejo names the
+    // published Version on the base side, so the comparison answers the
+    // question the Editor actually has, and not what was true when the
+    // person started to write.
+    let published = if pull.base.sha.is_empty() {
+        subject.branch.clone()
+    } else {
+        pull.base.sha.clone()
+    };
+    let (comparison, trouble) =
+        crate::web_history::comparison(state, token, owner, slug, &published, &pull.head.sha).await;
+    errors.extend(trouble);
+
+    // Forgejo keeps the conversation of a Suggestion with the conversations
+    // of the Recipe, so this is the same reader that a Discussion uses.
+    let comments = match state
+        .forgejo
+        .list_issue_comments(token, owner, slug, number)
+        .await
+    {
+        Ok(comments) => comments
+            .into_iter()
+            .map(|comment| CommentView {
+                author: author(&comment.user),
+                written: short_date(&comment.created_at),
+                body: comment.body,
+            })
+            .collect(),
+        Err(error) => {
+            tracing::info!(%error, %owner, %slug, number, "cannot read the conversation");
+            errors.push(NO_CONVERSATION_MESSAGE.to_string());
+            Vec::new()
+        }
+    };
+
+    // Forgejo decides who may accept and who may decline. The application
+    // asks it and works nothing out for itself.
+    let can_act = match token {
+        Some(token) => state
+            .forgejo
+            .can_write(token, owner, slug)
+            .await
+            .unwrap_or(false),
+        None => false,
+    };
+
     let view = view_of(&pull, &me);
 
     respond(
         SuggestionTemplate {
-            layout: Layout::new(current.as_ref()).on(
-                &headers,
+            layout: Layout::new(current).on(
+                headers,
                 &format!("/recipes/{owner}/{slug}/suggestions/{number}"),
             ),
             forgejo_url: format!("{}/pulls/{number}", subject.forgejo_url(&state.forgejo)),
-            owner: owner.clone(),
-            slug: slug.clone(),
+            owner: owner.to_string(),
+            slug: slug.to_string(),
             title: subject.title.clone(),
             areas: subject.areas,
-            errors: Vec::new(),
+            errors,
             suggestion: Some(view),
             editable: false,
             elsewhere: suggestion::ELSEWHERE_MESSAGE,
@@ -370,6 +534,12 @@ async fn one(
             draft_version: String::new(),
             notice: "",
             note: String::new(),
+            comparison,
+            comments,
+            form_message,
+            can_act,
+            conflict_note: suggestion::CONFLICT_MESSAGE,
+            not_ready_note: suggestion::NOT_READY_MESSAGE,
             preview_title: String::new(),
             cooked: RenderedRecipe::default(),
             warnings: Vec::new(),
@@ -396,6 +566,8 @@ fn view_of(pull: &PullRequest, me: &str) -> SuggestionView {
         comments: pull.comments,
         mine: !me.is_empty() && pull.author() == me,
         here: pull.is_agit(),
+        conflict: suggestion::has_conflict(pull),
+        acceptable: suggestion::can_accept(pull),
     }
 }
 
@@ -408,6 +580,244 @@ fn pill(state: SuggestionState) -> &'static str {
         SuggestionState::Ready => "metadata-cuisine",
         SuggestionState::Accepted => "metadata-course",
         SuggestionState::Declined => "metadata-servings",
+    }
+}
+
+// ---------------------------------------------------------------------
+// The conversation, and the two actions of an Editor
+// ---------------------------------------------------------------------
+
+/// What the comment form sends.
+#[derive(Debug, Deserialize)]
+struct CommentForm {
+    #[serde(default)]
+    message: String,
+}
+
+/// Write a comment on a Suggestion.
+///
+/// Forgejo decides who may write here, and it lets anybody with read access
+/// do it. That is what makes a review a conversation rather than a verdict:
+/// a person who cannot change the Recipe can still say what they think of a
+/// Suggestion for it.
+async fn write_comment(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    jar: CookieJar,
+    MaybeUser(current): MaybeUser,
+    Path((owner, slug, number)): Path<(String, String, i64)>,
+    Form(form): Form<CommentForm>,
+) -> Response {
+    let Some(token) = crate::web::viewer_token(&state, &jar).await else {
+        return Redirect::to("/auth/sign-in").into_response();
+    };
+
+    // A comment is a conversation and not a note on a Suggestion, so it is
+    // as long as the person needs. This is what a Discussion does as well.
+    let message = form.message.trim().to_string();
+
+    if message.is_empty() {
+        return review(
+            &state,
+            &headers,
+            current.as_ref(),
+            Some(&token),
+            &owner,
+            &slug,
+            number,
+            String::new(),
+            vec![suggestion::EMPTY_COMMENT_MESSAGE.to_string()],
+        )
+        .await;
+    }
+
+    match state
+        .forgejo
+        .create_issue_comment(&token, &owner, &slug, number, &message)
+        .await
+    {
+        Ok(_) => {
+            tracing::info!(%owner, %slug, number, "wrote a comment on a Suggestion");
+            Redirect::to(&format!("/recipes/{owner}/{slug}/suggestions/{number}")).into_response()
+        }
+        Err(error) => {
+            tracing::info!(%error, %owner, %slug, number, "cannot write the comment");
+            review(
+                &state,
+                &headers,
+                current.as_ref(),
+                Some(&token),
+                &owner,
+                &slug,
+                number,
+                message,
+                vec![suggestion::REFUSED_MESSAGE.to_string()],
+            )
+            .await
+        }
+    }
+}
+
+/// What went wrong with an action, in words a cook reads.
+fn refused(error: &SuggestionError) -> (StatusCode, &'static str) {
+    match error {
+        SuggestionError::Conflict => (StatusCode::CONFLICT, suggestion::CONFLICT_MESSAGE),
+        SuggestionError::NotReady => (StatusCode::CONFLICT, suggestion::NOT_READY_MESSAGE),
+        SuggestionError::Gone => (StatusCode::CONFLICT, suggestion::ALREADY_MESSAGE),
+        _ => (StatusCode::BAD_GATEWAY, suggestion::REFUSED_MESSAGE),
+    }
+}
+
+/// Accept a Suggestion, so that it becomes one published Version.
+async fn accept(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    jar: CookieJar,
+    MaybeUser(current): MaybeUser,
+    Path((owner, slug, number)): Path<(String, String, i64)>,
+) -> Response {
+    act(
+        &state,
+        &headers,
+        current.as_ref(),
+        &jar,
+        &owner,
+        &slug,
+        number,
+        Deed::Accept,
+    )
+    .await
+}
+
+/// Decline a Suggestion, and keep every word of it.
+async fn decline(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    jar: CookieJar,
+    MaybeUser(current): MaybeUser,
+    Path((owner, slug, number)): Path<(String, String, i64)>,
+) -> Response {
+    act(
+        &state,
+        &headers,
+        current.as_ref(),
+        &jar,
+        &owner,
+        &slug,
+        number,
+        Deed::Decline,
+    )
+    .await
+}
+
+/// What an Editor asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Deed {
+    Accept,
+    Decline,
+}
+
+/// Do what an Editor asked, or say why nothing happened.
+///
+/// Both actions need the same three answers first: the Recipe, the
+/// Suggestion, and whether Forgejo lets this person write here. The check
+/// happens on the request and not only on the page, because a request can
+/// arrive without the page in front of it.
+#[allow(clippy::too_many_arguments)]
+async fn act(
+    state: &AppState,
+    headers: &HeaderMap,
+    current: Option<&crate::session::CurrentUser>,
+    jar: &CookieJar,
+    owner: &str,
+    slug: &str,
+    number: i64,
+    deed: Deed,
+) -> Response {
+    let Some(actor) = actor(state, jar).await else {
+        return Redirect::to("/auth/sign-in").into_response();
+    };
+
+    let Some(subject) = subject(state, Some(&actor.token), owner, slug).await else {
+        return no_recipe();
+    };
+
+    let pull = match state
+        .forgejo
+        .pull_request(Some(&actor.token), owner, slug, number)
+        .await
+    {
+        Ok(pull) => pull,
+        Err(error) => {
+            tracing::info!(%error, %owner, %slug, number, "cannot read the Suggestion");
+            return no_suggestion();
+        }
+    };
+
+    // Forgejo owns this decision. A person who may only read the Recipe can
+    // comment on a Suggestion for it, and can do nothing else.
+    let can_act = state
+        .forgejo
+        .can_write(&actor.token, owner, slug)
+        .await
+        .unwrap_or(false);
+
+    if !can_act {
+        tracing::info!(%owner, %slug, number, login = %actor.user.login, "a person without write access asked to act on a Suggestion");
+        let body = review(
+            state,
+            headers,
+            current,
+            Some(&actor.token),
+            owner,
+            slug,
+            number,
+            String::new(),
+            vec![suggestion::NO_ACCESS_MESSAGE.to_string()],
+        )
+        .await;
+        return (StatusCode::FORBIDDEN, body).into_response();
+    }
+
+    let done = match deed {
+        Deed::Accept => {
+            suggestion::accept(
+                &state.forgejo,
+                &actor.token,
+                owner,
+                slug,
+                &pull,
+                &subject.title,
+            )
+            .await
+        }
+        Deed::Decline => {
+            suggestion::decline(&state.forgejo, &actor.token, owner, slug, &pull).await
+        }
+    };
+
+    match done {
+        Ok(()) => {
+            tracing::info!(%owner, %slug, number, ?deed, "acted on a Suggestion");
+            Redirect::to(&format!("/recipes/{owner}/{slug}/suggestions/{number}")).into_response()
+        }
+        Err(error) => {
+            let (status, message) = refused(&error);
+            tracing::info!(%error, %owner, %slug, number, ?deed, "cannot act on the Suggestion");
+            let body = review(
+                state,
+                headers,
+                current,
+                Some(&actor.token),
+                owner,
+                slug,
+                number,
+                String::new(),
+                vec![message.to_string()],
+            )
+            .await;
+            (status, body).into_response()
+        }
     }
 }
 
@@ -650,6 +1060,14 @@ fn page(
                 suggestion::NEW_MESSAGE
             },
             note,
+            // The editor draws no review. The person who is writing follows
+            // the link on the page to read their work as an Editor does.
+            comparison: Comparison { groups: Vec::new() },
+            comments: Vec::new(),
+            form_message: String::new(),
+            can_act: false,
+            conflict_note: suggestion::CONFLICT_MESSAGE,
+            not_ready_note: suggestion::NOT_READY_MESSAGE,
             preview_title: String::new(),
             cooked: RenderedRecipe::default(),
             warnings: Vec::new(),
@@ -996,6 +1414,245 @@ async fn retry(
     }
 }
 
+// ---------------------------------------------------------------------
+// The inbox: every Suggestion that one person has to do with
+// ---------------------------------------------------------------------
+
+#[derive(Template)]
+#[template(path = "suggestions_inbox.html")]
+struct InboxTemplate {
+    layout: Layout,
+    /// The Suggestions that wait for this person to read them.
+    review: Vec<InboxRow>,
+    /// The Suggestions that this person made.
+    mine: Vec<InboxRow>,
+    /// Where the Suggestions of this person live in Forgejo.
+    forgejo_url: String,
+    /// Something a person must know that is not a failure.
+    notice: String,
+    errors: Vec<String>,
+}
+
+/// The Suggestions area of a person: one place for both directions.
+///
+/// **Needs my review** is what somebody else proposes to a Recipe that
+/// Forgejo lets this person write to. **My suggestions** is what this person
+/// proposed anywhere, and that second list cannot come from the Recipes of
+/// this person: a Reader suggests a change to a Recipe that they neither own
+/// nor work on, and that is the ordinary case.
+async fn inbox(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    jar: CookieJar,
+    MaybeUser(current): MaybeUser,
+) -> Response {
+    let Some(actor) = actor(&state, &jar).await else {
+        return Redirect::to("/auth/sign-in").into_response();
+    };
+
+    let mut errors = Vec::new();
+    let mut notice = String::new();
+
+    let mine = mine_rows(&state, &actor, &mut errors).await;
+    let review = review_rows(&state, &actor, &mut errors, &mut notice).await;
+
+    respond(InboxTemplate {
+        layout: Layout::new(current.as_ref()).on(&headers, INBOX_HREF),
+        forgejo_url: format!("{}/pulls", state.forgejo.public_url()),
+        review,
+        mine,
+        notice,
+        errors,
+    })
+}
+
+/// The Suggestions that this person made, newest first.
+async fn mine_rows(state: &AppState, actor: &Actor, errors: &mut Vec<String>) -> Vec<InboxRow> {
+    let found = match suggestion::made_by(&state.forgejo, &actor.token, &actor.user.login).await {
+        Ok(found) => found,
+        Err(error) => {
+            tracing::info!(%error, login = %actor.user.login, "cannot read the Suggestions of this person");
+            errors.push(NO_INBOX_MESSAGE.to_string());
+            return Vec::new();
+        }
+    };
+
+    let mut rows = Vec::new();
+    for one in newest_first(found).into_iter().take(MAX_INBOX_ROWS) {
+        let owner = one.owner().to_string();
+        let slug = one.slug().to_string();
+        let held = suggestion::found_state(&one);
+
+        rows.push(InboxRow {
+            recipe: recipe_title(state, &owner, &slug).await,
+            owner,
+            slug,
+            number: one.number,
+            title: suggestion::plain_title(&one.title).to_string(),
+            author: author(&one.user),
+            made: short_date(&one.created_at),
+            state: held.label(),
+            pill: pill(held),
+            comments: one.comments,
+        });
+    }
+
+    rows
+}
+
+/// Put the Suggestions that a search found in the order a person reads them.
+///
+/// The one that moved last comes first, because that is the one with news
+/// in it. Forgejo writes both moments, and the moment it was made stands in
+/// when the other one is missing.
+fn newest_first(
+    mut found: Vec<crate::forgejo::FoundPullRequest>,
+) -> Vec<crate::forgejo::FoundPullRequest> {
+    found.sort_by(|left, right| {
+        let moment = |one: &crate::forgejo::FoundPullRequest| {
+            if one.updated_at.is_empty() {
+                one.created_at.clone()
+            } else {
+                one.updated_at.clone()
+            }
+        };
+        moment(right).cmp(&moment(left))
+    });
+    found
+}
+
+/// The Suggestions that wait for this person to read them.
+///
+/// An Editor is somebody Forgejo lets write to the Recipe, so the Recipes to
+/// look in are the ones this person owns or works on. Forgejo names them,
+/// and Forgejo answers the write question for each Recipe that has something
+/// waiting in it.
+async fn review_rows(
+    state: &AppState,
+    actor: &Actor,
+    errors: &mut Vec<String>,
+    notice: &mut String,
+) -> Vec<InboxRow> {
+    let (repositories, truncated) = match crate::index::visible(
+        &state.forgejo,
+        Some(&actor.token),
+        Ownership::ReachableBy(actor.user.id),
+    )
+    .await
+    {
+        Ok(found) => found,
+        Err(error) => {
+            tracing::info!(%error, login = %actor.user.login, "cannot ask Forgejo for the Recipes of this person");
+            errors.push(NO_INBOX_MESSAGE.to_string());
+            return Vec::new();
+        }
+    };
+
+    // A short answer is not proof that nothing else exists, so a person who
+    // reaches more Recipes than this reads must be told so.
+    if truncated {
+        *notice = PARTIAL_INBOX_MESSAGE.to_string();
+    }
+
+    let reads = repositories.into_iter().map(|repository| async move {
+        let found = suggestion::list(
+            &state.forgejo,
+            Some(&actor.token),
+            &repository.owner.login,
+            &repository.name,
+        )
+        .await;
+        (repository, found)
+    });
+
+    let answers: Vec<(
+        Repository,
+        Result<Vec<PullRequest>, crate::forgejo::ForgejoError>,
+    )> = futures::stream::iter(reads)
+        .buffer_unordered(INBOX_CONCURRENCY)
+        .collect()
+        .await;
+
+    // A Suggestion that this person is writing themselves is not one they
+    // review, and one that is still being written is not ready to be read.
+    let mut waiting: Vec<(Repository, PullRequest)> = Vec::new();
+    for (repository, found) in answers {
+        let Ok(found) = found else {
+            tracing::info!(
+                repository = %repository.full_name,
+                "cannot read the Suggestions of this Recipe for the inbox"
+            );
+            continue;
+        };
+
+        for pull in found {
+            if suggestion::state_of(&pull) == SuggestionState::Ready
+                && pull.author() != actor.user.login
+            {
+                waiting.push((repository.clone(), pull));
+            }
+        }
+    }
+
+    // The write question is asked once for each Recipe that has something
+    // waiting, so the number of questions follows the Suggestions and never
+    // the number of Recipes.
+    let mut allowed: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    for (repository, _) in &waiting {
+        if allowed.contains_key(&repository.full_name) {
+            continue;
+        }
+        let answer = state
+            .forgejo
+            .can_write(&actor.token, &repository.owner.login, &repository.name)
+            .await
+            .unwrap_or(false);
+        allowed.insert(repository.full_name.clone(), answer);
+    }
+
+    waiting.retain(|(repository, _)| allowed.get(&repository.full_name).copied().unwrap_or(false));
+    waiting.sort_by(|(_, left), (_, right)| right.updated_at.cmp(&left.updated_at));
+
+    let mut rows = Vec::new();
+    for (repository, pull) in waiting.into_iter().take(MAX_INBOX_ROWS) {
+        let owner = repository.owner.login.clone();
+        let slug = repository.name.clone();
+        let held = suggestion::state_of(&pull);
+
+        rows.push(InboxRow {
+            recipe: recipe_title(state, &owner, &slug).await,
+            owner,
+            slug,
+            number: pull.number,
+            title: suggestion::plain_title(&pull.title).to_string(),
+            author: author(&pull.user),
+            made: short_date(&pull.created_at),
+            state: held.label(),
+            pill: pill(held),
+            comments: pull.comments,
+        });
+    }
+
+    rows
+}
+
+/// The title a cook reads for a Recipe.
+///
+/// The title lives in the Cooklang metadata, so a list without the index
+/// would cost one read of every Recipe. This is exactly what the index is
+/// for, and a Recipe that it does not hold yet shows the name that Forgejo
+/// holds instead.
+async fn recipe_title(state: &AppState, owner: &str, slug: &str) -> String {
+    match crate::index::get(&state.pool, owner, slug).await {
+        Ok(Some(entry)) => entry.title,
+        Ok(None) => slug.to_string(),
+        Err(error) => {
+            tracing::warn!(%error, %owner, %slug, "cannot read the Recipe index");
+            slug.to_string()
+        }
+    }
+}
+
 /// Make the text the browser sent into the text the person typed.
 ///
 /// A form sends every line break as CR LF. Keeping them would make the
@@ -1159,6 +1816,12 @@ mod tests {
                 suggestion::NEW_MESSAGE
             },
             note: String::new(),
+            comparison: Comparison { groups: Vec::new() },
+            comments: Vec::new(),
+            form_message: String::new(),
+            can_act: false,
+            conflict_note: suggestion::CONFLICT_MESSAGE,
+            not_ready_note: suggestion::NOT_READY_MESSAGE,
             preview_title: String::new(),
             cooked: RenderedRecipe::default(),
             warnings: Vec::new(),
@@ -1232,6 +1895,7 @@ mod tests {
                 pill: pill(SuggestionState::Ready),
                 comments: 2,
                 mine: false,
+                conflict: false,
             }],
             errors: Vec::new(),
         }
@@ -1242,5 +1906,270 @@ mod tests {
         assert!(page.contains("Ready for review"));
         assert!(page.contains("/recipes/sam/chili/suggestions/7"));
         assert!(page.contains("/recipes/sam/chili/suggest"));
+    }
+
+    /// One Suggestion, with the answer Forgejo gives about whether the two
+    /// sides still fit together.
+    fn pull_fitting(number: i64, title: &str, login: &str, fits: Option<bool>) -> PullRequest {
+        serde_json::from_value(serde_json::json!({
+            "number": number,
+            "title": title,
+            "body": "More onion.",
+            "state": "open",
+            "flow": 1,
+            "mergeable": fits,
+            "created_at": "2026-08-26T09:41:00+02:00",
+            "user": { "id": 1, "login": login, "full_name": "" },
+            "head": { "sha": "a".repeat(40), "ref": format!("refs/pull/{number}/head") },
+            "base": { "sha": "b".repeat(40), "ref": "main" },
+        }))
+        .expect("the answer must read")
+    }
+
+    /// Somebody who is signed in, so that the page draws what they can do.
+    fn signed_in() -> crate::session::CurrentUser {
+        crate::session::CurrentUser {
+            forgejo_user_id: 1,
+            login: "sam".to_string(),
+            display_name: "Sam Cook".to_string(),
+            avatar_url: String::new(),
+        }
+    }
+
+    /// The review of one Suggestion, as an Editor reads it.
+    fn review_page(pull: &PullRequest, can_act: bool, comparison: Comparison) -> String {
+        let me = signed_in();
+        SuggestionTemplate {
+            layout: Layout::new(Some(&me)),
+            owner: "sam".to_string(),
+            slug: "chili".to_string(),
+            title: "Chili".to_string(),
+            areas: Vec::new(),
+            forgejo_url: "https://forge.test/sam/chili/pulls/7".to_string(),
+            errors: Vec::new(),
+            suggestion: Some(view_of(pull, "sam")),
+            editable: false,
+            elsewhere: suggestion::ELSEWHERE_MESSAGE,
+            source: "Chop the @onion{2}.".to_string(),
+            base_version: String::new(),
+            draft_version: String::new(),
+            notice: "",
+            note: String::new(),
+            comparison,
+            comments: vec![CommentView {
+                author: "Kim".to_string(),
+                written: "2026-08-26".to_string(),
+                body: "More onion, please.".to_string(),
+            }],
+            form_message: String::new(),
+            can_act,
+            conflict_note: suggestion::CONFLICT_MESSAGE,
+            not_ready_note: suggestion::NOT_READY_MESSAGE,
+            preview_title: String::new(),
+            cooked: RenderedRecipe::default(),
+            warnings: Vec::new(),
+            parse_errors: Vec::new(),
+        }
+        .with_preview("Chili")
+        .render()
+        .expect("the page must render")
+    }
+
+    /// A comparison with one difference in it.
+    fn one_change() -> Comparison {
+        crate::web_history::Comparison {
+            groups: vec![crate::web_history::Group {
+                name: "Ingredients",
+                differences: Vec::new(),
+            }],
+        }
+    }
+
+    #[test]
+    fn an_editor_reads_the_changes_the_conversation_and_the_two_actions() {
+        let page = review_page(
+            &pull_fitting(7, "Suggestion for Chili", "kim", Some(true)),
+            true,
+            one_change(),
+        );
+
+        assert!(page.contains("Changes"));
+        assert!(page.contains("Ingredients"));
+        assert!(page.contains("Conversation"));
+        assert!(page.contains("More onion, please."));
+        assert!(page.contains("Accept Suggestion"));
+        assert!(page.contains("Decline Suggestion"));
+        assert!(page.contains("/recipes/sam/chili/suggestions/7/accept"));
+        assert!(page.contains("/recipes/sam/chili/suggestions/7/decline"));
+    }
+
+    #[test]
+    fn a_suggestion_with_a_conflict_is_marked_and_cannot_be_accepted() {
+        let page = review_page(
+            &pull_fitting(7, "Suggestion for Chili", "kim", Some(false)),
+            true,
+            one_change(),
+        );
+
+        assert!(
+            page.contains("Cannot be accepted"),
+            "the mark must be there"
+        );
+        assert!(page.contains(suggestion::CONFLICT_MESSAGE));
+        assert!(
+            !page.contains("/recipes/sam/chili/suggestions/7/accept"),
+            "the interface must not offer an acceptance it will refuse"
+        );
+        // Declining a Suggestion that cannot be accepted is exactly what an
+        // Editor needs to be able to do.
+        assert!(page.contains("/recipes/sam/chili/suggestions/7/decline"));
+    }
+
+    #[test]
+    fn a_suggestion_that_is_still_being_written_cannot_be_accepted() {
+        let page = review_page(
+            &pull_fitting(7, "WIP: Suggestion for Chili", "kim", Some(true)),
+            true,
+            one_change(),
+        );
+
+        assert!(page.contains("Editing in progress"));
+        assert!(page.contains(suggestion::NOT_READY_MESSAGE));
+        assert!(!page.contains("/recipes/sam/chili/suggestions/7/accept"));
+        // Forgejo reads this prefix, and no cook ever does.
+        assert!(!page.contains("WIP"));
+    }
+
+    #[test]
+    fn a_person_who_cannot_change_the_recipe_reads_it_and_can_still_comment() {
+        let page = review_page(
+            &pull_fitting(7, "Suggestion for Chili", "kim", Some(true)),
+            false,
+            one_change(),
+        );
+
+        assert!(!page.contains("Accept Suggestion"));
+        assert!(!page.contains("Decline Suggestion"));
+        assert!(!page.contains("Your decision"));
+        // A comment needs read access and no more.
+        assert!(page.contains("/recipes/sam/chili/suggestions/7/comments"));
+        assert!(page.contains("Write comment"));
+    }
+
+    #[test]
+    fn the_review_carries_no_script_that_runs() {
+        // The policy is `default-src 'self'`, and the page has to work with
+        // scripts blocked. Accept and Decline are ordinary forms.
+        let page = review_page(
+            &pull_fitting(7, "Suggestion for Chili", "kim", Some(true)),
+            true,
+            one_change(),
+        );
+
+        assert!(!page.contains("<script"));
+        assert!(!page.contains("onclick="));
+        assert!(!page.contains("onsubmit="));
+    }
+
+    fn inbox_row(number: i64, state: SuggestionState) -> InboxRow {
+        InboxRow {
+            owner: "sam".to_string(),
+            slug: "chili".to_string(),
+            recipe: "Chili sin Carne".to_string(),
+            number,
+            title: "Suggestion for Chili sin Carne".to_string(),
+            author: "Kim".to_string(),
+            made: "2026-08-26".to_string(),
+            state: state.label(),
+            pill: pill(state),
+            comments: 1,
+        }
+    }
+
+    #[test]
+    fn the_inbox_holds_both_directions_and_names_the_recipe_of_each_row() {
+        let page = InboxTemplate {
+            layout: Layout::new(None),
+            review: vec![inbox_row(7, SuggestionState::Ready)],
+            mine: vec![inbox_row(9, SuggestionState::Accepted)],
+            forgejo_url: "https://forge.test/pulls".to_string(),
+            notice: String::new(),
+            errors: Vec::new(),
+        }
+        .render()
+        .expect("the page must render");
+
+        assert!(page.contains("Needs my review"));
+        assert!(page.contains("My suggestions"));
+        // A row has to name the Recipe, because the inbox covers all of them.
+        assert!(page.contains("Chili sin Carne"));
+        assert!(page.contains("/recipes/sam/chili/suggestions/7"));
+        assert!(page.contains("/recipes/sam/chili/suggestions/9"));
+        assert!(page.contains("Ready for review"));
+        assert!(page.contains("Accepted"));
+    }
+
+    #[test]
+    fn an_empty_inbox_says_so_in_both_lists() {
+        let page = InboxTemplate {
+            layout: Layout::new(None),
+            review: Vec::new(),
+            mine: Vec::new(),
+            forgejo_url: "https://forge.test/pulls".to_string(),
+            notice: String::new(),
+            errors: Vec::new(),
+        }
+        .render()
+        .expect("the page must render");
+
+        assert!(page.contains("No Suggestion waits for you."));
+        assert!(page.contains("You made no Suggestion yet."));
+    }
+
+    #[test]
+    fn a_refused_action_says_what_happened_and_how_hard_it_is() {
+        // A refusal that the Editor can act on must not read as an outage,
+        // and an outage must not read as a refusal.
+        assert_eq!(
+            refused(&SuggestionError::Conflict),
+            (StatusCode::CONFLICT, suggestion::CONFLICT_MESSAGE)
+        );
+        assert_eq!(
+            refused(&SuggestionError::NotReady),
+            (StatusCode::CONFLICT, suggestion::NOT_READY_MESSAGE)
+        );
+        assert_eq!(
+            refused(&SuggestionError::Gone),
+            (StatusCode::CONFLICT, suggestion::ALREADY_MESSAGE)
+        );
+        assert_eq!(
+            refused(&SuggestionError::Git(crate::git::GitError::Conflict)).0,
+            StatusCode::BAD_GATEWAY
+        );
+    }
+
+    #[test]
+    fn the_newest_suggestion_comes_first_in_the_inbox() {
+        let one = |number: i64, updated: &str| -> crate::forgejo::FoundPullRequest {
+            serde_json::from_value(serde_json::json!({
+                "number": number,
+                "title": "Suggestion for Chili",
+                "state": "open",
+                "created_at": "2026-08-01T09:00:00Z",
+                "updated_at": updated,
+                "pull_request": { "merged": false },
+                "repository": { "owner": "sam", "name": "chili", "full_name": "sam/chili" },
+            }))
+            .expect("the answer must read")
+        };
+
+        let sorted = newest_first(vec![
+            one(1, "2026-08-01T09:00:00Z"),
+            one(3, "2026-08-26T09:00:00Z"),
+            one(2, "2026-08-10T09:00:00Z"),
+        ]);
+
+        let order: Vec<i64> = sorted.iter().map(|one| one.number).collect();
+        assert_eq!(order, vec![3, 2, 1]);
     }
 }

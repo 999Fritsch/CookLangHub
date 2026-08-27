@@ -28,7 +28,7 @@
 //! **Editing in progress**, and one without it is **Ready for review**.
 //! Forgejo alone holds that title.
 
-use crate::forgejo::{ForgejoClient, ForgejoError, ForgejoUser, PullRequest};
+use crate::forgejo::{ForgejoClient, ForgejoError, ForgejoUser, FoundPullRequest, PullRequest};
 use crate::git::{GitAdapter, GitError, Identity, PushSuggestion};
 use crate::secret::Secret;
 
@@ -107,6 +107,13 @@ pub enum SuggestionError {
     Forgejo(#[from] ForgejoError),
     #[error(transparent)]
     Git(#[from] GitError),
+    /// Forgejo cannot put this Suggestion into the Recipe, because both
+    /// changed the same words. The application does not guess.
+    #[error("this Suggestion and the Recipe changed the same words")]
+    Conflict,
+    /// The person who made the Suggestion is still writing it.
+    #[error("this Suggestion is not ready for an Editor")]
+    NotReady,
 }
 
 /// What a person reads about a Suggestion.
@@ -465,6 +472,207 @@ pub async fn set_state(
     Ok(())
 }
 
+// ---------------------------------------------------------------------
+// The review: what an Editor reads, and the two actions they have
+// ---------------------------------------------------------------------
+
+/// The word Forgejo knows for "write the whole change as one Version".
+///
+/// A person saves their Suggestion many times while they write, and each
+/// save adds a Version to the Suggestion. This makes the acceptance write
+/// exactly one Version into the History of the Recipe, however many saves
+/// the Suggestion holds.
+const SQUASH: &str = "squash";
+
+/// The word Forgejo knows for a Suggestion that nobody can write in.
+const CLOSED: &str = "closed";
+
+/// Shown when Forgejo cannot put a Suggestion into the Recipe.
+pub const CONFLICT_MESSAGE: &str = "This Suggestion and the published Recipe changed the same words. CookLangHub cannot put them together, and it will not guess. Ask the person to start a new Suggestion from the Recipe as it is now.";
+
+/// Shown when a Suggestion is still being written.
+pub const NOT_READY_MESSAGE: &str = "This Suggestion is not finished. CookLangHub can accept it after the person marks it Ready for review.";
+
+/// Shown when the person may read the Recipe but may not act on it.
+pub const NO_ACCESS_MESSAGE: &str = "You can read this Recipe, but you cannot accept a Suggestion for it. Ask the owner to share the Recipe with you as an Editor.";
+
+/// Shown when the Suggestion was accepted or declined already.
+pub const ALREADY_MESSAGE: &str =
+    "This Suggestion is not open any more. Somebody accepted it or declined it before you.";
+
+/// Shown when a comment carries no words.
+pub const EMPTY_COMMENT_MESSAGE: &str = "A comment needs words.";
+
+/// Whether Forgejo says that it cannot put this Suggestion into the Recipe.
+///
+/// Forgejo answers no for three different reasons: the two sides changed the
+/// same words, the person is still writing, and it has not finished looking.
+/// Only a Suggestion that is **Ready for review** is asked, so the second
+/// reason cannot reach a person as a conflict. A Suggestion that is closed
+/// already is not asked either: there is nothing left to put anywhere.
+///
+/// The third reason is a moment long, right after a save, and Forgejo makes
+/// it look exactly like the first. That is why this answer marks the page
+/// but never refuses the action: see [`accept`].
+///
+/// Absent is not a conflict. Forgejo does answer, but an answer without the
+/// field must not become a mark that the Suggestion did not earn.
+pub fn has_conflict(pull: &PullRequest) -> bool {
+    state_of(pull) == State::Ready && pull.mergeable == Some(false)
+}
+
+/// Whether the interface offers an acceptance for this Suggestion.
+///
+/// Two things must hold: the person marked it **Ready for review**, and
+/// Forgejo last said that it can put the Suggestion into the Recipe.
+/// Whether this Editor may act at all is a permission, and Forgejo answers
+/// that one separately.
+pub fn can_accept(pull: &PullRequest) -> bool {
+    state_of(pull) == State::Ready && !has_conflict(pull)
+}
+
+/// The description that an acceptance writes into History.
+pub fn accept_message(recipe_title: &str) -> String {
+    let title = recipe_title.trim();
+    if title.is_empty() {
+        "Accept a Suggestion".to_string()
+    } else {
+        format!("Accept a Suggestion for {title}")
+    }
+}
+
+/// Accept a Suggestion, and let it become one published Version.
+///
+/// Forgejo does the work and Git holds the result. The Recipe gets exactly
+/// one new Version, whatever the Suggestion holds inside, and the History
+/// before it is untouched.
+///
+/// Two things are refused here, because both are certain: a Suggestion that
+/// is closed, and one that the person is still writing. Whether the two
+/// sides fit together is not certain here, because Forgejo reports the same
+/// answer while it is still looking as it does for a real conflict. So that
+/// question is not answered here at all. Forgejo is asked to do the work,
+/// and Forgejo decides, which keeps the one decision in the one place that
+/// can make it.
+///
+/// A refusal from either side leaves the Recipe and the Suggestion exactly
+/// as they were.
+pub async fn accept(
+    forgejo: &ForgejoClient,
+    token: &Secret<String>,
+    owner: &str,
+    slug: &str,
+    pull: &PullRequest,
+    recipe_title: &str,
+) -> Result<(), SuggestionError> {
+    if !pull.is_open() {
+        return Err(SuggestionError::Gone);
+    }
+    if state_of(pull) != State::Ready {
+        return Err(SuggestionError::NotReady);
+    }
+
+    // The words the person wrote go into the Version with the change, so
+    // the reason for it stays with it. An empty note would let Forgejo
+    // write a description of its own, and that one names Versions.
+    let reason = if pull.body.trim().is_empty() {
+        plain_title(&pull.title).to_string()
+    } else {
+        pull.body.trim().to_string()
+    };
+
+    let refusal = match forgejo
+        .merge_pull_request(
+            token,
+            owner,
+            slug,
+            pull.number,
+            SQUASH,
+            &accept_message(recipe_title),
+            &reason,
+        )
+        .await
+    {
+        Ok(()) => return Ok(()),
+        Err(refusal) => refusal,
+    };
+
+    // Forgejo refused. Read the Suggestion again, so that the person reads
+    // why, and not only that something did not work.
+    match forgejo
+        .pull_request(Some(token), owner, slug, pull.number)
+        .await
+    {
+        Ok(now) if !now.is_open() => Err(SuggestionError::Gone),
+        Ok(now) if state_of(&now) != State::Ready => Err(SuggestionError::NotReady),
+        Ok(now) if has_conflict(&now) => Err(SuggestionError::Conflict),
+        _ => Err(SuggestionError::Forgejo(refusal)),
+    }
+}
+
+/// Decline a Suggestion.
+///
+/// Nothing is removed. Forgejo keeps the proposal, the person who made it,
+/// and every word of the conversation, so a past decision stays readable.
+pub async fn decline(
+    forgejo: &ForgejoClient,
+    token: &Secret<String>,
+    owner: &str,
+    slug: &str,
+    pull: &PullRequest,
+) -> Result<(), SuggestionError> {
+    if !pull.is_open() {
+        return Err(SuggestionError::Gone);
+    }
+
+    forgejo
+        .set_pull_request_state(token, owner, slug, pull.number, CLOSED)
+        .await?;
+
+    Ok(())
+}
+
+/// The state of a Suggestion that a search across Recipes found.
+///
+/// A search answers in a shape of its own, so the same three questions are
+/// asked of it: whether it was accepted, whether it is closed, and whether
+/// Forgejo marks it work in progress. The answer is the same state a person
+/// reads anywhere else.
+pub fn found_state(found: &FoundPullRequest) -> State {
+    if found.merged() {
+        State::Accepted
+    } else if !found.is_open() {
+        State::Declined
+    } else if is_editing(&found.title) {
+        State::Editing
+    } else {
+        State::Ready
+    }
+}
+
+/// Read the Suggestions that one person made, across every Recipe.
+///
+/// Forgejo answers this in one question, and it applies the permissions of
+/// the credential, so the answer names no Recipe that this person may not
+/// see. The author is checked here as well: the filter belongs to Forgejo,
+/// and a Forgejo that ignored it must still not put the work of somebody
+/// else under the name of this person.
+pub async fn made_by(
+    forgejo: &ForgejoClient,
+    token: &Secret<String>,
+    login: &str,
+) -> Result<Vec<FoundPullRequest>, ForgejoError> {
+    let found = forgejo
+        .search_my_pull_requests(token, "all", MAX_SUGGESTIONS)
+        .await?;
+
+    Ok(found
+        .into_iter()
+        .filter(|one| one.is_pull_request() && one.author() == login)
+        .filter(|one| !one.owner().is_empty() && !one.slug().is_empty())
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -521,6 +729,11 @@ mod tests {
             GONE_MESSAGE,
             REFUSED_MESSAGE,
             ELSEWHERE_MESSAGE,
+            CONFLICT_MESSAGE,
+            NOT_READY_MESSAGE,
+            NO_ACCESS_MESSAGE,
+            ALREADY_MESSAGE,
+            EMPTY_COMMENT_MESSAGE,
         ] {
             assert_eq!(
                 says_forge_word(message),
@@ -537,6 +750,8 @@ mod tests {
             SuggestionError::TooMany.to_string(),
             SuggestionError::Gone.to_string(),
             SuggestionError::Stale.to_string(),
+            SuggestionError::Conflict.to_string(),
+            SuggestionError::NotReady.to_string(),
         ] {
             assert_eq!(
                 says_forge_word(&message),
@@ -706,5 +921,162 @@ mod tests {
 
         assert!(ours.is_agit());
         assert!(!theirs.is_agit());
+    }
+
+    /// One Suggestion, with the answer Forgejo gives about whether the two
+    /// sides still fit together.
+    fn pull_fitting(title: &str, state: &str, merged: bool, fits: Option<bool>) -> PullRequest {
+        serde_json::from_value(serde_json::json!({
+            "number": 1,
+            "title": title,
+            "state": state,
+            "merged": merged,
+            "mergeable": fits,
+            "flow": 1,
+        }))
+        .expect("the answer must read")
+    }
+
+    #[test]
+    fn only_a_plain_no_about_a_finished_suggestion_is_a_conflict() {
+        assert!(has_conflict(&pull_fitting(
+            "Suggestion for Chili",
+            "open",
+            false,
+            Some(false)
+        )));
+        // Absent must not read as a conflict, or a Suggestion would carry a
+        // mark that it did not earn.
+        assert!(!has_conflict(&pull_fitting(
+            "Suggestion for Chili",
+            "open",
+            false,
+            None
+        )));
+        assert!(!has_conflict(&pull_fitting(
+            "Suggestion for Chili",
+            "open",
+            false,
+            Some(true)
+        )));
+        // Forgejo says no about a Suggestion that somebody is still
+        // writing, and that is not a conflict. A person who read it as one
+        // would go looking for a change that nobody made.
+        assert!(!has_conflict(&pull_fitting(
+            "WIP: Suggestion for Chili",
+            "open",
+            false,
+            Some(false)
+        )));
+        // Nothing is left to put anywhere, so a closed one gets no mark.
+        assert!(!has_conflict(&pull_fitting(
+            "Suggestion for Chili",
+            "closed",
+            true,
+            Some(false)
+        )));
+    }
+
+    #[test]
+    fn a_suggestion_with_a_conflict_cannot_be_accepted() {
+        assert!(!can_accept(&pull_fitting(
+            "Suggestion for Chili",
+            "open",
+            false,
+            Some(false)
+        )));
+        assert!(can_accept(&pull_fitting(
+            "Suggestion for Chili",
+            "open",
+            false,
+            Some(true)
+        )));
+    }
+
+    #[test]
+    fn only_a_suggestion_that_is_ready_and_open_can_be_accepted() {
+        // A person is still writing this one. An Editor waits for them.
+        assert!(!can_accept(&pull_fitting(
+            "WIP: Suggestion for Chili",
+            "open",
+            false,
+            Some(true)
+        )));
+        // These two are finished with, one way or the other.
+        assert!(!can_accept(&pull_fitting(
+            "Suggestion for Chili",
+            "closed",
+            true,
+            None
+        )));
+        assert!(!can_accept(&pull_fitting(
+            "Suggestion for Chili",
+            "closed",
+            false,
+            None
+        )));
+    }
+
+    #[test]
+    fn the_version_an_acceptance_writes_says_what_happened_in_cooking_words() {
+        let message = accept_message("Chili sin Carne");
+        assert_eq!(message, "Accept a Suggestion for Chili sin Carne");
+        assert_eq!(says_forge_word(&message), None);
+
+        // A Recipe that names itself nowhere still gets a description.
+        assert_eq!(accept_message("   "), "Accept a Suggestion");
+        assert_eq!(says_forge_word(&accept_message("")), None);
+    }
+
+    /// One Suggestion, as a search across Recipes reports it.
+    fn found(title: &str, state: &str, merged: bool, login: &str) -> FoundPullRequest {
+        serde_json::from_value(serde_json::json!({
+            "number": 3,
+            "title": title,
+            "state": state,
+            "comments": 0,
+            "user": { "id": 1, "login": login, "full_name": "" },
+            "pull_request": { "merged": merged },
+            "repository": { "owner": "sam", "name": "chili", "full_name": "sam/chili" },
+        }))
+        .expect("the answer must read")
+    }
+
+    #[test]
+    fn a_search_and_a_recipe_report_the_same_state() {
+        assert_eq!(
+            found_state(&found("WIP: Suggestion for Chili", "open", false, "kim")),
+            State::Editing
+        );
+        assert_eq!(
+            found_state(&found("Suggestion for Chili", "open", false, "kim")),
+            State::Ready
+        );
+        assert_eq!(
+            found_state(&found("Suggestion for Chili", "closed", true, "kim")),
+            State::Accepted
+        );
+        assert_eq!(
+            found_state(&found("Suggestion for Chili", "closed", false, "kim")),
+            State::Declined
+        );
+    }
+
+    #[test]
+    fn a_search_entry_names_the_recipe_it_belongs_to() {
+        let one = found("Suggestion for Chili", "open", false, "kim");
+        assert_eq!(one.owner(), "sam");
+        assert_eq!(one.slug(), "chili");
+        assert_eq!(one.author(), "kim");
+        assert!(one.is_pull_request());
+
+        // A Discussion carries no pull request object, and it is not a
+        // Suggestion.
+        let discussion: FoundPullRequest = serde_json::from_value(serde_json::json!({
+            "number": 4, "state": "open",
+        }))
+        .expect("the answer must read");
+        assert!(!discussion.is_pull_request());
+        assert_eq!(discussion.owner(), "");
     }
 }

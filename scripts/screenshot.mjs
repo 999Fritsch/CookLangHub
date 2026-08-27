@@ -55,6 +55,9 @@ const PAGES = [
 
 const SIZES = [
   { name: "desktop", width: 1280, height: 900 },
+  // 768 is where the wide navigation appears. It is the tightest that row
+  // ever gets, and neither of the other two sizes shows it.
+  { name: "tablet", width: 768, height: 1024 },
   { name: "mobile", width: 375, height: 812 },
 ];
 

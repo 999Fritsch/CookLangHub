@@ -232,6 +232,9 @@ impl Layout {
             "new" => path == "/recipes/new",
             "recipes" => path == "/" || (path.starts_with("/recipes/") && path != "/recipes/new"),
             "cookbooks" => path == "/cookbooks" || path.starts_with("/cookbooks/"),
+            // The Suggestions of a person cover every Recipe, so the area
+            // is the one address and never a page inside a Recipe.
+            "suggestions" => path == crate::web_suggestions::INBOX_HREF,
             _ => false,
         }
     }
