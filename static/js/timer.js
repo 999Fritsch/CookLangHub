@@ -10,10 +10,21 @@
  * stopwatch mark, so a running timer is the same component in another
  * state. This file is new work and not a copy of a CookCLI file.
  *
- * A timer that ends must be noticeable. A browser blocks a sound that
- * starts on its own, so the signal is a change a person can see: the badge
- * reads `Time is up` and pulses, and the tab says so for a cook who looked
- * away.
+ * A timer that ends must be noticeable, and a cook is not looking at the
+ * screen. So it rings.
+ *
+ * A browser blocks a sound that a page starts on its own, which is why this
+ * file once had none. It does not block one that follows something a person
+ * did, and a person starts a timer by pressing it. The press is what opens
+ * the sound, and the ring at the end is allowed because of it.
+ *
+ * The sound is made here and not fetched, so the page needs no audio file,
+ * no second request, and nothing from another origin. It rings three times
+ * and stops: a timer that will not be quiet is worse than one that is.
+ *
+ * There is a signal to see as well, for a kitchen where sound is not wanted
+ * and for a person who cannot hear it: the badge reads `Time is up` and
+ * pulses, and the tab says so for a cook who looked away.
  *
  * Nothing here writes to the server. A timer is a kitchen tool and not a
  * change to the Recipe.
@@ -24,6 +35,48 @@
   var TICK_MS = 250;
   var DONE_CLASSES = ["animate-pulse", "font-bold"];
   var IDLE_CLASSES = ["timer-badge", "cursor-pointer"];
+
+  /*
+   * One AudioContext for the page, opened by the press that starts a timer.
+   * A context made before any press starts suspended, and a browser keeps it
+   * that way, so it is made on the press and never earlier.
+   */
+  var sound = null;
+
+  function openSound() {
+    if (sound) {
+      if (sound.state === "suspended") sound.resume();
+      return;
+    }
+    var Maker = window.AudioContext || window.webkitAudioContext;
+    if (!Maker) return;
+    try {
+      sound = new Maker();
+    } catch (error) {
+      sound = null;
+    }
+  }
+
+  /* Three short notes. The gain fades each one, because a square edge on a
+     tone is heard as a click. */
+  function ring() {
+    if (navigator.vibrate) navigator.vibrate([200, 120, 200, 120, 200]);
+    if (!sound || sound.state !== "running") return;
+    for (var count = 0; count < 3; count++) {
+      var at = sound.currentTime + count * 0.32;
+      var tone = sound.createOscillator();
+      var level = sound.createGain();
+      tone.type = "sine";
+      tone.frequency.value = 880;
+      level.gain.setValueAtTime(0.0001, at);
+      level.gain.exponentialRampToValueAtTime(0.25, at + 0.02);
+      level.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
+      tone.connect(level);
+      level.connect(sound.destination);
+      tone.start(at);
+      tone.stop(at + 0.24);
+    }
+  }
 
   var pageTitle = document.title;
   var announcer = null;
@@ -121,6 +174,7 @@
       button.setAttribute("aria-label", "Time is up. Reset the timer: " + label);
       announce("The timer for " + label + " is finished.");
       markTitle(1);
+      ring();
     }
 
     function tick() {
@@ -136,6 +190,7 @@
 
     function start() {
       state = "running";
+      openSound();
       deadline = Date.now() + total * 1000;
       button.setAttribute("aria-label", "Stop the timer: " + label);
       paint(clock(total), "Timer: ");
