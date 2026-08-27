@@ -12,14 +12,28 @@
 {% block content %}
 <div>
   <div class="mb-8">
-    {# Six actions need more room than a Cookbook's one, so this head stays
-         stacked until 1024 pixels. At 768 the actions took the width and left
-         the name of the Recipe in a two-line column. #}
-    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+    {#
+      CookCLI puts the photo first, and the name of the Recipe under it with
+      the scale and the actions on that same row. This follows them, because
+      a cook who knows `cook server` must recognise this page.
+
+      Their row carries the scale, Edit, and Cook. The rest of what this
+      product adds goes on the row below it, so that the name of the Recipe
+      keeps the width it needs.
+    #}
+    {% if photo %}
+    <div class="mb-6 max-w-4xl mx-auto flex justify-center">
+      <img src="/recipes/{{ owner }}/{{ slug }}/thumbnail" alt=""
+           class="rounded-xl shadow-lg max-w-full h-auto max-h-[500px]">
+    </div>
+    {% endif %}
+
+    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4">
       <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
         {{ title }}
       </h1>
-      <div class="flex flex-wrap items-center gap-2 self-start">
+      <div class="flex flex-wrap items-center gap-2 lg:gap-3 self-start print:hidden">
+        {% include "recipe_scale.html" %}
         {# Recipe actions. Edit goes before this link, Share after it. #}
         {% if !cooked.is_empty() %}
         <button type="button" data-start-cooking
@@ -41,6 +55,11 @@
         <a class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap"
            href="/recipes/{{ owner }}/{{ slug }}/edit">Edit</a>
         {% endif %}
+      </div>
+    </div>
+
+    {# What this product adds. Second, because CookCLI has none of it. #}
+    <div class="flex flex-wrap items-center gap-2 mb-4 print:hidden">
         <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
         {# Sharing sits at the address of this page plus /sharing. #}
         <a class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap" href="{{ layout.path }}/sharing">Share</a>
@@ -63,7 +82,6 @@
           <button type="submit" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap">{% if marks.notify %}Do not notify me{% else %}Notify me{% endif %}</button>
         </form>
         {% endif %}
-      </div>
     </div>
 
     {# The owner name is the way to their profile, which shows the rest of
@@ -77,12 +95,6 @@
       <span class="metadata-pill metadata-servings"><span aria-hidden="true">📦</span>&nbsp;{{ archived_label }}</span>
       <span class="text-gray-600">{{ archived_message }}</span>
     </div>
-    {% endif %}
-
-    {# The photo of the Recipe. It is served by this application, so the
-       page needs no other origin and a private Recipe keeps its photo. #}
-    {% if photo %}
-    <img src="/recipes/{{ owner }}/{{ slug }}/thumbnail" alt="" class="image-step mb-4">
     {% endif %}
 
     {% if can_change_photo %}
@@ -100,7 +112,6 @@
       <p class="text-sm text-gray-600 mt-2">JPEG, PNG, WebP, or AVIF, 5 MB or less. A new photo replaces the photo that is there.</p>
     </details>
     {% endif %}
-
     <div class="space-y-4">
       {% if !cooked.tags.is_empty() %}
       <div class="flex flex-wrap gap-2">
@@ -123,51 +134,8 @@
         {% endfor %}
       </div>
 
-      {#
-        How this cook reads the Recipe. The options travel in the address,
-        the server does the work, and the stored Recipe never changes. The
-        form needs no script, so it also works when scripts are blocked.
-
-        The number control follows CookCLI, which puts the same input beside
-        the title of a Recipe.
-
-        A Recipe that holds only a title gets no control: there is nothing
-        to scale or to convert. A Recipe that the parser refused never
-        reaches this page at all, because `recipe_broken.html` shows the
-        state of it instead.
-      #}
-      {% if !cooked.is_empty() %}
-      <form method="get" action="{{ layout.path }}" data-view-options class="flex flex-wrap items-center gap-x-4 gap-y-2 print:hidden">
-        {% if cooked.scale.can_scale() %}
-        <div class="flex items-center">
-          <label for="servings" class="text-sm font-medium text-gray-700 mr-2">Servings:</label>
-          <input type="number" id="servings" name="servings"
-                 value="{{ cooked.scale.value() }}"
-                 min="{{ cooked.scale.min() }}" max="{{ cooked.scale.max() }}" step="1"
-                 class="px-3 py-2 w-20 text-center bg-white text-gray-900 border border-gray-300 rounded-lg">
-        </div>
-        {% endif %}
-
-        <div class="flex items-center">
-          <label for="units" class="text-sm font-medium text-gray-700 mr-2">Units:</label>
-          <select id="units" name="units"
-                  class="px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-lg">
-            {% for choice in cooked.scale.choices() %}
-            <option value="{{ choice.as_str() }}" {% if cooked.scale.units.is(choice.as_str()) %}selected{% endif %}>{{ choice.label() }}</option>
-            {% endfor %}
-          </select>
-        </div>
-
-        <button type="submit" data-view-options-submit class="btn-primary px-5 py-2 rounded-full font-medium text-white">Show</button>
-
-        {% if cooked.scale.changed %}
-        <a href="{{ layout.path }}" class="nav-pill">Reset</a>
-        {% endif %}
-      </form>
-
       {% if let Some(note) = cooked.scale.note %}
       <p class="text-sm text-gray-600 m-0">{{ note }}</p>
-      {% endif %}
       {% endif %}
     </div>
   </div>

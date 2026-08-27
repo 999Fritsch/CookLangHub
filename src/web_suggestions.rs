@@ -2076,9 +2076,22 @@ mod tests {
             one_change(),
         );
 
-        assert!(!page.contains("<script"));
+        // The frame carries the keyboard shortcuts, which are a served file
+        // and an addition: every shortcut goes to a control that Tab reaches
+        // as well. What must never appear is a script written into the page,
+        // because the policy refuses one and a reader would be told nothing.
+        for piece in page.split("<script").skip(1) {
+            assert!(
+                piece.trim_start().starts_with("src=\"/static/js/"),
+                "a script written into the page cannot run under the policy: {piece:.80}"
+            );
+        }
+
         assert!(!page.contains("onclick="));
         assert!(!page.contains("onsubmit="));
+
+        // And the review itself needs none of it: each decision is a form.
+        assert!(page.contains("<form method=\"post\""));
     }
 
     fn inbox_row(number: i64, state: SuggestionState) -> InboxRow {

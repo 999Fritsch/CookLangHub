@@ -225,6 +225,9 @@ pub struct Layout {
     pub facts: crate::preferences::FactColour,
     /// Where the person is, so the theme control returns them here.
     pub path: String,
+    /// What this person last searched for, so the field in the navigation
+    /// keeps it. Empty on a page that is not a search.
+    pub search: String,
 }
 
 impl Layout {
@@ -237,6 +240,7 @@ impl Layout {
             theme: crate::theme::Theme::default(),
             facts: crate::preferences::FactColour::default(),
             path: "/".to_string(),
+            search: String::new(),
         }
     }
 
@@ -245,9 +249,37 @@ impl Layout {
         self.theme = crate::theme::from_headers(headers);
         self.facts = crate::preferences::from_headers(headers);
         self.path = path.to_string();
+        // A page reached by a search keeps the words in the field of the
+        // navigation, so a person can see what they asked for and change it.
+        if let Some(query) = path.split_once("?q=").map(|(_, rest)| rest) {
+            let words = query.split('&').next().unwrap_or_default();
+            self.search = percent_decode(words);
+        }
         self
     }
+}
 
+/// Read one form value out of an address: `%20` and `+` become spaces.
+fn percent_decode(value: &str) -> String {
+    let bytes = value.replace('+', " ").into_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Ok(byte) = u8::from_str_radix(&String::from_utf8_lossy(&bytes[i + 1..i + 3]), 16)
+        {
+            out.push(byte);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+impl Layout {
     /// Whether the navigation should mark an area as the one in use.
     ///
     /// The mark said Recipes on every page that was not Explore, so it said

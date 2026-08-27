@@ -184,19 +184,13 @@
             const imageHTML = card.image
                 ? '<img class="cooking-step-image" src="' + escapeHTML(card.image) + '" alt="Step ' + card.number + '" />'
                 : '';
-            let ingredientsHTML = '';
-            if (card.ingredients.length > 0) {
-                ingredientsHTML = '<div class="cooking-step-ingredients">' +
-                    card.ingredients.map(function(ing) {
-                        const qty = [ing.quantity, ing.unit].filter(Boolean).join(' ');
-                        const note = ing.note ? ' (' + escapeHTML(ing.note) + ')' : '';
-                        return '<span>' + escapeHTML(ing.name) + (qty ? ': ' + escapeHTML(qty) : '') + note + '</span>';
-                    }).join('') + '</div>';
-            }
+            // CookCLI writes a bare name in the step and lists every amount
+            // again underneath. This project puts the amount in the badge, so
+            // the step already says "Mehl 250 g" and the line below repeated
+            // it. A cook reading a step does not need to read it twice.
             div.innerHTML =
                 imageHTML +
-                '<div class="cooking-step-text"><span class="cooking-step-number">' + card.number + '</span>' + card.html + '</div>' +
-                ingredientsHTML;
+                '<div class="cooking-step-text"><span class="cooking-step-number">' + card.number + '</span>' + card.html + '</div>';
         }
         else if (card.type === 'done') {
             div.classList.add('cooking-card-done');
