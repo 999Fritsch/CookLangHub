@@ -792,3 +792,42 @@ async fn snapshot(forgejo: &Forgejo, token: &Secret<String>) -> Vec<String> {
 
     out
 }
+
+/// A Recipe that two sweeps both name is counted once.
+///
+/// A reconciliation sweeps what every user can read, and then what each
+/// signed-in person can read. A public Recipe of a signed-in person is in
+/// both answers. The report counted it twice, so the Diagnostics page told
+/// an administrator that Forgejo held about twice the Recipes it held.
+#[tokio::test]
+async fn a_reconciliation_counts_each_recipe_once() {
+    let Ready {
+        forgejo: _forgejo,
+        app,
+        sam,
+        admin: _admin,
+        sam_token: _sam_token,
+    } = ready().await;
+
+    // Two public and one private, all of them sam's. The public sweep names
+    // the two public ones, and the sweep of sam names all three.
+    support::create_recipe(&app, &sam, "Public Pie", "Bake the @apples{4}.", false).await;
+    support::create_recipe(&app, &sam, "Open Oats", "Soak the @oats{100%g}.", false).await;
+    support::create_recipe(&app, &sam, "Secret Sauce", "Mix the @cream{1%cup}.", true).await;
+
+    let report = app.reconcile().await;
+
+    assert_eq!(
+        report.scanned, 3,
+        "Forgejo holds three Recipes, and the report must say three: {report:?}"
+    );
+    assert_eq!(
+        report.written, 3,
+        "each Recipe is written once, not once for each sweep: {report:?}"
+    );
+    assert_eq!(
+        i64::try_from(report.scanned).unwrap(),
+        cooklanghub::index::count(&app.pool).await.unwrap(),
+        "the number the sweep names and the number the index holds must agree"
+    );
+}

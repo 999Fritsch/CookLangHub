@@ -2267,6 +2267,11 @@ pub async fn favorites(
 pub async fn reconcile(pool: &SqlitePool, cipher: &Cipher, forgejo: &ForgejoClient) -> Report {
     let mut report = Report::default();
 
+    // A public Cookbook of a signed-in person is named by the public sweep
+    // and by their own sweep. This set counts it once, so the page does not
+    // report more Cookbooks than Forgejo holds.
+    let mut counted: std::collections::HashSet<i64> = std::collections::HashSet::new();
+
     sweep(
         pool,
         forgejo,
@@ -2274,6 +2279,7 @@ pub async fn reconcile(pool: &SqlitePool, cipher: &Cipher, forgejo: &ForgejoClie
         Ownership::Anybody,
         Prune::Public,
         &mut report,
+        &mut counted,
     )
     .await;
 
@@ -2293,6 +2299,7 @@ pub async fn reconcile(pool: &SqlitePool, cipher: &Cipher, forgejo: &ForgejoClie
             Ownership::ReachableBy(person.forgejo_user_id),
             Prune::Owner(person.login.clone()),
             &mut report,
+            &mut counted,
         )
         .await;
     }
@@ -2334,6 +2341,7 @@ async fn sweep(
     ownership: Ownership,
     prune: Prune,
     report: &mut Report,
+    counted: &mut std::collections::HashSet<i64>,
 ) {
     let (repositories, truncated) = match visible(forgejo, token, ownership).await {
         Ok(found) => found,
@@ -2344,9 +2352,16 @@ async fn sweep(
         }
     };
 
-    report.scanned += repositories.len();
+    // A Cookbook that an earlier sweep already covered is counted once and
+    // read once. The list stays whole, because the removal below needs
+    // everything that Forgejo named for this scope.
+    let fresh: Vec<&Repository> = repositories
+        .iter()
+        .filter(|repository| counted.insert(repository.id))
+        .collect();
+    report.scanned += fresh.len();
 
-    for repository in &repositories {
+    for repository in fresh {
         match read_entry(forgejo, token, repository).await {
             Ok(entry) => match put(pool, &entry).await {
                 Ok(()) => report.written += 1,

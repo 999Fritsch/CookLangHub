@@ -556,6 +556,12 @@ pub async fn visible(
 pub async fn reconcile(pool: &SqlitePool, cipher: &Cipher, forgejo: &ForgejoClient) -> Report {
     let mut report = Report::default();
 
+    // The public sweep and the sweep of each person both name a Recipe that
+    // is public and belongs to that person. Without this set the report
+    // counts it once for each sweep, and the page then tells an
+    // administrator that Forgejo holds more Recipes than it holds.
+    let mut counted: std::collections::HashSet<i64> = std::collections::HashSet::new();
+
     sweep(
         pool,
         forgejo,
@@ -563,6 +569,7 @@ pub async fn reconcile(pool: &SqlitePool, cipher: &Cipher, forgejo: &ForgejoClie
         Ownership::Anybody,
         Prune::Public,
         &mut report,
+        &mut counted,
     )
     .await;
 
@@ -582,6 +589,7 @@ pub async fn reconcile(pool: &SqlitePool, cipher: &Cipher, forgejo: &ForgejoClie
             Ownership::ReachableBy(person.forgejo_user_id),
             Prune::Owner(person.login.clone()),
             &mut report,
+            &mut counted,
         )
         .await;
     }
@@ -625,6 +633,7 @@ async fn sweep(
     ownership: Ownership,
     prune: Prune,
     report: &mut Report,
+    counted: &mut std::collections::HashSet<i64>,
 ) {
     let (repositories, truncated) = match visible(forgejo, token, ownership).await {
         Ok(found) => found,
@@ -635,11 +644,18 @@ async fn sweep(
         }
     };
 
-    report.scanned += repositories.len();
+    // A Recipe that an earlier sweep already covered is counted once and
+    // read once. The list itself stays whole, because the removal below
+    // needs everything that Forgejo named for this scope.
+    let fresh: Vec<&Repository> = repositories
+        .iter()
+        .filter(|repository| counted.insert(repository.id))
+        .collect();
+    report.scanned += fresh.len();
 
     // Read every Recipe again, because a reconciliation exists for the case
     // where the application missed the message that said it changed.
-    for repository in &repositories {
+    for repository in fresh {
         match read_entry(forgejo, token, repository).await {
             Ok(entry) => match put(pool, &entry).await {
                 Ok(()) => report.written += 1,

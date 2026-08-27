@@ -466,6 +466,18 @@ async fn admin_index(
     diagnostics_page(&state, &headers, admin_token.as_ref(), user.as_ref(), None).await
 }
 
+/// A count and its noun, in agreement: `1 Cookbook`, `2 Cookbooks`.
+///
+/// The page reported "1 Cookbooks", which reads as a fault in the number
+/// rather than in the words.
+fn many(count: i64, one: &str, more: &str) -> String {
+    if count == 1 {
+        format!("1 {one}")
+    } else {
+        format!("{count} {more}")
+    }
+}
+
 /// Start a reconciliation of everything that a sweep can repair.
 ///
 /// This is what the application does when it starts, and it is what brings
@@ -504,10 +516,14 @@ async fn rebuild(
         .unwrap_or_default();
 
     let message = format!(
-        "The indexes are complete again. Forgejo named {} Recipes and {} Cookbooks. \
-         The index holds {held} Recipes and {held_cookbooks} Cookbooks. \
-         {} Cookbooks moved to a new Version of a Recipe they follow.",
-        recipes.scanned, cookbooks.scanned, moved.advanced
+        "The indexes are complete again. Forgejo named {} and {}. \
+         The index holds {} and {}. \
+         The automation moved {} to a new Version.",
+        many(recipes.scanned as i64, "Recipe", "Recipes"),
+        many(cookbooks.scanned as i64, "Cookbook", "Cookbooks"),
+        many(held, "Recipe", "Recipes"),
+        many(held_cookbooks, "Cookbook", "Cookbooks"),
+        many(moved.advanced as i64, "Cookbook", "Cookbooks"),
     );
 
     diagnostics_page(
