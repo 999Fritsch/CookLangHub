@@ -5,9 +5,9 @@
   profile, the page holds a diagnosis and Forgejo, and no name, no picture,
   and no count.
 
-  The Recipe cards are the cards of every other list, so a Recipe looks the
-  same wherever a cook meets it. The Cookbook cards are built from the same
-  CookCLI classes.
+  The Recipe cards and the Cookbook cards are the cards of every other
+  list, so a Recipe and a Cookbook look the same wherever a cook meets
+  them. This page writes no card of its own.
 
   CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
 #}
@@ -38,16 +38,23 @@
     <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap self-start" href="{{ person.url }}">Open in Forgejo</a>
   </div>
 
+  {#
+    Two counts, and each one is a bare `metadata-pill`. A count of Recipes
+    is not a Recipe fact, and `metadata-custom` is the class that carries a
+    Recipe fact with no colour of its own. Borrowing it here would make the
+    count follow the Recipe-fact colour on the Preferences page, and the
+    colour would then say something that is not true.
+  #}
   <div class="flex flex-wrap gap-2 mt-4">
     {% if recipes.len() == 1 %}
-    <span class="metadata-pill metadata-custom"><span aria-hidden="true">🍽️</span> 1 Recipe</span>
+    <span class="metadata-pill"><span aria-hidden="true">🍽️</span> 1 Recipe</span>
     {% else %}
-    <span class="metadata-pill metadata-custom"><span aria-hidden="true">🍽️</span> {{ recipes.len() }} Recipes</span>
+    <span class="metadata-pill"><span aria-hidden="true">🍽️</span> {{ recipes.len() }} Recipes</span>
     {% endif %}
     {% if cookbooks.len() == 1 %}
-    <span class="metadata-pill metadata-custom"><span aria-hidden="true">📚</span> 1 Cookbook</span>
+    <span class="metadata-pill"><span aria-hidden="true">📚</span> 1 Cookbook</span>
     {% else %}
-    <span class="metadata-pill metadata-custom"><span aria-hidden="true">📚</span> {{ cookbooks.len() }} Cookbooks</span>
+    <span class="metadata-pill"><span aria-hidden="true">📚</span> {{ cookbooks.len() }} Cookbooks</span>
     {% endif %}
   </div>
 </div>
@@ -57,43 +64,17 @@
 
 <h2 class="text-2xl font-bold text-gray-900 mt-10 mb-4">Cookbooks</h2>
 
-{% if let Some(message) = cookbook_notice %}
-<div class="bg-white rounded-2xl shadow-lg p-4 mb-6 text-gray-700" role="status">
-  {{ message }}
-</div>
-{% endif %}
+{#
+  The Cookbook cards of every other list. One card, one behaviour: a
+  Cookbook looks the same here as it does on Explore, and it leads to the
+  Cookbook page rather than away to Forgejo.
 
-{% if cookbooks.is_empty() %}
-<div class="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-600">
-  {{ cookbook_empty }}
-</div>
-{% else %}
-<ul class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 list-none p-0 m-0">
-  {% for cookbook in cookbooks %}
-  <li>
-    <a href="{{ cookbook.url }}"
-       class="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all hover:scale-105 recipe-card flex flex-col h-full">
-      <div class="p-6">
-        <div class="flex items-center justify-center w-16 h-16 bg-gradient-to-br from-orange-400 to-pink-500 rounded-full mb-4">
-          <span class="text-2xl" aria-hidden="true">📚</span>
-        </div>
-
-        <h3 class="font-bold text-lg mb-2 text-gray-800">{{ cookbook.name }}</h3>
-
-        <div class="flex flex-wrap gap-2 mb-3">
-          <span class="metadata-pill metadata-custom"><span aria-hidden="true">📖</span> Open in Forgejo</span>
-          {% if cookbook.private %}
-          <span class="metadata-pill metadata-custom"><span aria-hidden="true">🔒</span> Private</span>
-          {% endif %}
-        </div>
-
-        <p class="text-sm text-gray-600 mt-3 mb-0">Owned by {{ cookbook.owner }}</p>
-      </div>
-    </a>
-  </li>
-  {% endfor %}
-</ul>
-{% endif %}
+  Both card partials read `notice` and `empty`, so the Cookbook one gets
+  its own pair of those two names here.
+#}
+{% let notice = cookbook_notice %}
+{% let empty = cookbook_empty %}
+{% include "cookbook_cards.html" %}
 
 {% else %}
 {#

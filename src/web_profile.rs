@@ -17,6 +17,23 @@
 //!    not name never reaches this page, so a private Recipe of somebody
 //!    else cannot appear here.
 //!
+//! Both answers were measured against Forgejo 15 rather than read out of
+//! its documentation, and the measurement is in `tests/profile.rs`:
+//!
+//! * `GET /api/v1/users/{login}` answers 200 for a public profile, 404 to a
+//!   visitor for a limited one, and 404 to a visitor and to any other
+//!   ordinary cook for a private one. The owner and an administrator always
+//!   get 200.
+//! * `GET /api/v1/repos/search?uid={id}` answers with an empty list under
+//!   exactly the same conditions, **even for a public repository of that
+//!   person**. So the two questions agree, and neither of them needs a rule
+//!   of this application behind it.
+//!
+//! Forgejo also reports the setting itself, as `visibility`, but only to
+//! somebody it already shows the profile to. Nothing here reads it: the
+//! page is built from what Forgejo gives, and a setting that the page acted
+//! on separately would be a second rule for the same decision.
+//!
 //! The picture comes from this application and not from Forgejo, because
 //! the Content Security Policy allows an image from this origin only.
 
@@ -34,6 +51,13 @@ use crate::forgejo::{ForgejoClient, ForgejoError, Ownership, Repository, Reposit
 use crate::index;
 use crate::secret::Secret;
 use crate::web::{AppState, Layout, MaybeUser, RecipeCard};
+
+/// One Cookbook on a profile.
+///
+/// The card is the card of every other Cookbook list, so a Cookbook looks
+/// the same here as it does on Explore and carries the same **Owned by**
+/// line. A second card would drift away from that one.
+use crate::web_cookbooks::CookbookCard;
 
 /// The topics that mark a Cookbook repository.
 ///
@@ -90,18 +114,6 @@ pub struct Person {
     /// Whether this application can show the picture of this cook.
     pub avatar: bool,
     /// Where Forgejo shows this cook.
-    pub url: String,
-}
-
-/// One Cookbook on a profile.
-///
-/// A Cookbook card carries the same **Owned by** line as a Recipe card. It
-/// opens in Forgejo, because CookLangHub has no Cookbook page yet.
-pub struct CookbookCard {
-    pub owner: String,
-    pub name: String,
-    pub private: bool,
-    /// Where Forgejo shows this Cookbook.
     pub url: String,
 }
 
@@ -238,15 +250,10 @@ async fn show(
         .cloned()
         .collect();
 
-    let cookbooks: Vec<CookbookCard> = repositories
+    let books: Vec<Repository> = repositories
         .iter()
         .filter(|repository| repository.has_topics(&COOKBOOK_TOPICS))
-        .map(|repository| CookbookCard {
-            owner: repository.owner.login.clone(),
-            name: repository.name.clone(),
-            private: repository.private,
-            url: format!("/cookbooks/{}/{}", repository.owner.login, repository.name),
-        })
+        .cloned()
         .collect();
 
     let cards: Vec<RecipeCard> =
@@ -256,9 +263,19 @@ async fn show(
             .map(card_of)
             .collect();
 
+    // The Cookbook index gives the title and the first words of the
+    // description, exactly as it does for every other Cookbook list. It is a
+    // cache: an empty one costs one read for each Cookbook and nothing else.
+    let cookbooks: Vec<CookbookCard> =
+        crate::cookbook::entries(&state.pool, &state.forgejo, token.as_ref(), &books)
+            .await
+            .into_iter()
+            .map(book_of)
+            .collect();
+
     // A Cookbook had no page here when this was written, so every card led
-    // to Forgejo and said why. Cookbooks have a page now.
-    // A Cookbook has a page here now, so no card needs explaining.
+    // to Forgejo and said why. A Cookbook has a page here now, so a card
+    // leads to it and nothing needs explaining.
     let cookbook_notice: Option<String> = None;
 
     respond(ProfileTemplate {
@@ -348,6 +365,16 @@ async fn owned(
             return Ok((found, true));
         }
         page += 1;
+    }
+}
+
+fn book_of(entry: crate::cookbook::Indexed) -> CookbookCard {
+    CookbookCard {
+        owner: entry.owner,
+        slug: entry.slug,
+        title: entry.title,
+        private: entry.private,
+        summary: entry.summary,
     }
 }
 
