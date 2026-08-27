@@ -112,6 +112,40 @@ So, before using a class for a background, a border, or a text colour:
 4. Look at the page in both palettes before calling it done. `npm run shot`
    takes both.
 
+### What a badge colour means
+
+The typed pill classes name a **kind of Recipe fact**, and the Preferences
+setting colours them. Borrowing one for a state badge makes the colour lie:
+"This version" once came out purple, because it borrowed `metadata-custom`,
+and a reader had no way to learn what purple meant.
+
+The product already had a rule, so follow it:
+
+- `metadata-pill metadata-cuisine` (green) is the live or affirmative state.
+  Public, Open, Published, Follows updates.
+- `metadata-pill metadata-servings` (grey) is the fixed or closed state.
+  Private, Closed, This version.
+- A bare `metadata-pill` is neutral, for a badge that is not a state at all.
+
+Never invent a third colour for a state. `nav-pill` is navigation, never an
+action.
+
+### One object, one navigation
+
+A Cookbook is three pages, and each was written on its own branch. Each was
+right by itself, and together they gave the same object three different
+navigations, one of which could not reach History at all. Nothing in a test
+or a single screenshot showed it. Two pages side by side did.
+
+The head and the areas of a Cookbook are now `templates/cookbook_header.html`
+and `templates/cookbook_areas.html`, which every Cookbook page includes. A
+Recipe gets the same from `web_recipes::areas()`. Use the shared one. If a
+new page of an existing object needs a nav, it takes the partial, and it
+does not write a fourth.
+
+The wider rule: when several pages of one object are built separately, look
+at them **next to each other** before calling any of them done.
+
 ### Accessibility
 
 Semantic HTML, a label on every control, a visible focus ring, full keyboard
