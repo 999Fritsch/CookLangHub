@@ -223,6 +223,10 @@
         @apply bg-blue-800/50!;
     }
 }
+/* A navigation pill names one place, so it never breaks that name across two
+   lines. CookCLI never needed this: CookLangHub has more areas than they do. */
+.nav-pill { white-space: nowrap; }
+
 
 /* ------------------------------------------------------------------
    Not from CookCLI. A colour for each kind of Recipe fact.

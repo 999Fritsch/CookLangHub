@@ -46,10 +46,10 @@
               needs a script. That is a small price for a control that works
               with scripts off.
             #}
-            <div class="md:w-auto flex items-center gap-1 lg:gap-2">
+            <div class="lg:w-auto flex items-center gap-1 lg:gap-2">
               {% if layout.signed_in %}
               {# Wide enough for words. #}
-              <div class="hidden md:flex items-center gap-1 lg:gap-2">
+              <div class="hidden lg:flex items-center gap-1 lg:gap-2">
                 <a href="/" class="nav-pill {% if layout.area_is("recipes") %}active{% endif %}">Recipes</a>
                 <a href="/cookbooks" class="nav-pill {% if layout.area_is("cookbooks") %}active{% endif %}">Cookbooks</a>
                 <a href="/suggestions" class="nav-pill {% if layout.area_is("suggestions") %}active{% endif %}">Suggestions</a>
@@ -69,7 +69,7 @@
               </div>
 
               {# Narrow. One control, and the same places inside it. #}
-              <details class="menu relative md:hidden ml-auto">
+              <details class="menu relative lg:hidden ml-auto">
                 <summary class="nav-pill cursor-pointer" aria-label="Menu">Menu</summary>
                 <div class="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl z-50 py-1">
                   <a href="/" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"

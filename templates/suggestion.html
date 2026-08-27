@@ -210,15 +210,19 @@
 
   {# What the Suggestion changes. The comparison comes from the parsed
      Recipe on each side, which is why it speaks of ingredients and steps. #}
+  {# With nothing to show, the words are all there is, so they take a card of
+     their own. With something to show, the groups below are the cards, and a
+     card holding only a heading reads as one that failed to load. #}
+  {% if comparison.is_empty() %}
   <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
     <h2 class="text-xl font-bold mb-2 text-gray-900">Changes</h2>
-    {% if comparison.is_empty() %}
     <p class="text-gray-600 m-0">This Suggestion holds the same Recipe as the published Version.</p>
-    {% else %}
-    <p class="text-gray-600 m-0">This is what the Recipe becomes if an Editor accepts this Suggestion.</p>
-    {% endif %}
   </div>
+  {% else %}
+  <h2 class="text-xl font-bold mb-2 text-gray-900">Changes</h2>
+  <p class="text-gray-600 mb-4">This is what the Recipe becomes if an Editor accepts this Suggestion.</p>
   {% include "changes_groups.html" %}
+  {% endif %}
 
   {# The Recipe that the Suggestion proposes, as a cook reads it. #}
   <section class="bg-white rounded-2xl shadow-lg p-6 mb-8" aria-labelledby="proposed-heading">

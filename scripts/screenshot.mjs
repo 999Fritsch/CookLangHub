@@ -47,6 +47,8 @@ const PAGES = [
   { name: "profile", path: "/cooks/filip", needsSession: false },
   { name: "variations", path: "/recipes/filip/chili-sin-carne/variations", needsSession: false },
   { name: "suggestions", path: "/recipes/filip/chili-sin-carne/suggestions", needsSession: false },
+  { name: "suggestion", path: "/recipes/filip/chili-sin-carne/suggestions/2", needsSession: false },
+  { name: "inbox", path: "/suggestions", needsSession: true },
   { name: "cookbook", path: "/cookbooks/filip/weeknight-dinners", needsSession: false },
   { name: "cookbook-history", path: "/cookbooks/filip/weeknight-dinners/history", needsSession: false },
   { name: "cookbook-sharing", path: "/cookbooks/filip/weeknight-dinners/sharing", needsSession: true },
