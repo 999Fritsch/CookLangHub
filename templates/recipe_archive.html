@@ -1,0 +1,200 @@
+{#
+  The Archive area of a Recipe.
+
+  CookCLI has no lifecycle screen, so this page is built out of the CookCLI
+  parts that already exist, in the shape that `recipe_sharing.html` uses: the
+  orange gradient title, the navigation pills, the white rounded cards, the
+  metadata pills, and the primary button. The confirmation before a
+  permanent deletion copies the shape of the Public confirmation there.
+
+  The one part that is not from Sharing is the red panel around the
+  deletion. It is the panel that four other pages already use for a refusal,
+  and its three classes each have a dark rule in `theme.src.css`.
+
+  CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
+#}
+{% extends "base.html" %}
+
+{% block title %}Archive &middot; {{ title }} &middot; CookLangHub{% endblock %}
+
+{% block content %}
+<div>
+  <div class="mb-8">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">
+        {{ title }}
+      </h1>
+      <div class="flex flex-wrap items-center gap-2 self-start">
+        <a class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap" href="{{ forgejo_url }}">Open in Forgejo</a>
+      </div>
+    </div>
+
+    <p class="text-gray-600 mb-4">Owned by {{ owner }}</p>
+  </div>
+
+  <nav class="flex flex-wrap gap-1 mb-8 border-b border-gray-200 pb-2" aria-label="Recipe">
+    <a class="nav-pill" href="/recipes/{{ owner }}/{{ slug }}">Recipe</a>
+    {% for area in areas %}
+    {% if area.name == "Archive" %}
+    <span class="nav-pill active" aria-current="page">{{ area.name }}</span>
+    {% else %}
+    {% if let Some(href) = area.href %}
+    <a class="nav-pill" href="{{ href }}">{{ area.name }}</a>
+    {% else %}
+    <span class="nav-pill opacity-50" aria-disabled="true">{{ area.name }}</span>
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+  </nav>
+
+  {% if !errors.is_empty() %}
+  <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-8" role="alert">
+    <h2 class="font-bold mb-2">This change did not happen</h2>
+    <ul class="list-disc pl-5 space-y-1">
+      {% for error in errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if !is_owner %}
+  <div class="bg-white rounded-2xl shadow-lg p-6">
+    <h2 class="text-xl font-bold mb-2 text-gray-900">Only the Owner can archive or delete this Recipe</h2>
+    <p class="text-gray-600">
+      {{ owner }} owns this Recipe. Open the Recipe in Forgejo to see what you
+      can do there.
+    </p>
+  </div>
+
+  {% else if confirming %}
+  {# The report, and then the one form that deletes. Everything a person
+     needs to decide is on this page, and nothing here has happened yet. #}
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Delete {{ title }} permanently?</h2>
+
+    <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-6">
+      <p>{{ delete_warning }}</p>
+    </div>
+
+    <div class="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-xl p-4 mb-6">
+      <p class="text-gray-700">{{ partial_message }}</p>
+    </div>
+
+    {% if let Some(report) = impact %}
+    <section class="mb-6">
+      <h3 class="font-bold mb-2 text-gray-900">Cookbooks that hold this Recipe</h3>
+      {% if !report.cookbooks.answered %}
+      <p class="text-gray-700">{{ unanswered_message }}</p>
+      {% else if report.cookbooks.is_empty() %}
+      <p class="text-gray-700">No Cookbook that you can see holds this Recipe.</p>
+      {% else %}
+      <p class="text-gray-700 mb-2">{{ cookbooks_message }}</p>
+      <ul class="space-y-2 list-none p-0 m-0">
+        {% for book in report.cookbooks.items %}
+        <li>
+          <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/cookbooks/{{ book.owner }}/{{ book.slug }}">{{ book.title }}</a>
+          <span class="text-sm text-gray-600">Owned by {{ book.owner }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </section>
+
+    <section class="mb-6">
+      <h3 class="font-bold mb-2 text-gray-900">Variations of this Recipe</h3>
+      {% if !report.variations.answered %}
+      <p class="text-gray-700">{{ unanswered_message }}</p>
+      {% else if report.variations.is_empty() %}
+      <p class="text-gray-700">No Variation that you can see came from this Recipe.</p>
+      {% else %}
+      <p class="text-gray-700 mb-2">{{ variations_message }}</p>
+      <ul class="space-y-2 list-none p-0 m-0">
+        {% for made in report.variations.items %}
+        <li>
+          <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/recipes/{{ made.owner }}/{{ made.slug }}">{{ made.title }}</a>
+          <span class="text-sm text-gray-600">Owned by {{ made.owner }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </section>
+
+    <section class="mb-6">
+      <h3 class="font-bold mb-2 text-gray-900">Open Suggestions</h3>
+      {% if !report.suggestions.answered %}
+      <p class="text-gray-700">{{ unanswered_message }}</p>
+      {% else if report.suggestions.is_empty() %}
+      <p class="text-gray-700">No Suggestion is open.</p>
+      {% else %}
+      <p class="text-gray-700 mb-2">{{ suggestions_message }}</p>
+      <ul class="space-y-2 list-none p-0 m-0">
+        {% for one in report.suggestions.items %}
+        <li>
+          <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/recipes/{{ owner }}/{{ slug }}/suggestions/{{ one.number }}">{{ one.title }}</a>
+          <span class="text-sm text-gray-600">From {{ one.author }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <form method="post" action="{{ archive_path }}/delete" class="flex flex-wrap gap-3 border-t border-gray-200 pt-6">
+      <input type="hidden" name="confirm" value="yes">
+      <button type="submit" class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Delete {{ title }}</button>
+      <a href="{{ archive_path }}" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Keep this Recipe</a>
+    </form>
+  </div>
+
+  {% else %}
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">The state of this Recipe</h2>
+
+    <div class="flex flex-wrap items-center gap-3">
+      {% if archived %}
+      <span class="metadata-pill metadata-servings"><span aria-hidden="true">📦</span>&nbsp;{{ archived_label }}</span>
+      <p class="text-gray-600">{{ read_only_message }}</p>
+      {% else %}
+      <span class="metadata-pill metadata-cuisine"><span aria-hidden="true">🍳</span>&nbsp;{{ in_use_label }}</span>
+      <p class="text-gray-600">You can change this Recipe.</p>
+      {% endif %}
+    </div>
+
+    <div class="mt-6">
+      {% if archived %}
+      <form method="post" action="{{ archive_path }}/state">
+        <input type="hidden" name="archived" value="no">
+        <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Take this Recipe out of the archive</button>
+      </form>
+      {% else %}
+      <p class="text-gray-600 mb-4">
+        An archived Recipe keeps every Version and all of its History. You can
+        take it out of the archive at any moment.
+      </p>
+      <form method="post" action="{{ archive_path }}/state">
+        <input type="hidden" name="archived" value="yes">
+        <button type="submit" class="btn-primary px-5 py-2 rounded-full font-medium text-white">Archive this Recipe</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="bg-white rounded-2xl shadow-lg p-6">
+    <h2 class="text-xl font-bold mb-4 text-gray-900">Delete this Recipe</h2>
+
+    <div class="bg-red-50 border border-red-400 text-red-900 rounded-xl p-4 mb-4">
+      <p>{{ delete_warning }}</p>
+    </div>
+
+    <p class="text-gray-600 mb-6">
+      The next page shows the Cookbooks, the Variations, and the open
+      Suggestions that a deletion reaches. Nothing happens until you press
+      the button there.
+    </p>
+
+    <a href="{{ archive_path }}/delete" class="inline-block px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Read what a deletion reaches</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -31,7 +31,10 @@
           Cook
         </button>
         {% endif %}
-        {% if layout.signed_in %}
+        {# An archived Recipe is read-only, so it is offered no way in to the
+           editor. The refusal itself lives over the POST and not here: a form
+           that a person kept open is refused the same way. #}
+        {% if layout.signed_in && !archived %}
         {# The same button as Share. `nav-pill` is for navigation and stays
            grey until it is hovered, which made Edit almost invisible on a
            dark page. #}
@@ -66,6 +69,15 @@
     {# The owner name is the way to their profile, which shows the rest of
        their Recipes that this person may see. #}
     <p class="text-gray-600 mb-4">Owned by <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/cooks/{{ owner }}">{{ owner }}</a></p>
+
+    {# Archived is a fixed state, so it takes the grey pill. Everybody who
+       could read the Recipe still reads it, and nobody changes it. #}
+    {% if archived %}
+    <div class="flex flex-wrap gap-2 mb-4">
+      <span class="metadata-pill metadata-servings"><span aria-hidden="true">📦</span>&nbsp;{{ archived_label }}</span>
+      <span class="text-gray-600">{{ archived_message }}</span>
+    </div>
+    {% endif %}
 
     {# The photo of the Recipe. It is served by this application, so the
        page needs no other origin and a private Recipe keeps its photo. #}

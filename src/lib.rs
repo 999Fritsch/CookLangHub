@@ -4,6 +4,7 @@
 //! application keeps operational state only, and every piece of it is
 //! rebuildable.
 
+pub mod archive;
 pub mod auth;
 pub mod automation;
 pub mod bootstrap;
@@ -34,6 +35,7 @@ pub mod theme;
 pub mod upload;
 pub mod variation;
 pub mod web;
+pub mod web_archive;
 pub mod web_browse;
 pub mod web_cookbooks;
 pub mod web_discussions;

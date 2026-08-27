@@ -733,6 +733,7 @@ mod tests {
                 id: 1,
                 login: owner.to_string(),
             },
+            archived: false,
         }
     }
 

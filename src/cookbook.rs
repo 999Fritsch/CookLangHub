@@ -1298,8 +1298,54 @@ pub async fn public_cookbooks_with(
         .filter(|repository| !repository.private)
         .collect();
 
-    let mut reads = Vec::with_capacity(public.len());
-    for repository in &public {
+    holders_of(pool, forgejo, token, owner, slug, public).await
+}
+
+/// Every Cookbook that this person can see which holds one Recipe.
+///
+/// This is [`public_cookbooks_with`] without the visibility filter, for the
+/// report that a person reads before they delete a Recipe. A Cookbook of
+/// their own, and one that somebody shared with them, both count.
+///
+/// `None` means that Forgejo did not answer at all. An empty list and no
+/// answer are different facts, and a person who is about to delete something
+/// must be able to tell them apart.
+///
+/// The answer can be short whatever Forgejo says. Forgejo answers 404 for a
+/// private Cookbook of a different person, even one that holds this Recipe,
+/// and it gives no sign that it left one out.
+pub async fn cookbooks_with(
+    pool: &SqlitePool,
+    forgejo: &ForgejoClient,
+    token: &Secret<String>,
+    owner: &str,
+    slug: &str,
+) -> Option<Vec<Named>> {
+    let found = match visible(forgejo, Some(token), Ownership::Anybody).await {
+        Ok((found, _)) => found,
+        Err(error) => {
+            tracing::warn!(%error, "cannot ask Forgejo for the Cookbooks");
+            return None;
+        }
+    };
+
+    Some(holders_of(pool, forgejo, token, owner, slug, found).await)
+}
+
+/// Which of these Cookbooks hold one Recipe, named for a person to read.
+///
+/// Git holds the answer, so the reference file of each candidate is read
+/// again here. The index supplies the title only.
+async fn holders_of(
+    pool: &SqlitePool,
+    forgejo: &ForgejoClient,
+    token: &Secret<String>,
+    owner: &str,
+    slug: &str,
+    candidates: Vec<Repository>,
+) -> Vec<Named> {
+    let mut reads = Vec::with_capacity(candidates.len());
+    for repository in &candidates {
         reads.push(async move {
             let bytes = forgejo
                 .raw_file(
@@ -2394,6 +2440,7 @@ mod tests {
                 id: 1,
                 login: owner.to_string(),
             },
+            archived: false,
         }
     }
 

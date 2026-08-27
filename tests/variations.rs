@@ -695,7 +695,22 @@ async fn a_variation_inherits_the_visibility_of_the_recipe_it_comes_from() {
         &[("visibility", "public"), ("confirm", "yes")],
     )
     .await;
-    assert_eq!(asked.status(), 303);
+
+    // Forgejo answers 200 to this and changes nothing, because it holds a
+    // copy at the visibility of the Recipe it came from. The page therefore
+    // says the change did not happen. It used to answer 303, which told a
+    // person their Variation was public when every reader still needed
+    // permission to see it.
+    let said = text(asked).await;
+    assert!(
+        said.contains("Forgejo kept this Recipe as it was"),
+        "the page must say the change did not happen, got: {said:.2000}"
+    );
+    assert_eq!(
+        repository(&world, "kim/secret").await["private"],
+        json!(true),
+        "Forgejo kept the Variation private, so the page must not claim otherwise"
+    );
 
     assert_eq!(
         repository(&world, "sam/secret").await["private"],
@@ -823,4 +838,56 @@ async fn a_variation_stays_usable_when_the_source_recipe_disappears() {
         json!(true),
         "the Variation must decide its own visibility"
     );
+}
+
+/// Forgejo can answer 200 and change nothing at all.
+///
+/// A Variation of a public Recipe is a Forgejo fork, and Forgejo refuses to
+/// make a fork private while the Recipe it came from stays public. It says
+/// so by answering 200 and giving the repository back exactly as it was, so
+/// an application that reads only the status tells a person their Recipe is
+/// hidden when every user can still read it.
+#[tokio::test]
+async fn forgejo_keeps_a_variation_public_and_the_page_says_so() {
+    let world = ready().await;
+    a_recipe(&world, &world.sam, "Chili", FIRST, false).await;
+
+    let made = make_variation(&world, Some(&world.kim), "sam", "chili", None).await;
+    assert_eq!(made.status(), 303, "the Variation is made");
+
+    let before = repository(&world, "kim/chili").await;
+    assert_eq!(
+        before["private"], json!(false),
+        "a Variation of a public Recipe starts public"
+    );
+
+    let answer = support::client()
+        .post(world.app.url("/recipes/kim/chili/sharing/visibility"))
+        .header("cookie", cookie(&world.kim))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body("visibility=private")
+        .send()
+        .await
+        .expect("cannot post the form");
+
+    let body = text(answer).await;
+
+    // Forgejo did not do it, so the page must not say that it did.
+    let after = repository(&world, "kim/chili").await;
+    assert_eq!(
+        after["private"], json!(false),
+        "Forgejo keeps a fork of a public Recipe public"
+    );
+    assert!(
+        body.contains("Forgejo kept this Recipe as it was"),
+        "the page must say the change did not happen, got: {body:.2000}"
+    );
+
+    // And it says why, in cooking words.
+    for word in ["fork", "repository", "PATCH", "API"] {
+        assert!(
+            !body.contains(word),
+            "`{word}` is not a word this page should use"
+        );
+    }
 }

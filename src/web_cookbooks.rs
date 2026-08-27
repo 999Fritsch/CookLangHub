@@ -2049,7 +2049,10 @@ async fn sharing_visibility(
         .set_repository_private(&sharing.actor.token, &owner, &slug, private)
         .await
     {
-        Ok(_) => {
+        // Forgejo can answer 200 and change nothing, and it says so only by
+        // giving the repository back unchanged. Reporting that as done would
+        // tell a person their Cookbook is hidden when it is not.
+        Ok(answer) if answer.private == private => {
             tracing::info!(%owner, %slug, private, "the visibility of a Cookbook changed");
             cookbook::refresh(
                 &state.pool,
@@ -2060,6 +2063,25 @@ async fn sharing_visibility(
             )
             .await;
             Redirect::to(&format!("/cookbooks/{owner}/{slug}/sharing")).into_response()
+        }
+        Ok(_) => {
+            tracing::warn!(%owner, %slug, private, "Forgejo kept the visibility of a Cookbook as it was");
+            draw_sharing(
+                &state,
+                &headers,
+                current.as_ref(),
+                &sharing,
+                vec![
+                    "Forgejo kept this Cookbook as it was. Forgejo holds a copy at the \
+                     same visibility as the Cookbook it came from, and it \
+                     changes neither one on its own. Open the Cookbook in \
+                     Forgejo to see its state."
+                        .to_string(),
+                ],
+                false,
+                None,
+            )
+            .await
         }
         Err(error) => {
             tracing::warn!(%error, %owner, %slug, "cannot change the visibility of a Cookbook");

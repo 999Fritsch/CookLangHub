@@ -60,6 +60,10 @@ pub fn areas(owner: &str, slug: &str, repository: &Repository) -> Vec<RecipeArea
             name: "Sharing",
             href: Some(format!("/recipes/{owner}/{slug}/sharing")),
         },
+        RecipeArea {
+            name: "Archive",
+            href: Some(crate::web_archive::area_href(owner, slug)),
+        },
     ]
 }
 
@@ -244,6 +248,11 @@ struct ShowTemplate {
     warnings: Vec<String>,
     /// The Recipe as JSON, for Cook mode.
     cooking_data: String,
+    /// Whether Forgejo holds this Recipe as archived. Forgejo owns the
+    /// state, and this page only reads it.
+    archived: bool,
+    archived_label: &'static str,
+    archived_message: &'static str,
 }
 
 /// The page for a Recipe that the interface cannot cook.
@@ -384,6 +393,7 @@ async fn show(
     let marks = crate::favorite::marks(&state.forgejo, token.as_ref(), &owner, &slug).await;
 
     let cooking_data = crate::cooking::json(&title, &cooked);
+    let archived = repository.archived;
 
     respond(ShowTemplate {
         layout,
@@ -399,6 +409,9 @@ async fn show(
         marks,
         warnings,
         cooking_data,
+        archived,
+        archived_label: crate::archive::ARCHIVED_LABEL,
+        archived_message: crate::archive::ARCHIVED_MESSAGE,
     })
 }
 
@@ -502,6 +515,7 @@ mod tests {
                 id: 1,
                 login: "sam".to_string(),
             },
+            archived: false,
         }
     }
 

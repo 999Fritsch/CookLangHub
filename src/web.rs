@@ -47,8 +47,8 @@ pub struct AppState {
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 pub fn router(state: AppState, static_dir: &str) -> Router {
-    // The guard below needs the same state that the handlers get, so the
-    // shared value is made here rather than at the end.
+    // Both guards below need the same state that the handlers get, so the
+    // shared value is made here rather than at the end, and used twice.
     let shared = Arc::new(state);
 
     // Every page a person sees. These carry the no-store rule below; the
@@ -58,6 +58,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .route("/", get(index))
         .route("/health", get(health_endpoint))
         .route("/avatar", get(avatar))
+        .merge(crate::web_archive::router())
         .merge(crate::auth::router())
         .merge(crate::web_recipes::router())
         .merge(crate::theme::router())
@@ -74,12 +75,26 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(crate::web_suggestions::router())
         .merge(crate::web_variations::router())
         .merge(crate::webhook::router())
+        // An archived Recipe is read-only, and one guard over every change
+        // is what makes that true. It sits here and not in each handler,
+        // because Forgejo keeps reporting write access for an archived
+        // repository: no permission answer carries the state, so no handler
+        // could learn it from the check it already makes.
+        //
+        // Both guards are inside the header layers below, so a refusal
+        // carries the same headers as a page.
+        .layer(axum::middleware::from_fn_with_state(
+            shared.clone(),
+            crate::archive::read_only,
+        ))
         // Forgejo is the authority. While it does not answer, no edit
         // happens and no page presents the local cache as current. One
         // layer holds both rules, so that no handler can forget one.
         //
-        // It sits inside the header layers below, so the answer it makes
-        // carries the same rules as every other page.
+        // This one is outside the archive guard on purpose. The archive
+        // guard has to ask Forgejo what it holds, and while Forgejo is away
+        // there is no answer to that question, so the outage is settled
+        // first and the archive question is never asked.
         .layer(axum::middleware::from_fn_with_state(
             shared.clone(),
             crate::outage::guard,

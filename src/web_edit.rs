@@ -304,6 +304,21 @@ async fn target(
         });
     }
 
+    // An archived Recipe is read-only, and Forgejo says so nowhere in the
+    // permission answer above: it keeps reporting write access for one. The
+    // editor therefore refuses before a person types a Version that Forgejo
+    // would not take. The answer is 423, which is the answer Forgejo gives
+    // for the same state, and it is not 403, which sends a person who
+    // cannot write to their Suggestion instead.
+    if repository.archived {
+        tracing::info!(%owner, %slug, "the editor was asked for an archived Recipe");
+        return Err(Refused::Blocked {
+            status: StatusCode::LOCKED,
+            message: crate::archive::ARCHIVED_MESSAGE,
+            forgejo_url,
+        });
+    }
+
     let branch = if repository.default_branch.is_empty() {
         MAIN_BRANCH.to_string()
     } else {

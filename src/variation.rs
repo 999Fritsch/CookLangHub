@@ -585,6 +585,18 @@ pub struct Variations {
     /// and it does not hide it: the page says how many there are and offers
     /// **Open in Forgejo**.
     pub others: usize,
+    /// Whether Forgejo answered the question at all.
+    ///
+    /// An empty list and no answer are different facts. A page that only
+    /// lists Variations can draw both the same way, but the report that a
+    /// person reads before they delete a Recipe cannot: an empty list there
+    /// reads as "nothing will break". `false` is the safe default, because
+    /// nothing was learned until Forgejo answered.
+    ///
+    /// Even a `true` answer can be short. Forgejo hides a private Variation
+    /// of another person from the Owner of the source Recipe, and it gives
+    /// no sign that it left one out.
+    pub answered: bool,
 }
 
 /// The Variations that were made from a Recipe.
@@ -610,6 +622,7 @@ pub async fn variations_of(
     let mut out = Variations {
         recipes: Vec::with_capacity(found.len()),
         others: 0,
+        answered: true,
     };
 
     for repository in found {

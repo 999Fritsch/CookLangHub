@@ -539,9 +539,26 @@ async fn set_visibility(
         .set_repository_private(&context.actor.token, &owner, &slug, private)
         .await
     {
-        Ok(_) => {
+        // Forgejo can answer 200 and change nothing: it refuses to make a
+        // copy private while the Recipe it came from is public, and it says
+        // so only by giving the repository back unchanged. Reporting that as
+        // done would tell a person their Recipe is hidden when it is not.
+        Ok(answer) if answer.private == private => {
             tracing::info!(%owner, %slug, private, "the visibility of a Recipe changed");
             screen.done()
+        }
+        Ok(_) => {
+            tracing::warn!(%owner, %slug, private, "Forgejo kept the visibility as it was");
+            screen
+                .draw_error(
+                    &context,
+                    "Forgejo kept this Recipe as it was. Forgejo holds a copy at the \
+                     same visibility as the Recipe it came from, and it \
+                     changes neither one on its own. Open the Recipe in \
+                     Forgejo to see its state."
+                        .to_string(),
+                )
+                .await
         }
         Err(error) => {
             tracing::warn!(%error, %owner, %slug, "cannot change the visibility");
