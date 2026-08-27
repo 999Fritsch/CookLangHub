@@ -61,10 +61,10 @@
 
     <div>
       <label for="thumbnail" class="block font-medium mb-2">Photo</label>
-      <input id="thumbnail" name="thumbnail" type="file" accept="image/jpeg,image/png,image/webp"
+      <input id="thumbnail" name="thumbnail" type="file" accept="image/jpeg,image/png,image/webp,image/avif"
              class="block w-full text-sm text-gray-700 file:mr-3 file:px-4 file:py-2 file:rounded-full file:border-0 file:bg-orange-500 file:text-white file:font-medium">
       <p class="text-sm text-gray-600 mt-1">
-        Optional. JPEG, PNG, or WebP, 5 MB or less. The application stores the image as it is.
+        Optional. JPEG, PNG, WebP, or AVIF, 5 MB or less. The application stores the image as it is.
         {% if !errors.is_empty() %}Select the photo again: a browser does not keep a file that it sent.{% endif %}
       </p>
     </div>

@@ -237,7 +237,14 @@ async fn the_create_form_offers_both_ways_and_a_photo() {
     assert!(body.contains(r#"name="mode" value="file""#));
     assert!(body.contains(r#"name="recipe_file""#));
     assert!(body.contains(r#"name="thumbnail""#));
-    assert!(body.contains("accept=\"image/jpeg,image/png,image/webp\""));
+    assert!(body.contains("accept=\"image/jpeg,image/png,image/webp,image/avif\""));
+
+    // A photo library can write AVIF and keep the name `.jpg`, so the
+    // picker has to offer it or a person cannot even choose their own file.
+    assert!(
+        body.contains("image/avif"),
+        "the picker must offer every format the application reads"
+    );
 
     // Writing here is what a new form starts on.
     assert!(body.contains(r#"<input type="radio" name="mode" value="text" checked>"#));

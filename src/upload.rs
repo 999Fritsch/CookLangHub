@@ -61,11 +61,12 @@ pub enum ThumbnailFormat {
     Jpeg,
     Png,
     Webp,
+    Avif,
 }
 
 impl ThumbnailFormat {
     /// Every format, in the order the application looks for them.
-    pub const ALL: [ThumbnailFormat; 3] = [Self::Jpeg, Self::Png, Self::Webp];
+    pub const ALL: [ThumbnailFormat; 4] = [Self::Jpeg, Self::Png, Self::Webp, Self::Avif];
 
     /// Where a photo of this format lives in a Recipe.
     pub fn path(self) -> &'static str {
@@ -73,6 +74,7 @@ impl ThumbnailFormat {
             Self::Jpeg => "recipe.jpg",
             Self::Png => "recipe.png",
             Self::Webp => "recipe.webp",
+            Self::Avif => "recipe.avif",
         }
     }
 
@@ -82,6 +84,7 @@ impl ThumbnailFormat {
             Self::Jpeg => "image/jpeg",
             Self::Png => "image/png",
             Self::Webp => "image/webp",
+            Self::Avif => "image/avif",
         }
     }
 
@@ -105,6 +108,16 @@ impl ThumbnailFormat {
         // between the two names are the length, which says nothing here.
         if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
             return Some(Self::Webp);
+        }
+
+        // AVIF: an ISO base media file whose brand is `avif`. The four bytes
+        // in front are the length of the box, which says nothing here.
+        //
+        // A photo library writes AVIF and keeps the name `.jpg`, so a person
+        // who has never heard of the format still arrives with one. The name
+        // decides nothing here, which is why this reads the bytes.
+        if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" && &bytes[8..12] == b"avif" {
+            return Some(Self::Avif);
         }
 
         None
@@ -137,7 +150,7 @@ impl Thumbnail {
 pub enum Refusal {
     #[error("the photo is larger than 5 MB")]
     PhotoTooLarge,
-    #[error("the photo must be a JPEG, a PNG, or a WebP image")]
+    #[error("the photo must be a JPEG, a PNG, a WebP, or an AVIF image")]
     PhotoFormat,
     #[error("select a photo")]
     PhotoMissing,
@@ -700,13 +713,27 @@ mod tests {
     #[test]
     fn every_format_has_its_own_name_and_media_type() {
         let paths: Vec<&str> = ThumbnailFormat::ALL.iter().map(|f| f.path()).collect();
-        assert_eq!(paths, vec!["recipe.jpg", "recipe.png", "recipe.webp"]);
+        assert_eq!(
+            paths,
+            vec!["recipe.jpg", "recipe.png", "recipe.webp", "recipe.avif"]
+        );
 
         let types: Vec<&str> = ThumbnailFormat::ALL
             .iter()
             .map(|f| f.content_type())
             .collect();
-        assert_eq!(types, vec!["image/jpeg", "image/png", "image/webp"]);
+        assert_eq!(
+            types,
+            vec!["image/jpeg", "image/png", "image/webp", "image/avif"]
+        );
+
+        // Every format must have a name and a type of its own, or a photo of
+        // one kind is served as another.
+        assert_eq!(paths.len(), ThumbnailFormat::ALL.len());
+        assert_eq!(
+            types.iter().collect::<std::collections::HashSet<_>>().len(),
+            ThumbnailFormat::ALL.len()
+        );
     }
 
     #[test]
@@ -734,6 +761,34 @@ mod tests {
         let error = Thumbnail::from_bytes(vec![0x00; MAX_THUMBNAIL_BYTES + 1])
             .expect_err("this cannot be a photo");
         assert_eq!(error, Refusal::PhotoTooLarge);
+    }
+
+    #[test]
+    fn a_photo_library_that_writes_avif_and_keeps_the_name_jpg_is_read_correctly() {
+        // Every photo of the first real Recipe collection was AVIF and every
+        // one of them was named `.jpg`. The name decides nothing, so the
+        // bytes have to be read, and the file has to be stored under the
+        // name that says what it holds.
+        let mut avif = vec![0x00, 0x00, 0x00, 0x20];
+        avif.extend_from_slice(b"ftypavif");
+        avif.extend_from_slice(&[0x00; 16]);
+
+        let photo = Thumbnail::from_bytes(avif).expect("an AVIF file is a photo");
+        assert_eq!(photo.format, ThumbnailFormat::Avif);
+        assert_eq!(photo.format.path(), "recipe.avif");
+        assert_eq!(photo.format.content_type(), "image/avif");
+    }
+
+    #[test]
+    fn a_container_that_is_not_avif_is_still_refused() {
+        // The same box, a different brand. Only the brand this application
+        // reads may pass.
+        let mut heic = vec![0x00, 0x00, 0x00, 0x20];
+        heic.extend_from_slice(b"ftypheic");
+        heic.extend_from_slice(&[0x00; 16]);
+
+        let error = Thumbnail::from_bytes(heic).expect_err("HEIC is not a format this holds");
+        assert_eq!(error, Refusal::PhotoFormat);
     }
 
     #[test]
