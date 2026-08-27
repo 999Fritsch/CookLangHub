@@ -66,7 +66,12 @@
       <li class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <a class="font-medium text-gray-900 hover:text-orange-700" href="/recipes/{{ owner }}/{{ slug }}/suggestions/{{ suggestion.number }}">{{ suggestion.title }}</a>
-          <span class="metadata-pill {{ suggestion.pill }}">{{ suggestion.state }}</span>
+          <span class="flex flex-wrap items-center gap-2">
+            <span class="metadata-pill {{ suggestion.pill }}">{{ suggestion.state }}</span>
+            {% if suggestion.conflict %}
+            <span class="metadata-pill">Cannot be accepted</span>
+            {% endif %}
+          </span>
         </div>
         <p class="text-sm text-gray-600 mt-1">
           {% if suggestion.mine %}Made by you{% else %}Made by {{ suggestion.author }}{% endif %}

@@ -1928,6 +1928,113 @@ impl ForgejoClient {
 
         read_json(response).await
     }
+
+    /// Accept a Suggestion, and put the whole of it into one Version.
+    ///
+    /// `style` is a word of Forgejo, and the caller passes one of the words
+    /// Forgejo knows and never a value that a person typed. `squash` is the
+    /// one this application uses, because it writes exactly one Version
+    /// however many times the person saved their work.
+    ///
+    /// Forgejo answers with no body worth reading. It refuses with a status
+    /// when it cannot join the two sides, when the Suggestion is closed, and
+    /// when the credential may not write to the repository. Forgejo makes
+    /// each of those decisions, and this application only reads the answer.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn merge_pull_request(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        number: i64,
+        style: &str,
+        title: &str,
+        message: &str,
+    ) -> Result<(), ForgejoError> {
+        self.send(
+            self.http
+                .post(format!(
+                    "{}/api/v1/repos/{owner}/{repository}/pulls/{number}/merge",
+                    self.api_url
+                ))
+                .bearer_auth(token.expose())
+                // Forgejo names these three fields with capitals. The rest
+                // of its API does not, and changing them here would make
+                // Forgejo ignore the values and write a description of its
+                // own into History.
+                .json(&serde_json::json!({
+                    "Do": style,
+                    "MergeTitleField": title,
+                    "MergeMessageField": message,
+                    "delete_branch_after_merge": false,
+                })),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Close a Suggestion, or open it again.
+    ///
+    /// Forgejo names the two states `open` and `closed`. The caller passes
+    /// one of those two words and never a value that a person typed.
+    ///
+    /// Closing keeps everything: the proposal, who made it, and every word
+    /// of the conversation stay in Forgejo and stay readable.
+    pub async fn set_pull_request_state(
+        &self,
+        token: &Secret<String>,
+        owner: &str,
+        repository: &str,
+        number: i64,
+        state: &str,
+    ) -> Result<PullRequest, ForgejoError> {
+        let response = self
+            .send(
+                self.http
+                    .patch(format!(
+                        "{}/api/v1/repos/{owner}/{repository}/pulls/{number}",
+                        self.api_url
+                    ))
+                    .bearer_auth(token.expose())
+                    .json(&serde_json::json!({ "state": state })),
+            )
+            .await?;
+
+        read_json(response).await
+    }
+
+    /// Find the Suggestions of the token holder, across every Recipe.
+    ///
+    /// One question covers every repository that Forgejo gives this person,
+    /// which is what an inbox needs and what a question for each Recipe
+    /// cannot give: a person can suggest a change to a public Recipe that
+    /// they neither own nor work on.
+    ///
+    /// `state` is `open`, `closed`, or `all`, in the words of Forgejo.
+    /// Forgejo applies the permissions of the credential, so the answer
+    /// never names a Recipe that this person may not see.
+    pub async fn search_my_pull_requests(
+        &self,
+        token: &Secret<String>,
+        state: &str,
+        limit: u32,
+    ) -> Result<Vec<FoundPullRequest>, ForgejoError> {
+        let request = self
+            .http
+            .get(format!("{}/api/v1/repos/issues/search", self.api_url))
+            .query(&[
+                ("type", "pulls".to_string()),
+                ("state", state.to_string()),
+                // Forgejo reads this as "made by the token holder".
+                ("created", "true".to_string()),
+                ("page", "1".to_string()),
+                ("limit", limit.to_string()),
+            ])
+            .bearer_auth(token.expose());
+
+        read_json(self.send(request).await?).await
+    }
 }
 
 /// One entry at the top of a repository.
@@ -2093,6 +2200,103 @@ impl PullRequest {
         self.user
             .as_ref()
             .map(|user| user.login.as_str())
+            .unwrap_or_default()
+    }
+}
+
+/// One Suggestion that a search across Recipes found.
+///
+/// Forgejo answers a search with a shape of its own. It names the repository
+/// the entry belongs to, and it puts what happened to a pull request in a
+/// nested object rather than at the top. It also says nothing about whether
+/// the two sides still fit together, so a page that needs that answer reads
+/// the Suggestion itself.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FoundPullRequest {
+    pub number: i64,
+    #[serde(default)]
+    pub title: String,
+    /// `open` or `closed`, in the words of Forgejo.
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub user: Option<ForgejoUser>,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub updated_at: String,
+    #[serde(default)]
+    pub comments: i64,
+    /// Present when the entry is a pull request, which is what a Suggestion
+    /// is. An entry without it is a Discussion and belongs elsewhere.
+    #[serde(default)]
+    pub pull_request: Option<FoundPullState>,
+    /// Which repository holds it. Forgejo can leave this out, and an entry
+    /// the application cannot address is one it does not show.
+    #[serde(default)]
+    pub repository: Option<FoundRepository>,
+}
+
+/// What happened to a pull request, as a search reports it.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FoundPullState {
+    #[serde(default)]
+    pub merged: bool,
+}
+
+/// The repository that a search entry belongs to.
+///
+/// A search names the owner as a login and not as an object, which is why
+/// this is not [`RepositoryOwner`].
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FoundRepository {
+    #[serde(default)]
+    pub owner: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub full_name: String,
+}
+
+impl FoundPullRequest {
+    pub fn is_open(&self) -> bool {
+        self.state != "closed"
+    }
+
+    /// Whether the Suggestion was accepted.
+    pub fn merged(&self) -> bool {
+        self.pull_request
+            .as_ref()
+            .map(|pull| pull.merged)
+            .unwrap_or(false)
+    }
+
+    /// Whether this entry is a Suggestion and not a Discussion.
+    pub fn is_pull_request(&self) -> bool {
+        self.pull_request.is_some()
+    }
+
+    /// The login of the person who made the Suggestion.
+    pub fn author(&self) -> &str {
+        self.user
+            .as_ref()
+            .map(|user| user.login.as_str())
+            .unwrap_or_default()
+    }
+
+    /// The login of the person who owns the Recipe.
+    pub fn owner(&self) -> &str {
+        self.repository
+            .as_ref()
+            .map(|repository| repository.owner.as_str())
+            .unwrap_or_default()
+    }
+
+    /// The name Forgejo holds the Recipe under.
+    pub fn slug(&self) -> &str {
+        self.repository
+            .as_ref()
+            .map(|repository| repository.name.as_str())
             .unwrap_or_default()
     }
 }

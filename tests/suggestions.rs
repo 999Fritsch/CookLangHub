@@ -15,6 +15,7 @@
 mod support;
 
 use std::collections::HashSet;
+use std::time::Duration;
 
 use cooklanghub::secret::Secret;
 use cooklanghub::session::COOKIE_NAME;
@@ -239,7 +240,13 @@ fn visible(html: &str) -> String {
 fn assert_cooking_words(html: &str) {
     let words = visible(html).to_lowercase();
 
-    for phrase in ["pull request", "merge request", "work in progress"] {
+    for phrase in [
+        "pull request",
+        "merge request",
+        "work in progress",
+        "fast forward",
+        "fast-forward",
+    ] {
         assert!(
             !words.contains(phrase),
             "the page says `{phrase}` to a cook"
@@ -272,6 +279,9 @@ fn assert_cooking_words(html: &str) {
         "revert",
         "wip",
         "upstream",
+        // An Editor accepts a Suggestion. How Forgejo writes the Version is
+        // not something a cook is asked to choose, or even to read.
+        "squash",
     ] {
         assert!(
             !spoken.contains(forge_word),
@@ -733,8 +743,9 @@ async fn a_suggestion_that_forgejo_closed_is_not_written_to_again() {
     let held = suggestions_in_forgejo(&world, &slug).await;
     let number = held[0]["number"].as_i64().unwrap();
 
-    // The owner declines it in Forgejo itself. This application does not do
-    // that yet: ticket #15 builds it.
+    // The owner declines it in Forgejo itself, and not through CookLangHub.
+    // CookLangHub can decline a Suggestion as well, and another test covers
+    // that; this one is about a Suggestion that was closed somewhere else.
     let closed = support::forgejo_write(
         &world.forgejo,
         &world.token,
@@ -833,4 +844,622 @@ async fn the_form_makes_a_suggestion_with_no_script_at_all() {
         changed
     );
     assert_eq!(stored(&world, &slug, "main").await, published);
+}
+
+// ---------------------------------------------------------------------
+// The review: what an Editor reads, and the two actions they have
+// ---------------------------------------------------------------------
+
+/// How long a test waits for Forgejo to work something out for itself.
+const PATIENCE: Duration = Duration::from_secs(60);
+
+/// Publish a new Version of a Recipe as its owner.
+async fn publish(world: &World, slug: &str, source: &str, note: &str) {
+    let (status, page) = open(
+        &world.app,
+        &world.owner,
+        &format!("/recipes/sam/{slug}/edit"),
+    )
+    .await;
+    assert_eq!(status, 200, "the editor must open");
+
+    let base = field(&page, "base_version");
+    let sent = support::post_fields(
+        &world.app,
+        &world.owner,
+        &format!("/recipes/sam/{slug}/edit"),
+        &[("base_version", &base), ("source", source), ("note", note)],
+    )
+    .await;
+
+    assert_eq!(sent.status(), 303, "the Version must be published");
+}
+
+/// The number at the end of the address that a form redirected to.
+fn number_of(response: &reqwest::Response) -> i64 {
+    response
+        .headers()
+        .get("location")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.rsplit('/').next())
+        .and_then(|value| value.parse().ok())
+        .expect("the redirect names the Suggestion")
+}
+
+/// Make a Suggestion as somebody, and mark it **Ready for review**.
+async fn a_ready_suggestion(world: &World, session: &str, slug: &str, source: &str) -> i64 {
+    let (_, base, draft) = editor(world, session, slug).await;
+    let sent = submit(
+        world,
+        session,
+        slug,
+        source,
+        &base,
+        &draft,
+        "More onion, less salt.",
+        "ready",
+    )
+    .await;
+
+    assert_eq!(sent.status(), 303, "the Suggestion must be made");
+    number_of(&sent)
+}
+
+/// Make a Suggestion as somebody, and leave it unfinished.
+async fn an_unfinished_suggestion(world: &World, session: &str, slug: &str, source: &str) -> i64 {
+    let (_, base, draft) = editor(world, session, slug).await;
+    let sent = submit(world, session, slug, source, &base, &draft, "", "save").await;
+
+    assert_eq!(sent.status(), 303, "the Suggestion must be made");
+    number_of(&sent)
+}
+
+/// Press **Accept Suggestion** or **Decline Suggestion**.
+async fn act(
+    world: &World,
+    session: &str,
+    slug: &str,
+    number: i64,
+    deed: &str,
+) -> reqwest::Response {
+    support::post_fields(
+        &world.app,
+        session,
+        &format!("/recipes/sam/{slug}/suggestions/{number}/{deed}"),
+        &[],
+    )
+    .await
+}
+
+/// Write a comment on a Suggestion, the way the form does.
+async fn say(
+    world: &World,
+    session: &str,
+    slug: &str,
+    number: i64,
+    words: &str,
+) -> reqwest::Response {
+    support::post_fields(
+        &world.app,
+        session,
+        &format!("/recipes/sam/{slug}/suggestions/{number}/comments"),
+        &[("message", words)],
+    )
+    .await
+}
+
+/// One Suggestion, exactly as Forgejo reports it now.
+async fn held(world: &World, slug: &str, number: i64) -> Value {
+    support::forgejo_api(
+        &world.forgejo,
+        &world.token,
+        &format!("/repos/sam/{slug}/pulls/{number}"),
+    )
+    .await
+}
+
+/// The conversation of a Suggestion, as Forgejo holds it.
+async fn conversation(world: &World, slug: &str, number: i64) -> Vec<Value> {
+    support::forgejo_api(
+        &world.forgejo,
+        &world.token,
+        &format!("/repos/sam/{slug}/issues/{number}/comments"),
+    )
+    .await
+    .as_array()
+    .cloned()
+    .unwrap_or_default()
+}
+
+/// The description of each published Version, newest first.
+async fn version_descriptions(world: &World, slug: &str) -> Vec<String> {
+    support::forgejo_api(
+        &world.forgejo,
+        &world.token,
+        &format!("/repos/sam/{slug}/commits?limit=50"),
+    )
+    .await
+    .as_array()
+    .map(|found| {
+        found
+            .iter()
+            .filter_map(|one| one["commit"]["message"].as_str())
+            .map(|message| message.lines().next().unwrap_or_default().to_string())
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+/// Everything that Git records about the newest published Version.
+async fn newest_version_message(world: &World, slug: &str) -> String {
+    support::forgejo_api(
+        &world.forgejo,
+        &world.token,
+        &format!("/repos/sam/{slug}/commits?limit=1"),
+    )
+    .await
+    .as_array()
+    .and_then(|found| found.first().cloned())
+    .and_then(|one| one["commit"]["message"].as_str().map(str::to_string))
+    .unwrap_or_default()
+}
+
+/// Wait until Forgejo has worked out that the two sides do not fit.
+///
+/// Forgejo answers this question in its own time, after the published
+/// Recipe moves. A test that read the page at once would read the answer
+/// from before the change.
+async fn wait_for_a_conflict(world: &World, slug: &str, number: i64) {
+    let deadline = std::time::Instant::now() + PATIENCE;
+
+    loop {
+        let one = held(world, slug, number).await;
+        if one["mergeable"].as_bool() == Some(false) {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "Forgejo did not report a conflict: {one}"
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+/// Read a page until it says something, or give up.
+///
+/// Forgejo answers a question across every Recipe out of an index that it
+/// fills in its own time, so the inbox can be a moment behind the writing.
+async fn until(app: &support::TestApp, session: &str, path: &str, words: &str) -> String {
+    let deadline = std::time::Instant::now() + PATIENCE;
+
+    loop {
+        let (status, page) = open(app, session, path).await;
+        assert_eq!(status, 200, "the page must open: {page:.400}");
+
+        if page.contains(words) {
+            return page;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the page never said `{words}`"
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+#[tokio::test]
+async fn an_editor_reads_the_changes_and_the_conversation_of_a_suggestion() {
+    let world = ready().await;
+    let slug = a_recipe(&world, "Chili", false).await;
+    let published = stored(&world, &slug, "main").await;
+
+    let changed = published
+        .replace("@onion{1}", "@onion{3}")
+        .replace("Serve.", "Serve with bread.");
+    let number = a_ready_suggestion(&world, &world.reader, &slug, &changed).await;
+
+    // A second person says what they think. Read access is all that needs.
+    let said = say(
+        &world,
+        &world.other,
+        &slug,
+        number,
+        "Three onions is a lot for one pan.",
+    )
+    .await;
+    assert_eq!(said.status(), 303, "a Reader must be able to comment");
+
+    let (status, page) = open(
+        &world.app,
+        &world.owner,
+        &format!("/recipes/sam/{slug}/suggestions/{number}"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_cooking_words(&page);
+
+    // The Changes, in the words of a cook.
+    assert!(page.contains("Changes"));
+    assert!(page.contains("Ingredients"), "the amount of onion changed");
+    assert!(page.contains("Steps"), "a step changed");
+    assert!(page.contains("Serve with bread."));
+
+    // The conversation.
+    assert!(page.contains("Conversation"));
+    assert!(page.contains("Three onions is a lot for one pan."));
+    assert!(page.contains("More onion, less salt."), "the note stays");
+
+    // And the two actions.
+    assert!(page.contains("Accept Suggestion"));
+    assert!(page.contains("Decline Suggestion"));
+
+    // Forgejo holds the comment, and this application holds none of it.
+    let words = conversation(&world, &slug, number).await;
+    assert_eq!(words.len(), 1);
+    assert_eq!(words[0]["user"]["login"].as_str(), Some("robin"));
+    assert_eq!(
+        words[0]["body"].as_str(),
+        Some("Three onions is a lot for one pan.")
+    );
+
+    // Reading a Suggestion changes nothing.
+    assert_eq!(stored(&world, &slug, "main").await, published);
+    assert_eq!(published_versions(&world, &slug).await, 1);
+}
+
+#[tokio::test]
+async fn an_acceptance_makes_exactly_one_version_that_holds_the_whole_change() {
+    let world = ready().await;
+    let slug = a_recipe(&world, "Chili", false).await;
+    let published = stored(&world, &slug, "main").await;
+
+    // The person saves several times before they finish, so the Suggestion
+    // holds several Versions of its own. The Recipe must still get one.
+    let (_, base, draft) = editor(&world, &world.reader, &slug).await;
+    let mut version = draft;
+    let mut changed = published.clone();
+    for salt in ["2%g", "3%g", "4%g"] {
+        changed = published.replace("@salt{1%g}", &format!("@salt{{{salt}}}"));
+        let (status, answer) =
+            autosave(&world, &world.reader, &slug, &changed, &base, &version).await;
+        assert_eq!(status, 200, "{answer}");
+        version = answer["version"].as_str().unwrap().to_string();
+    }
+
+    let sent = submit(
+        &world,
+        &world.reader,
+        &slug,
+        &changed,
+        &base,
+        &version,
+        "Less salt is not enough salt.",
+        "ready",
+    )
+    .await;
+    assert_eq!(sent.status(), 303);
+    let number = number_of(&sent);
+
+    // The Editor reads the Suggestion before they act on it, the way a
+    // person does, and the page offers the acceptance.
+    let page = until(
+        &world.app,
+        &world.owner,
+        &format!("/recipes/sam/{slug}/suggestions/{number}"),
+        "Accept Suggestion",
+    )
+    .await;
+    assert_cooking_words(&page);
+
+    let accepted = act(&world, &world.owner, &slug, number, "accept").await;
+    let outcome = accepted.status();
+    let body = accepted.text().await.unwrap_or_default();
+    assert_eq!(
+        outcome,
+        303,
+        "the acceptance must redirect: {}",
+        visible(&body)
+    );
+
+    // Forgejo says the Suggestion was accepted.
+    let one = held(&world, &slug, number).await;
+    assert_eq!(one["merged"].as_bool(), Some(true));
+    assert_eq!(one["state"].as_str(), Some("closed"));
+
+    // Git holds the result: one new Version, and the whole change in it.
+    assert_eq!(
+        published_versions(&world, &slug).await,
+        2,
+        "an acceptance makes one Version, whatever the Suggestion holds"
+    );
+    assert_eq!(stored(&world, &slug, "main").await, changed);
+
+    let descriptions = version_descriptions(&world, &slug).await;
+    assert_eq!(
+        descriptions.first().map(String::as_str),
+        Some("Accept a Suggestion for Chili"),
+        "History must say what happened, in cooking words: {descriptions:?}"
+    );
+
+    // The reason that the person gave stays with the change, so a Version
+    // still says why it was made.
+    let recorded = newest_version_message(&world, &slug).await;
+    assert!(
+        recorded.contains("Less salt is not enough salt."),
+        "the note must go into the Version: {recorded}"
+    );
+
+    // The page reads as accepted, and it still says no word of the forge.
+    let (status, page) = open(
+        &world.app,
+        &world.owner,
+        &format!("/recipes/sam/{slug}/suggestions/{number}"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(page.contains("Accepted"));
+    assert!(!page.contains("Accept Suggestion"));
+    assert_cooking_words(&page);
+
+    // History says it too, and says it the same way.
+    let (status, history) = open(
+        &world.app,
+        &world.owner,
+        &format!("/recipes/sam/{slug}/history"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(history.contains("Accept a Suggestion for Chili"));
+    assert_cooking_words(&history);
+}
+
+#[tokio::test]
+async fn a_decline_closes_the_suggestion_and_keeps_every_word_of_it() {
+    let world = ready().await;
+    let slug = a_recipe(&world, "Chili", false).await;
+    let published = stored(&world, &slug, "main").await;
+
+    let changed = published.replace("@pepper{1%g}", "@pepper{9%g}");
+    let number = a_ready_suggestion(&world, &world.reader, &slug, &changed).await;
+
+    let said = say(
+        &world,
+        &world.other,
+        &slug,
+        number,
+        "Nine grams is too hot.",
+    )
+    .await;
+    assert_eq!(said.status(), 303);
+
+    let declined = act(&world, &world.owner, &slug, number, "decline").await;
+    assert_eq!(declined.status(), 303, "the decline must redirect");
+
+    // Forgejo closed it, and it accepted nothing.
+    let one = held(&world, &slug, number).await;
+    assert_eq!(one["state"].as_str(), Some("closed"));
+    assert_eq!(one["merged"].as_bool(), Some(false));
+
+    // The Recipe did not move at all.
+    assert_eq!(stored(&world, &slug, "main").await, published);
+    assert_eq!(published_versions(&world, &slug).await, 1);
+
+    // The conversation and the provenance stay, and anybody who can read the
+    // Recipe can still read them.
+    let (status, page) = open(
+        &world.app,
+        &world.other,
+        &format!("/recipes/sam/{slug}/suggestions/{number}"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(page.contains("Declined"));
+    assert!(page.contains("Nine grams is too hot."), "the comment stays");
+    assert!(page.contains("More onion, less salt."), "the note stays");
+    assert!(
+        page.contains("Made by Kim") || page.contains("Made by kim"),
+        "the page must still say who made it"
+    );
+    assert_cooking_words(&page);
+
+    // And Forgejo still holds the comment itself.
+    assert_eq!(conversation(&world, &slug, number).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_suggestion_with_a_conflict_is_marked_and_is_never_accepted() {
+    let world = ready().await;
+    let slug = a_recipe(&world, "Chili", false).await;
+    let published = stored(&world, &slug, "main").await;
+
+    // Two people change the same line. The Reader proposes one amount.
+    let theirs = published.replace("@salt{1%g}", "@salt{9%g}");
+    let number = a_ready_suggestion(&world, &world.reader, &slug, &theirs).await;
+
+    // The owner publishes another amount on the same line.
+    let ours = published.replace("@salt{1%g}", "@salt{2%g}");
+    publish(&world, &slug, &ours, "More salt").await;
+
+    wait_for_a_conflict(&world, &slug, number).await;
+
+    let (status, page) = open(
+        &world.app,
+        &world.owner,
+        &format!("/recipes/sam/{slug}/suggestions/{number}"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_cooking_words(&page);
+    assert!(
+        page.contains("Cannot be accepted"),
+        "the mark must be clear"
+    );
+    assert!(
+        !page.contains(&format!("/recipes/sam/{slug}/suggestions/{number}/accept")),
+        "the interface must not offer an acceptance that it will refuse"
+    );
+    // Declining a Suggestion that cannot be accepted is what an Editor
+    // needs to be able to do, so that stays.
+    assert!(page.contains("Decline Suggestion"));
+
+    // A request that arrives without the page is refused as well.
+    let refused = act(&world, &world.owner, &slug, number, "accept").await;
+    assert_eq!(refused.status(), 409, "the acceptance must be refused");
+
+    let one = held(&world, &slug, number).await;
+    assert_eq!(one["merged"].as_bool(), Some(false));
+    assert_eq!(one["state"].as_str(), Some("open"));
+
+    // Nothing was joined, and nothing was guessed at.
+    assert_eq!(stored(&world, &slug, "main").await, ours);
+    assert_eq!(published_versions(&world, &slug).await, 2);
+}
+
+#[tokio::test]
+async fn a_suggestion_that_somebody_is_still_writing_is_not_accepted() {
+    let world = ready().await;
+    let slug = a_recipe(&world, "Chili", false).await;
+    let published = stored(&world, &slug, "main").await;
+
+    let changed = published.replace("@onion{1}", "@onion{2}");
+    let number = an_unfinished_suggestion(&world, &world.reader, &slug, &changed).await;
+
+    let (status, page) = open(
+        &world.app,
+        &world.owner,
+        &format!("/recipes/sam/{slug}/suggestions/{number}"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_cooking_words(&page);
+    assert!(page.contains("Editing in progress"));
+    assert!(
+        !page.contains(&format!("/recipes/sam/{slug}/suggestions/{number}/accept")),
+        "an unfinished Suggestion must not offer an acceptance"
+    );
+
+    let refused = act(&world, &world.owner, &slug, number, "accept").await;
+    assert_eq!(refused.status(), 409);
+
+    let one = held(&world, &slug, number).await;
+    assert_eq!(one["merged"].as_bool(), Some(false));
+    assert_eq!(one["state"].as_str(), Some("open"));
+    assert_eq!(stored(&world, &slug, "main").await, published);
+    assert_eq!(published_versions(&world, &slug).await, 1);
+}
+
+#[tokio::test]
+async fn only_forgejo_says_who_can_accept_and_who_can_only_comment() {
+    let world = ready().await;
+    let slug = a_recipe(&world, "Chili", false).await;
+    let published = stored(&world, &slug, "main").await;
+
+    let changed = published.replace("@onion{1}", "@onion{2}");
+    let number = a_ready_suggestion(&world, &world.reader, &slug, &changed).await;
+
+    // robin can read the Recipe and no more.
+    let (status, page) = open(
+        &world.app,
+        &world.other,
+        &format!("/recipes/sam/{slug}/suggestions/{number}"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(!page.contains("Accept Suggestion"));
+    assert!(!page.contains("Decline Suggestion"));
+    assert!(
+        page.contains("Write comment"),
+        "a comment needs read access"
+    );
+    assert_cooking_words(&page);
+
+    // A request that arrives without the page is refused as well.
+    for deed in ["accept", "decline"] {
+        let refused = act(&world, &world.other, &slug, number, deed).await;
+        assert_eq!(
+            refused.status(),
+            403,
+            "`{deed}` must need what Forgejo calls write access"
+        );
+    }
+
+    let one = held(&world, &slug, number).await;
+    assert_eq!(one["merged"].as_bool(), Some(false));
+    assert_eq!(one["state"].as_str(), Some("open"));
+    assert_eq!(stored(&world, &slug, "main").await, published);
+    assert_eq!(published_versions(&world, &slug).await, 1);
+
+    // A comment with no words is refused, and it makes nothing.
+    let empty = say(&world, &world.other, &slug, number, "   ").await;
+    assert_eq!(empty.status(), 200, "the page comes back with the reason");
+    assert!(
+        empty
+            .text()
+            .await
+            .expect("cannot read the body")
+            .contains("A comment needs words.")
+    );
+    assert!(conversation(&world, &slug, number).await.is_empty());
+}
+
+#[tokio::test]
+async fn the_suggestions_area_gives_one_inbox_with_both_directions() {
+    let world = ready().await;
+    let slug = a_recipe(&world, "Chili", false).await;
+    let published = stored(&world, &slug, "main").await;
+
+    // Nothing has happened yet, so both lists say so.
+    let (status, page) = open(&world.app, &world.owner, "/suggestions").await;
+    assert_eq!(status, 200);
+    assert!(page.contains("Needs my review"));
+    assert!(page.contains("My suggestions"));
+    assert!(page.contains("No Suggestion waits for you."));
+    assert!(page.contains("You made no Suggestion yet."));
+    assert_cooking_words(&page);
+
+    let changed = published.replace("@onion{1}", "@onion{2}");
+    let number = a_ready_suggestion(&world, &world.reader, &slug, &changed).await;
+
+    // The owner of the Recipe is the Editor, so it waits for them.
+    let page = until(
+        &world.app,
+        &world.owner,
+        "/suggestions",
+        "Suggestion for Chili",
+    )
+    .await;
+    assert_cooking_words(&page);
+    assert!(page.contains("Needs my review"));
+    assert!(page.contains(&format!("/recipes/sam/{slug}/suggestions/{number}")));
+    assert!(page.contains("Ready for review"));
+    assert!(
+        page.contains("You made no Suggestion yet."),
+        "the owner made none of their own"
+    );
+
+    // The person who made it reads it under their own name, on a Recipe
+    // that they neither own nor work on.
+    let page = until(
+        &world.app,
+        &world.reader,
+        "/suggestions",
+        "Suggestion for Chili",
+    )
+    .await;
+    assert_cooking_words(&page);
+    assert!(page.contains("My suggestions"));
+    assert!(page.contains(&format!("/recipes/sam/{slug}/suggestions/{number}")));
+    assert!(
+        page.contains("No Suggestion waits for you."),
+        "a Reader reviews nothing here"
+    );
+
+    // Somebody who has nothing to do with it reads an empty inbox.
+    let (status, page) = open(&world.app, &world.other, "/suggestions").await;
+    assert_eq!(status, 200);
+    assert!(page.contains("No Suggestion waits for you."));
+    assert!(page.contains("You made no Suggestion yet."));
+
+    // The inbox is reachable from every page.
+    assert!(page.contains("href=\"/suggestions\""));
 }

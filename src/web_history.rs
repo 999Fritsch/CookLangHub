@@ -932,19 +932,7 @@ async fn changes(
         return no_version();
     };
 
-    let before = side(&state, token.as_ref(), &owner, &slug, &from).await;
-    let after = side(&state, token.as_ref(), &owner, &slug, &to).await;
-
-    let mut errors = Vec::new();
-    let comparison = match (&before, &after) {
-        (Some(before), Some(after)) => compare(before, after),
-        // One of the two Versions is not a Recipe this application can
-        // read. Say so, rather than call every ingredient removed.
-        _ => {
-            errors.push(UNREADABLE_MESSAGE.to_string());
-            Comparison { groups: Vec::new() }
-        }
-    };
+    let (comparison, errors) = comparison(&state, token.as_ref(), &owner, &slug, &from, &to).await;
 
     let areas = areas(&owner, &slug, &subject.repository);
 
@@ -1177,6 +1165,35 @@ fn respond<T: Template>(template: T) -> Response {
             tracing::error!(%error, "cannot render a template");
             (StatusCode::INTERNAL_SERVER_ERROR, "template error").into_response()
         }
+    }
+}
+
+/// Compare two Versions of a Recipe, for a page that is not History.
+///
+/// The Suggestions area reads the Changes of a Suggestion through this one
+/// entrance, so both places compare Recipes in exactly the same way and
+/// neither can start to disagree with the other. The second value carries
+/// what a person must read when one of the two Versions is not a Recipe
+/// that this application can read.
+pub(crate) async fn comparison(
+    state: &AppState,
+    token: Option<&Secret<String>>,
+    owner: &str,
+    slug: &str,
+    from: &str,
+    to: &str,
+) -> (Comparison, Vec<String>) {
+    let before = side(state, token, owner, slug, from).await;
+    let after = side(state, token, owner, slug, to).await;
+
+    match (&before, &after) {
+        (Some(before), Some(after)) => (compare(before, after), Vec::new()),
+        // One of the two Versions is not a Recipe this application can
+        // read. Say so, rather than call every ingredient removed.
+        _ => (
+            Comparison { groups: Vec::new() },
+            vec![UNREADABLE_MESSAGE.to_string()],
+        ),
     }
 }
 

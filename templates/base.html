@@ -52,6 +52,7 @@
               <div class="hidden md:flex items-center gap-1 lg:gap-2">
                 <a href="/" class="nav-pill {% if layout.area_is("recipes") %}active{% endif %}">Recipes</a>
                 <a href="/cookbooks" class="nav-pill {% if layout.area_is("cookbooks") %}active{% endif %}">Cookbooks</a>
+                <a href="/suggestions" class="nav-pill {% if layout.area_is("suggestions") %}active{% endif %}">Suggestions</a>
                 <a href="/explore" class="nav-pill {% if layout.area_is("explore") %}active{% endif %}">Explore</a>
                 <a href="/recipes/new" class="nav-pill {% if layout.area_is("new") %}active{% endif %}">New Recipe</a>
 
@@ -78,6 +79,10 @@
                   <a href="/cookbooks" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
                      {% if layout.area_is("cookbooks") %}aria-current="page"{% endif %}>
                     <span aria-hidden="true">📖</span> <span>Cookbooks</span>
+                  </a>
+                  <a href="/suggestions" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                     {% if layout.area_is("suggestions") %}aria-current="page"{% endif %}>
+                    <span aria-hidden="true">✉️</span> <span>Suggestions</span>
                   </a>
                   <a href="/explore" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
                      {% if layout.area_is("explore") %}aria-current="page"{% endif %}>
