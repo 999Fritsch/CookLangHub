@@ -301,7 +301,13 @@ async fn adding_a_recipe_records_a_reference_and_changes_no_recipe() {
     // chooses, and it offers the Recipe.
     let form = page(&app, "/cookbooks/sam/sunday-dinners/recipes", Some(&sam)).await;
     assert!(form.contains("Keep this version"), "got: {form:.2000}");
-    assert!(form.contains("Follow future updates"), "got: {form:.2000}");
+    assert!(form.contains("Follow updates"), "got: {form:.2000}");
+    // One word for one meaning: the Cookbook page calls this same choice
+    // "Follow updates", and the form must not invent a second name for it.
+    assert!(
+        !form.contains("Follow future updates"),
+        "the form must use the same words as the Cookbook page"
+    );
     assert!(
         form.contains("value=\"pinned\" checked"),
         "Keep this version must be the choice a person starts with"
