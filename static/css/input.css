@@ -13,6 +13,15 @@
    darkMode: 'class' and the content globs) authoritative. */
 @config "../../tailwind.config.js";
 
+/* Not from CookCLI.
+
+   Tailwind v4 looks at every file in the project, whatever the `content`
+   globs of the config say. `scripts/vendor/` holds axe-core, which is
+   580 kB of minified JavaScript, and Tailwind read words out of it and
+   wrote three utility classes that no page asks for. The accessibility
+   check is a development tool and never a source of classes. */
+@source not "../../scripts/vendor";
+
 /* Custom component classes */
 @layer components {
     /* Recipe cards with colorful borders */

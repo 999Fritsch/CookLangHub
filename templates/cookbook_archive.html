@@ -53,7 +53,7 @@
     <ul class="space-y-2 list-none p-0 m-0">
       {% for held in recipes %}
       <li>
-        <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/recipes/{{ held.owner }}/{{ held.slug }}">{{ held.title }}</a>
+        <a class="text-blue-600 hover:text-blue-800 underline" href="/recipes/{{ held.owner }}/{{ held.slug }}">{{ held.title }}</a>
         <span class="text-sm text-gray-600">Owned by {{ held.owner }}</span>
       </li>
       {% endfor %}

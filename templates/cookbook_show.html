@@ -39,7 +39,7 @@
     <li>{{ problem }}</li>
     {% endfor %}
   </ul>
-  <a class="text-blue-600 hover:text-blue-800 hover:underline" href="{{ forgejo_url }}">Open in Forgejo</a>
+  <a class="text-blue-600 hover:text-blue-800 underline" href="{{ forgejo_url }}">Open in Forgejo</a>
 </div>
 {% endif %}
 
@@ -54,7 +54,7 @@
     <li>{{ problem }}</li>
     {% endfor %}
   </ul>
-  <a class="text-blue-600 hover:text-blue-800 hover:underline" href="{{ forgejo_url }}">Open in Forgejo</a>
+  <a class="text-blue-600 hover:text-blue-800 underline" href="{{ forgejo_url }}">Open in Forgejo</a>
 </div>
 {% endif %}
 
@@ -123,14 +123,14 @@
          any more. The state is named and nothing is repaired. #}
       <p class="w-full text-sm text-gray-700 m-0" role="status">
         <span aria-hidden="true">⚠️</span> {{ recipe.warning }}
-        <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}">Open the Recipe</a>
+        <a class="text-blue-600 hover:text-blue-800 underline" href="/recipes/{{ recipe.owner }}/{{ recipe.slug }}">Open the Recipe</a>
       </p>
       {% endif %}
       {% else %}
       {# Nothing here says which Recipe this is. The title, the owner, and
          the name are exactly what this person may not have. #}
       <span class="text-gray-700"><span aria-hidden="true">🔒</span> {{ recipe.problem }}</span>
-      <a class="text-blue-600 hover:text-blue-800 hover:underline" href="{{ forgejo_url }}">Open in Forgejo</a>
+      <a class="text-blue-600 hover:text-blue-800 underline" href="{{ forgejo_url }}">Open in Forgejo</a>
       {% endif %}
     </li>
     {% endfor %}

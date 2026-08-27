@@ -93,7 +93,7 @@
       <ul class="space-y-2 list-none p-0 m-0">
         {% for book in report.cookbooks.items %}
         <li>
-          <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/cookbooks/{{ book.owner }}/{{ book.slug }}">{{ book.title }}</a>
+          <a class="text-blue-600 hover:text-blue-800 underline" href="/cookbooks/{{ book.owner }}/{{ book.slug }}">{{ book.title }}</a>
           <span class="text-sm text-gray-600">Owned by {{ book.owner }}</span>
         </li>
         {% endfor %}
@@ -112,7 +112,7 @@
       <ul class="space-y-2 list-none p-0 m-0">
         {% for made in report.variations.items %}
         <li>
-          <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/recipes/{{ made.owner }}/{{ made.slug }}">{{ made.title }}</a>
+          <a class="text-blue-600 hover:text-blue-800 underline" href="/recipes/{{ made.owner }}/{{ made.slug }}">{{ made.title }}</a>
           <span class="text-sm text-gray-600">Owned by {{ made.owner }}</span>
         </li>
         {% endfor %}
@@ -131,7 +131,7 @@
       <ul class="space-y-2 list-none p-0 m-0">
         {% for one in report.suggestions.items %}
         <li>
-          <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/recipes/{{ owner }}/{{ slug }}/suggestions/{{ one.number }}">{{ one.title }}</a>
+          <a class="text-blue-600 hover:text-blue-800 underline" href="/recipes/{{ owner }}/{{ slug }}/suggestions/{{ one.number }}">{{ one.title }}</a>
           <span class="text-sm text-gray-600">From {{ one.author }}</span>
         </li>
         {% endfor %}

@@ -59,7 +59,7 @@
   <p class="text-gray-600 m-0">If something is wrong, tell the administrator of this installation.</p>
   {% else %}
   <p class="text-gray-600 m-0">
-    <a class="text-blue-600 hover:text-blue-800 hover:underline" href="/auth/sign-in">Sign in</a>
+    <a class="text-blue-600 hover:text-blue-800 underline" href="/auth/sign-in">Sign in</a>
     to read this page.
   </p>
   {% endif %}
@@ -94,15 +94,15 @@
       <li>{{ problem }}</li>
       {% endfor %}
     </ul>
-    <a class="text-blue-600 hover:text-blue-800 hover:underline" href="{{ forgejo_url }}">Open in Forgejo</a>
+    <a class="text-blue-600 hover:text-blue-800 underline" href="{{ forgejo_url }}">Open in Forgejo</a>
   </div>
   {% endif %}
 </section>
 {% endfor %}
 
 <div class="text-sm text-gray-600">
-  Forgejo: <a href="{{ forgejo_url }}" class="text-blue-600 hover:text-blue-800 hover:underline">{{ forgejo_url }}</a>
-  &middot; <a href="/health" class="text-blue-600 hover:text-blue-800 hover:underline">/health</a>
+  Forgejo: <a href="{{ forgejo_url }}" class="text-blue-600 hover:text-blue-800 underline">{{ forgejo_url }}</a>
+  &middot; <a href="/health" class="text-blue-600 hover:text-blue-800 underline">/health</a>
   {% if administrator %}&middot; backup and upgrade: <code>docs/operations.md</code>{% endif %}
 </div>
 {% endblock %}

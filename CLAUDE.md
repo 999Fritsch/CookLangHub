@@ -100,6 +100,22 @@ This has caused three separate defects: a step card, the cards on the
 Preferences page, and the mark for the area you are in. Each time a class
 was copied correctly and had no dark rule behind it.
 
+There was a fourth cause underneath, and it was worse. Two rules in
+`theme.src.css` still carried CookCLI's `{{ prefix }}` and `{% if %}`, which
+are template syntax in their base template and a **fault** in a plain
+stylesheet. A browser stops reading a stylesheet at a fault, so about ninety
+dark rules below those two never loaded at all: the navigation pills, the
+badges, the cards, and the whole print block. The rules were there. They
+were dead. The light palette looked perfect, and every patch above the break
+worked, which is why it survived so long.
+
+`scripts/build-theme-css.mjs` now refuses a source that holds template
+syntax outside a comment, and names the line. If it refuses your change,
+write the address this application actually uses.
+
+The general lesson: when a dark rule seems to do nothing, check that the
+stylesheet still parses that far before you write another rule.
+
 So, before using a class for a background, a border, or a text colour:
 
 1. Search `theme.src.css` for a `.dark` rule that covers it. Prefer a class
