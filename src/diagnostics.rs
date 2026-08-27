@@ -524,10 +524,14 @@ async fn webhook(
             ..part
         }
         .note(format!(
-            "No message has arrived yet. Forgejo must be able to reach {target_url}. \
-             Inside the bundled stack a browser and Forgejo use different addresses, so \
-             set COOKLANGHUB_INTERNAL_URL to the address that Forgejo uses. The \
-             reconciliation keeps the indexes correct while this continues."
+            "No message has arrived yet. Forgejo must be able to reach {target_url}, \
+             and it must be permitted to. Forgejo refuses to post to a private \
+             address unless the host is named in its `webhook.ALLOWED_HOST_LIST`, \
+             and it writes that refusal to its own log and nowhere else. Read the \
+             Forgejo log for `Unable to deliver webhook`. Check also that \
+             COOKLANGHUB_INTERNAL_URL names the address Forgejo uses, which is not \
+             the address a browser uses. The reconciliation keeps the indexes \
+             correct while this continues."
         ));
     }
 
@@ -846,6 +850,33 @@ mod tests {
             tag.split('.').count(),
             3,
             "the tag must name one release, for example 15.0.7, and `{tag}` does not"
+        );
+    }
+
+    #[test]
+    fn forgejo_is_permitted_to_reach_the_application() {
+        // Forgejo refuses to post a webhook to a private address unless the
+        // host is named here, and it reports that refusal only in its own
+        // log. Without this the bundled stack looks healthy while no message
+        // ever arrives, and the indexes only catch up on a reconciliation.
+        // That is what happened here, so a test holds the setting.
+        let compose = include_str!("../docker-compose.yml");
+        let host = compose
+            .lines()
+            .find(|line| line.contains("FORGEJO__webhook__ALLOWED_HOST_LIST"))
+            .expect("Forgejo is not permitted to post to the application");
+        let value = host.split(':').nth(1).unwrap_or_default().trim();
+        let value = value.trim_matches('"');
+
+        assert!(
+            value.contains("app") || value == "*",
+            "the list must name the application service, and it names `{value}`"
+        );
+
+        // The address the application registers must be that same host.
+        assert!(
+            compose.contains("COOKLANGHUB_INTERNAL_URL: http://app:8080"),
+            "the webhook address and the permitted host must be the same host"
         );
     }
 

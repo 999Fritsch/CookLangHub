@@ -25,6 +25,13 @@ services:
       FORGEJO__service__DEFAULT_KEEP_EMAIL_PRIVATE: "true"
       FORGEJO__service__NO_REPLY_ADDRESS: "${FORGEJO_NOREPLY_DOMAIN:-noreply.localhost}"
       FORGEJO__service__DISABLE_REGISTRATION: "true"
+      # Forgejo refuses to post a webhook to a private address unless it is
+      # named here. Inside this stack the application is `app`, which docker
+      # gives a private address, so without this Forgejo silently refuses
+      # every delivery and the indexes only catch up on a reconciliation.
+      # The name is the service name, not an address, so it stays correct
+      # whatever docker allocates.
+      FORGEJO__webhook__ALLOWED_HOST_LIST: "app"
       FORGEJO__openid__ENABLE_OPENID_SIGNIN: "false"
     volumes:
       - forgejo-data:/data
