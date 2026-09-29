@@ -1,4 +1,4 @@
-//! Finding Recipes: Mine, Shared with me, Favorites, and Explore.
+//! Finding Recipes: All, Mine, Shared with me, and Favorites.
 //!
 //! Every list is built the same way. Forgejo says which Recipes this person
 //! may see, and the index says what each card shows. The order is never the
@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -40,7 +40,6 @@ const NO_FORGEJO: &str = outage::LIST_MESSAGE;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/explore", get(explore))
         .route("/admin/index", get(admin_index))
         .route("/admin/index/rebuild", post(rebuild))
 }
@@ -48,32 +47,33 @@ pub fn router() -> Router<Arc<AppState>> {
 /// Which list a person is looking at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Area {
+    /// Every public Recipe.
+    All,
     /// The Recipes of this person.
     Mine,
     /// The Recipes of somebody else that this person may work on.
     Shared,
     /// The Recipes that this person made a Favorite.
     Favorites,
-    /// Every public Recipe.
-    Explore,
 }
 
 impl Area {
     /// The value that the address carries.
     pub fn as_str(&self) -> &'static str {
         match self {
+            Area::All => "all",
             Area::Mine => "mine",
             Area::Shared => "shared",
             Area::Favorites => "favorites",
-            Area::Explore => "explore",
         }
     }
 
     fn parse(value: &str) -> Self {
         match value {
+            "mine" => Area::Mine,
             "shared" => Area::Shared,
             "favorites" => Area::Favorites,
-            _ => Area::Mine,
+            _ => Area::All,
         }
     }
 }
@@ -174,7 +174,7 @@ pub struct Listing {
 ///
 /// `token` is the credential of the person who is looking, and `None` means
 /// an anonymous visitor. Forgejo answers with what that credential may see,
-/// which is what makes Explore safe without an account.
+/// which is what makes the All tab safe without an account.
 pub async fn listing(
     state: &AppState,
     viewer: Option<&CurrentUser>,
@@ -184,7 +184,7 @@ pub async fn listing(
 ) -> Listing {
     // A person who is not signed in owns nothing, shares nothing, and has
     // no Favorites.
-    if viewer.is_none() && area != Area::Explore {
+    if viewer.is_none() && area != Area::All {
         return Listing {
             cards: Vec::new(),
             notice: None,
@@ -193,7 +193,7 @@ pub async fn listing(
     }
 
     let ownership = match (area, viewer) {
-        (Area::Explore, _) => Ownership::Anybody,
+        (Area::All, _) => Ownership::Anybody,
         (Area::Mine, Some(user)) => Ownership::OwnedBy(user.forgejo_user_id),
         (Area::Shared, Some(user)) => Ownership::ReachableBy(user.forgejo_user_id),
         _ => Ownership::Anybody,
@@ -226,9 +226,9 @@ pub async fn listing(
     };
 
     match area {
-        // Explore is the public catalog. A signed-in person sees the same
-        // list as a visitor, so a private Recipe never appears there.
-        Area::Explore => repositories.retain(|repository| !repository.private),
+        // All is the public catalog. A signed-in person sees the same list
+        // as a visitor, so a private Recipe never appears there.
+        Area::All => repositories.retain(|repository| !repository.private),
         // Forgejo answers with what this person owns and what they may work
         // on, and Shared with me is the second part of that.
         Area::Shared => {
@@ -295,17 +295,18 @@ fn empty_message(area: Area, words: &str) -> String {
     }
 
     match area {
+        Area::All => "This installation has no public Recipe yet.",
         Area::Mine => "You have no Recipes yet. Select New Recipe to write your first one.",
         Area::Shared => "Nobody shares a Recipe with you yet.",
         Area::Favorites => "You have no Favorite Recipes yet.",
-        Area::Explore => "This installation has no public Recipe yet.",
     }
     .to_string()
 }
 
-/// The three lists of the Recipes area, as links that keep the search.
+/// The four lists of the Recipes area, as links that keep the search.
 pub fn tabs(query: &BrowseQuery, area: Area) -> Vec<Tab> {
     [
+        (Area::All, "All"),
         (Area::Mine, "Mine"),
         (Area::Shared, "Shared with me"),
         (Area::Favorites, "Favorites"),
@@ -361,45 +362,6 @@ pub async fn viewer_token(state: &AppState, jar: &CookieJar) -> Option<Secret<St
 }
 
 // ------------------------------------------------------------------ pages
-
-#[derive(Template)]
-#[template(path = "explore.html")]
-struct ExploreTemplate {
-    layout: Layout,
-    forgejo_url: String,
-    recipes: Vec<RecipeCard>,
-    controls: Controls,
-    notice: Option<String>,
-    empty: String,
-}
-
-async fn explore(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    jar: CookieJar,
-    MaybeUser(user): MaybeUser,
-    Query(query): Query<BrowseQuery>,
-) -> Response {
-    // Explore needs no account. A visitor who is signed in still gets the
-    // public catalog, so what a link shows does not depend on who follows it.
-    let token = viewer_token(&state, &jar).await;
-
-    let listing = listing(&state, user.as_ref(), token.as_ref(), Area::Explore, &query).await;
-
-    respond(ExploreTemplate {
-        layout: Layout::new(user.as_ref()).on(&headers, &address("/explore", None, &query)),
-        forgejo_url: state.forgejo.public_url().to_string(),
-        recipes: listing.cards,
-        controls: Controls {
-            action: "/explore".to_string(),
-            area: String::new(),
-            q: query.words(),
-            sort: query.sort(),
-        },
-        notice: listing.notice,
-        empty: listing.empty,
-    })
-}
 
 /// The Diagnostics page.
 ///
@@ -579,9 +541,9 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_query_gives_the_first_list_and_the_recent_order() {
+    fn an_empty_query_gives_the_all_list_and_the_recent_order() {
         let empty = BrowseQuery::default();
-        assert_eq!(empty.area(), Area::Mine);
+        assert_eq!(empty.area(), Area::All);
         assert_eq!(empty.sort(), Sort::Recent);
         assert_eq!(empty.words(), "");
     }
@@ -594,8 +556,10 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_list_falls_back_to_mine() {
-        assert_eq!(query("", "", "sideways").area(), Area::Mine);
+    fn an_unknown_list_falls_back_to_all() {
+        assert_eq!(query("", "", "sideways").area(), Area::All);
+        assert_eq!(query("", "", "all").area(), Area::All);
+        assert_eq!(query("", "", "mine").area(), Area::Mine);
         assert_eq!(query("", "", "shared").area(), Area::Shared);
         assert_eq!(query("", "", "favorites").area(), Area::Favorites);
     }
@@ -606,22 +570,33 @@ mod tests {
     }
 
     #[test]
+    fn the_four_tabs_come_in_their_order() {
+        let tabs = tabs(&BrowseQuery::default(), Area::All);
+
+        let names: Vec<&str> = tabs.iter().map(|tab| tab.name).collect();
+        assert_eq!(names, ["All", "Mine", "Shared with me", "Favorites"]);
+    }
+
+    #[test]
     fn a_tab_keeps_the_search_and_the_order() {
         let tabs = tabs(&query("chili sin carne", "title", "shared"), Area::Shared);
 
-        assert_eq!(tabs.len(), 3);
-        assert!(tabs[1].active, "the shared list is the one being shown");
+        assert_eq!(tabs.len(), 4);
+        assert!(tabs[2].active, "the shared list is the one being shown");
         assert!(!tabs[0].active);
-        assert!(!tabs[2].active);
+        assert!(!tabs[1].active);
+        assert!(!tabs[3].active);
 
-        assert_eq!(tabs[0].href, "/?area=mine&q=chili%20sin%20carne&sort=title");
-        assert_eq!(
-            tabs[1].href,
-            "/?area=shared&q=chili%20sin%20carne&sort=title"
-        );
-        assert_eq!(tabs[2].name, "Favorites");
+        assert_eq!(tabs[0].name, "All");
+        assert_eq!(tabs[0].href, "/?area=all&q=chili%20sin%20carne&sort=title");
+        assert_eq!(tabs[1].href, "/?area=mine&q=chili%20sin%20carne&sort=title");
         assert_eq!(
             tabs[2].href,
+            "/?area=shared&q=chili%20sin%20carne&sort=title"
+        );
+        assert_eq!(tabs[3].name, "Favorites");
+        assert_eq!(
+            tabs[3].href,
             "/?area=favorites&q=chili%20sin%20carne&sort=title"
         );
     }
@@ -630,20 +605,20 @@ mod tests {
     fn the_favorites_list_keeps_the_most_favorited_order() {
         let tabs = tabs(&query("", "favorites", "favorites"), Area::Favorites);
 
-        assert!(tabs[2].active, "the Favorites list is the one being shown");
-        assert_eq!(tabs[2].href, "/?area=favorites&sort=favorites");
+        assert!(tabs[3].active, "the Favorites list is the one being shown");
+        assert_eq!(tabs[3].href, "/?area=favorites&sort=favorites");
     }
 
     #[test]
     fn the_recent_order_needs_no_parameter() {
-        let tabs = tabs(&BrowseQuery::default(), Area::Mine);
-        assert_eq!(tabs[0].href, "/?area=mine");
+        let tabs = tabs(&BrowseQuery::default(), Area::All);
+        assert_eq!(tabs[0].href, "/?area=all");
     }
 
     #[test]
     fn a_search_term_cannot_break_out_of_the_address() {
-        let address = address("/explore", None, &query("a&b=c #d", "", ""));
-        assert_eq!(address, "/explore?q=a%26b%3Dc%20%23d");
+        let address = address("/", None, &query("a&b=c #d", "", ""));
+        assert_eq!(address, "/?q=a%26b%3Dc%20%23d");
         assert!(!address.contains('&') || address.matches('&').count() == 0);
     }
 
@@ -652,7 +627,7 @@ mod tests {
         assert!(empty_message(Area::Mine, "").contains("New Recipe"));
         assert!(empty_message(Area::Shared, "").contains("shares"));
         assert!(empty_message(Area::Favorites, "").contains("Favorite"));
-        assert!(empty_message(Area::Explore, "").contains("public"));
+        assert!(empty_message(Area::All, "").contains("public"));
         // A search that found nothing is a different thing to say.
         assert!(empty_message(Area::Mine, "chili").contains("No Recipe title"));
     }

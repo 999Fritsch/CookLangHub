@@ -33,7 +33,7 @@ const FULL = args.includes("--full-page");
 /** The pages worth looking at, and what each one is for. */
 const PAGES = [
   { name: "recipes", path: "/", needsSession: true },
-  { name: "explore", path: "/explore", needsSession: false },
+  { name: "recipes-all", path: "/", needsSession: false },
   { name: "recipe", path: "/recipes/filip/chili-sin-carne", needsSession: false },
   { name: "recipe-scaled", path: "/recipes/filip/chili-sin-carne?servings=8", needsSession: false },
   { name: "preferences", path: "/preferences", needsSession: false },
@@ -43,6 +43,7 @@ const PAGES = [
   { name: "editor", path: "/recipes/filip/chili-sin-carne/edit", needsSession: true },
   { name: "history", path: "/recipes/filip/chili-sin-carne/history", needsSession: false },
   { name: "cookbooks", path: "/cookbooks", needsSession: true },
+  { name: "cookbooks-all", path: "/cookbooks", needsSession: false },
   { name: "cookbook-new", path: "/cookbooks/new", needsSession: true },
   { name: "profile", path: "/cooks/filip", needsSession: false },
   { name: "variations", path: "/recipes/filip/chili-sin-carne/variations", needsSession: false },

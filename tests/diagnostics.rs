@@ -336,7 +336,6 @@ async fn a_forgejo_outage_is_visible_refuses_every_edit_and_ends_with_a_reconcil
     //    though it were current.
     for path in [
         "/",
-        "/explore",
         "/cookbooks",
         "/recipes/sam/chili-sin-carne",
         "/recipes/sam/chili-sin-carne/history",
@@ -535,7 +534,7 @@ async fn the_application_sends_nothing_to_another_host() {
 
     // Every page restricts the browser to this host, so no tracking pixel
     // and no analytics script can load, whoever puts one in later.
-    for path in ["/", "/explore", "/admin/index", "/preferences"] {
+    for path in ["/", "/cookbooks", "/admin/index", "/preferences"] {
         let response = read(&app, None, path).await;
         let policy = response
             .headers()

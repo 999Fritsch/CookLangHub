@@ -371,11 +371,11 @@ async fn create_variation_makes_a_forgejo_fork_that_is_a_recipe_of_its_own() {
         "the Variation is not in the Recipes of kim"
     );
 
-    // Both are public Recipes, so Explore holds both and neither hides the
+    // Both are public Recipes, so All holds both and neither hides the
     // other.
-    let explore = text(read(&world, None, "/explore").await).await;
-    assert!(explore.contains("/recipes/kim/chili"));
-    assert!(explore.contains("/recipes/sam/chili"));
+    let everything = text(read(&world, None, "/").await).await;
+    assert!(everything.contains("/recipes/kim/chili"));
+    assert!(everything.contains("/recipes/sam/chili"));
 }
 
 #[tokio::test]

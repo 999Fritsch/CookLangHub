@@ -119,10 +119,12 @@ async fn no_page_asset_comes_from_another_host() {
     let body = response.text().await.expect("cannot read the body");
 
     for attribute in ["src=\"http", "href=\"http", "@import url(http"] {
-        // The Forgejo link is the one external address on the page, and it is
-        // a link, not an asset. Assets must all be relative.
+        // The index page carries the Forgejo address as a link in two
+        // places: the footer, and the notice that appears while Forgejo
+        // does not answer. Both are links to Forgejo, never an asset, and
+        // every asset must be relative.
         let count = body.matches(attribute).count();
-        let allowed = usize::from(attribute == "href=\"http");
+        let allowed = if attribute == "href=\"http" { 2 } else { 0 };
         assert!(
             count <= allowed,
             "found {count} external `{attribute}` references on the index page"

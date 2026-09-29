@@ -70,7 +70,6 @@ pub fn router() -> Router<Arc<AppState>> {
             "/cookbooks/{owner}/{slug}/sharing/people/remove",
             post(sharing_remove_person),
         )
-        .route("/explore/cookbooks", get(explore))
 }
 
 // ------------------------------------------------------------------ lists
@@ -81,32 +80,33 @@ pub fn router() -> Router<Arc<AppState>> {
 /// and the Recipe lists do not offer that yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Area {
+    /// Every public Cookbook.
+    All,
     /// The Cookbooks of this person.
     Mine,
     /// The Cookbooks of somebody else that this person may work on.
     Shared,
     /// The Cookbooks that this person made a Favorite.
     Favorites,
-    /// Every public Cookbook.
-    Explore,
 }
 
 impl Area {
     /// The value that the address carries.
     pub fn as_str(&self) -> &'static str {
         match self {
+            Area::All => "all",
             Area::Mine => "mine",
             Area::Shared => "shared",
             Area::Favorites => "favorites",
-            Area::Explore => "explore",
         }
     }
 
     fn parse(value: &str) -> Self {
         match value {
+            "mine" => Area::Mine,
             "shared" => Area::Shared,
             "favorites" => Area::Favorites,
-            _ => Area::Mine,
+            _ => Area::All,
         }
     }
 }
@@ -138,7 +138,7 @@ pub struct Listing {
 ///
 /// `token` is the credential of the person who is looking, and `None` means
 /// an anonymous visitor. Forgejo answers with what that credential may see,
-/// which is what makes Explore safe without an account.
+/// which is what makes the All tab safe without an account.
 pub async fn listing(
     state: &AppState,
     viewer: Option<&CurrentUser>,
@@ -148,7 +148,7 @@ pub async fn listing(
 ) -> Listing {
     // A person who is not signed in owns nothing, shares nothing, and has
     // no Favorites.
-    if viewer.is_none() && area != Area::Explore {
+    if viewer.is_none() && area != Area::All {
         return Listing {
             cards: Vec::new(),
             notice: None,
@@ -163,7 +163,7 @@ pub async fn listing(
         },
         _ => {
             let ownership = match (area, viewer) {
-                (Area::Explore, _) => Ownership::Anybody,
+                (Area::All, _) => Ownership::Anybody,
                 (Area::Mine, Some(user)) => Ownership::OwnedBy(user.forgejo_user_id),
                 (Area::Shared, Some(user)) => Ownership::ReachableBy(user.forgejo_user_id),
                 _ => Ownership::Anybody,
@@ -185,9 +185,9 @@ pub async fn listing(
     };
 
     match area {
-        // Explore is the public catalog. A signed-in person sees the same
-        // list as a visitor, so a private Cookbook never appears there.
-        Area::Explore => repositories.retain(|repository| !repository.private),
+        // All is the public catalog. A signed-in person sees the same list
+        // as a visitor, so a private Cookbook never appears there.
+        Area::All => repositories.retain(|repository| !repository.private),
         // Forgejo answers with what this person owns and what they may work
         // on, and Shared with me is the second part of that.
         Area::Shared => {
@@ -247,17 +247,18 @@ fn empty_message(area: Area, words: &str) -> String {
     }
 
     match area {
+        Area::All => "This installation has no public Cookbook yet.",
         Area::Mine => "You have no Cookbooks yet. Select New Cookbook to make your first one.",
         Area::Shared => "Nobody shares a Cookbook with you yet.",
         Area::Favorites => "You have no Favorite Cookbooks yet.",
-        Area::Explore => "This installation has no public Cookbook yet.",
     }
     .to_string()
 }
 
-/// The three lists of the Cookbooks area, as links that keep the search.
+/// The four lists of the Cookbooks area, as links that keep the search.
 pub fn tabs(query: &BrowseQuery, area: Area) -> Vec<Tab> {
     [
+        (Area::All, "All"),
         (Area::Mine, "Mine"),
         (Area::Shared, "Shared with me"),
         (Area::Favorites, "Favorites"),
@@ -340,46 +341,6 @@ async fn list(
         controls: Controls {
             action: "/cookbooks".to_string(),
             area: area.as_str().to_string(),
-            q: query.words(),
-            sort: query.sort(),
-        },
-        notice: listing.notice,
-        empty: listing.empty,
-    })
-}
-
-#[derive(Template)]
-#[template(path = "cookbook_explore.html")]
-struct ExploreTemplate {
-    layout: Layout,
-    forgejo_url: String,
-    cookbooks: Vec<CookbookCard>,
-    controls: Controls,
-    notice: Option<String>,
-    empty: String,
-}
-
-async fn explore(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    jar: CookieJar,
-    MaybeUser(user): MaybeUser,
-    Query(query): Query<BrowseQuery>,
-) -> Response {
-    // Explore needs no account. A visitor who is signed in still gets the
-    // public catalog, so what a link shows does not depend on who follows it.
-    let token = crate::web::viewer_token(&state, &jar).await;
-
-    let listing = listing(&state, user.as_ref(), token.as_ref(), Area::Explore, &query).await;
-
-    respond(ExploreTemplate {
-        layout: Layout::new(user.as_ref())
-            .on(&headers, &address("/explore/cookbooks", None, &query)),
-        forgejo_url: state.forgejo.public_url().to_string(),
-        cookbooks: listing.cards,
-        controls: Controls {
-            action: "/explore/cookbooks".to_string(),
-            area: String::new(),
             q: query.words(),
             sort: query.sort(),
         },
@@ -2358,13 +2319,14 @@ mod tests {
     }
 
     #[test]
-    fn the_cookbooks_area_offers_three_lists() {
-        let tabs = tabs(&BrowseQuery::default(), Area::Mine);
+    fn the_cookbooks_area_offers_four_lists() {
+        let tabs = tabs(&BrowseQuery::default(), Area::All);
 
-        assert_eq!(tabs.len(), 3);
-        assert_eq!(tabs[0].name, "Mine");
-        assert_eq!(tabs[1].name, "Shared with me");
-        assert_eq!(tabs[2].name, "Favorites");
+        assert_eq!(tabs.len(), 4);
+        assert_eq!(tabs[0].name, "All");
+        assert_eq!(tabs[1].name, "Mine");
+        assert_eq!(tabs[2].name, "Shared with me");
+        assert_eq!(tabs[3].name, "Favorites");
         assert!(tabs[0].active);
     }
 
@@ -2375,13 +2337,13 @@ mod tests {
             Area::Favorites,
         );
 
-        assert!(tabs[2].active);
+        assert!(tabs[3].active);
         assert_eq!(
-            tabs[0].href,
+            tabs[1].href,
             "/cookbooks?area=mine&q=sunday%20dinners&sort=title"
         );
         assert_eq!(
-            tabs[2].href,
+            tabs[3].href,
             "/cookbooks?area=favorites&q=sunday%20dinners&sort=title"
         );
     }
@@ -2413,8 +2375,10 @@ mod tests {
 
     #[test]
     fn an_empty_query_gives_the_first_list() {
-        assert_eq!(Area::parse(""), Area::Mine);
-        assert_eq!(Area::parse("sideways"), Area::Mine);
+        assert_eq!(Area::parse(""), Area::All);
+        assert_eq!(Area::parse("sideways"), Area::All);
+        assert_eq!(Area::parse("all"), Area::All);
+        assert_eq!(Area::parse("mine"), Area::Mine);
         assert_eq!(Area::parse("shared"), Area::Shared);
         assert_eq!(Area::parse("favorites"), Area::Favorites);
     }
@@ -2430,7 +2394,7 @@ mod tests {
         assert!(empty_message(Area::Mine, "").contains("New Cookbook"));
         assert!(empty_message(Area::Shared, "").contains("shares"));
         assert!(empty_message(Area::Favorites, "").contains("Favorite"));
-        assert!(empty_message(Area::Explore, "").contains("public"));
+        assert!(empty_message(Area::All, "").contains("public"));
         assert!(empty_message(Area::Mine, "sunday").contains("No Cookbook title"));
     }
 
