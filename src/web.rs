@@ -349,11 +349,12 @@ struct IndexTemplate {
     empty: String,
 }
 
-/// The Recipes area: Mine, and Shared with me.
+/// The Recipes area: Mine, Shared with me, and Favorites.
 ///
 /// Forgejo says which Recipes this person may see, and the index says what
-/// each card shows. A visitor who is not signed in gets the welcome instead,
-/// and can still follow **Explore**.
+/// each card shows. A visitor who is not signed in owns nothing and has no
+/// Favorites, so the start page shows the public catalog instead. The
+/// `area` parameter belongs to a signed-in person.
 async fn index(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -361,7 +362,14 @@ async fn index(
     MaybeUser(user): MaybeUser,
     axum::extract::Query(query): axum::extract::Query<crate::web_browse::BrowseQuery>,
 ) -> Response {
-    let area = query.area();
+    // A visitor always sees the public catalog, whatever list the address
+    // asks for. The list is the one that `/explore` builds, and Forgejo
+    // decides what an anonymous reader may see.
+    let area = if user.is_some() {
+        query.area()
+    } else {
+        crate::web_browse::Area::Explore
+    };
     let token = crate::web_browse::viewer_token(&state, &jar).await;
 
     let listing =
@@ -374,7 +382,13 @@ async fn index(
         tabs: crate::web_browse::tabs(&query, area),
         controls: crate::web_browse::Controls {
             action: "/".to_string(),
-            area: area.as_str().to_string(),
+            // The public catalog is the one list that needs no parameter,
+            // so a visitor's form carries no list of its own.
+            area: if user.is_some() {
+                area.as_str().to_string()
+            } else {
+                String::new()
+            },
             q: query.words(),
             sort: query.sort(),
         },

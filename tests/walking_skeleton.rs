@@ -118,16 +118,26 @@ async fn no_page_asset_comes_from_another_host() {
 
     let body = response.text().await.expect("cannot read the body");
 
-    for attribute in ["src=\"http", "href=\"http", "@import url(http"] {
-        // The Forgejo link is the one external address on the page, and it is
-        // a link, not an asset. Assets must all be relative.
-        let count = body.matches(attribute).count();
-        let allowed = usize::from(attribute == "href=\"http");
-        assert!(
-            count <= allowed,
-            "found {count} external `{attribute}` references on the index page"
+    // No asset comes from another host. The external addresses on the page
+    // are links to Forgejo, never assets, and every one of them points at
+    // the Forgejo that this application is configured for. The list adds
+    // one while Forgejo is away, because it offers Open in Forgejo.
+    for attribute in ["src=\"http", "@import url(http"] {
+        assert_eq!(
+            body.matches(attribute).count(),
+            0,
+            "found an external `{attribute}` on the index page"
         );
     }
+
+    let external = body.matches("href=\"http").count();
+    assert!(external > 0, "the page must link to Forgejo");
+    assert_eq!(
+        external,
+        body.matches(&format!("href=\"{}\"", app.forgejo.public_url()))
+            .count(),
+        "every external link must be the configured Forgejo"
+    );
 }
 
 #[tokio::test]

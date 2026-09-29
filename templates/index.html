@@ -1,6 +1,11 @@
 {#
   The Recipes area: Mine, Shared with me, and Favorites.
 
+  A visitor owns no Recipes and has no Favorites, so the start page shows
+  the public catalog instead, as `/explore` shows it. The list tabs and
+  New Recipe belong to a signed-in person, and the navigation offers Sign
+  in to a visitor.
+
   CookCLI: Copyright (c) 2021-2023 Alexey Dubovskoy, MIT. See NOTICE.
 #}
 {% extends "base.html" %}
@@ -8,38 +13,24 @@
 {% block title %}Recipes &middot; CookLangHub{% endblock %}
 
 {% block content %}
-{% if layout.signed_in %}
 <div class="flex items-center justify-between flex-wrap gap-4 mb-6">
   <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent">Recipes</h1>
+  {% if layout.signed_in %}
   <a href="/recipes/new" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">New Recipe</a>
+  {% endif %}
 </div>
 
+{% if layout.signed_in %}
 <nav class="flex flex-wrap gap-1 mb-6 border-b border-gray-200 pb-2" aria-label="Recipes">
   {% for tab in tabs %}
   <a class="nav-pill {% if tab.active %}active{% endif %}" href="{{ tab.href }}"
      {% if tab.active %}aria-current="page"{% endif %}>{{ tab.name }}</a>
   {% endfor %}
 </nav>
+{% endif %}
 
 {% include "browse_controls.html" %}
 {% include "browse_cards.html" %}
-{% else %}
-<div class="bg-white rounded-2xl shadow-lg p-8">
-  <h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-yellow-600 bg-clip-text text-transparent mb-4">CookLangHub</h1>
-  <p class="text-gray-600 mb-6">
-    A place to write Recipes, keep them together in Cookbooks, and cook them
-    with friends and family.
-  </p>
-  <p class="text-gray-600 mb-6">
-    CookLangHub uses your Forgejo account. Select <strong>Sign in</strong> to
-    write a Recipe. To read the public Recipes, select <strong>Explore</strong>.
-  </p>
-  <div class="flex flex-wrap gap-2">
-    <a href="/auth/sign-in" class="btn-primary inline-block px-5 py-2 rounded-full font-medium text-white">Sign in</a>
-    <a href="/explore" class="nav-pill inline-block">Explore</a>
-  </div>
-</div>
-{% endif %}
 
 <div class="mt-8 text-sm text-gray-600">
   Forgejo: <a href="{{ forgejo_url }}" class="text-blue-600 hover:text-blue-800 underline">{{ forgejo_url }}</a>
