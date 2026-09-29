@@ -469,10 +469,10 @@ async fn notify_me_belongs_to_a_recipe_and_stays_apart_from_a_favorite() {
     );
 }
 
-// ----------------------------------------------------------------- Explore
+// --------------------------------------------------------------------- All
 
 #[tokio::test]
-async fn explore_can_put_the_most_favorited_first() {
+async fn the_all_tab_can_put_the_most_favorited_first() {
     let Ready {
         forgejo,
         app,
@@ -489,19 +489,19 @@ async fn explore_can_put_the_most_favorited_first() {
     // Alex makes one of them a Favorite in Forgejo. Forgejo counts them.
     star_outside(&forgejo, &alex_token, "sam/popular-pie").await;
 
-    let controls = page(&app, "/explore", None).await;
+    let controls = page(&app, "/", None).await;
     assert!(
         controls.contains("Most favorited"),
-        "Explore must offer the Most favorited order"
+        "All must offer the Most favorited order"
     );
 
-    let recent = page(&app, "/explore", None).await;
+    let recent = page(&app, "/", None).await;
     assert!(
         position(&recent, "Quiet Quiche") < position(&recent, "Popular Pie"),
         "the recent order must put the newest Recipe first"
     );
 
-    let favorited = page(&app, "/explore?sort=favorites", None).await;
+    let favorited = page(&app, "/?sort=favorites", None).await;
     assert!(
         position(&favorited, "Popular Pie") < position(&favorited, "Quiet Quiche"),
         "the Most favorited order must put the Recipe with the most Favorites first, got: {favorited:.3000}"
@@ -512,7 +512,7 @@ async fn explore_can_put_the_most_favorited_first() {
     unstar_outside(&forgejo, &alex_token, "sam/popular-pie").await;
     star_outside(&forgejo, &alex_token, "sam/quiet-quiche").await;
 
-    let again = page(&app, "/explore?sort=favorites", None).await;
+    let again = page(&app, "/?sort=favorites", None).await;
     assert!(
         position(&again, "Quiet Quiche") < position(&again, "Popular Pie"),
         "the order must follow Forgejo, got: {again:.3000}"

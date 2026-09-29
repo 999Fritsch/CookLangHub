@@ -457,6 +457,10 @@ async fn a_profile_shows_only_the_recipes_that_forgejo_shows_the_person_looking(
         unknown.contains("Open in Forgejo"),
         "the application diagnoses the state and offers Forgejo"
     );
+    assert!(
+        !unknown.contains("/explore"),
+        "the page that is gone must not be offered here"
+    );
     assert_cooking_words(&unknown);
 }
 
@@ -857,12 +861,12 @@ async fn a_profile_lists_the_cookbooks_that_forgejo_shows() {
     // other Cookbook list, so the two are the same markup and cannot drift
     // apart. A third card was written here once, and it kept a message
     // about Forgejo long after the Cookbook page arrived.
-    let explore = page(&app, "/explore/cookbooks", None).await;
+    let listed = page(&app, "/cookbooks", None).await;
     let here = card_html(&visitor, "/cookbooks/sam/weeknight-dinners");
-    let there = card_html(&explore, "/cookbooks/sam/weeknight-dinners");
+    let there = card_html(&listed, "/cookbooks/sam/weeknight-dinners");
     assert_eq!(
         here, there,
-        "a Cookbook must look the same on a profile as it does on Explore"
+        "a Cookbook must look the same on a profile as it does in a list"
     );
 
     assert_cooking_words(&visitor);

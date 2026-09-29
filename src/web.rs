@@ -282,14 +282,13 @@ fn percent_decode(value: &str) -> String {
 impl Layout {
     /// Whether the navigation should mark an area as the one in use.
     ///
-    /// The mark said Recipes on every page that was not Explore, so it said
-    /// Recipes while a person stood on Preferences or on New Recipe. It now
-    /// answers for the page the person is actually on, and answers for none
-    /// of them on a page that belongs to no area.
+    /// The mark said Recipes on every page, so it said Recipes while a
+    /// person stood on Preferences or on New Recipe. It now answers for the
+    /// page the person is actually on, and answers for none of them on a
+    /// page that belongs to no area.
     pub fn area_is(&self, area: &str) -> bool {
         let path = self.path.as_str();
         match area {
-            "explore" => path == "/explore" || path.starts_with("/explore/"),
             "new" => path == "/recipes/new",
             "recipes" => path == "/" || (path.starts_with("/recipes/") && path != "/recipes/new"),
             "cookbooks" => path == "/cookbooks" || path.starts_with("/cookbooks/"),
@@ -342,18 +341,18 @@ struct IndexTemplate {
     layout: Layout,
     forgejo_url: String,
     recipes: Vec<RecipeCard>,
-    /// Mine, and Shared with me.
+    /// All, Mine, Shared with me, and Favorites.
     tabs: Vec<crate::web_browse::Tab>,
     controls: crate::web_browse::Controls,
     notice: Option<String>,
     empty: String,
 }
 
-/// The Recipes area: Mine, and Shared with me.
+/// The Recipes area: All, Mine, Shared with me, and Favorites.
 ///
 /// Forgejo says which Recipes this person may see, and the index says what
-/// each card shows. A visitor who is not signed in gets the welcome instead,
-/// and can still follow **Explore**.
+/// each card shows. All is the public catalog, so it needs no account, and
+/// it is the tab a person lands on.
 async fn index(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -517,17 +516,13 @@ mod tests {
         assert!(at("/").area_is("recipes"));
         assert!(at("/recipes/sam/chili").area_is("recipes"));
         assert!(at("/recipes/sam/chili/sharing").area_is("recipes"));
-        assert!(at("/explore").area_is("explore"));
 
-        // Cookbooks is its own area, and the Cookbooks of Explore stay
-        // inside Explore.
+        // Cookbooks is its own area.
         assert!(at("/cookbooks").area_is("cookbooks"));
         assert!(at("/cookbooks/sam/sunday").area_is("cookbooks"));
         assert!(at("/cookbooks/new").area_is("cookbooks"));
         assert!(!at("/cookbooks").area_is("recipes"));
         assert!(!at("/").area_is("cookbooks"));
-        assert!(at("/explore/cookbooks").area_is("explore"));
-        assert!(!at("/explore/cookbooks").area_is("cookbooks"));
 
         // New Recipe is its own place, not a Recipe.
         assert!(at("/recipes/new").area_is("new"));
@@ -535,7 +530,7 @@ mod tests {
 
         // Preferences belongs to no area, so nothing is marked. The mark
         // used to say Recipes here, which named the wrong place.
-        for area in ["recipes", "explore", "new"] {
+        for area in ["recipes", "new"] {
             assert!(
                 !at("/preferences").area_is(area),
                 "Preferences must not be marked as `{area}`"

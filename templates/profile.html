@@ -65,9 +65,9 @@
 <h2 class="text-2xl font-bold text-gray-900 mt-10 mb-4">Cookbooks</h2>
 
 {#
-  The Cookbook cards of every other list. One card, one behaviour: a
-  Cookbook looks the same here as it does on Explore, and it leads to the
-  Cookbook page rather than away to Forgejo.
+  The same Cookbook card as every other Cookbook list. One card, one
+  behaviour: a Cookbook looks the same here as it does on the Cookbooks
+  page, and it leads to the Cookbook page rather than away to Forgejo.
 
   Both card partials read `notice` and `empty`, so the Cookbook one gets
   its own pair of those two names here.
@@ -90,7 +90,6 @@
 
   <div class="flex flex-wrap gap-3">
     <a class="btn-primary px-5 py-2 rounded-full font-medium text-white" href="{{ forgejo_url }}">Open in Forgejo</a>
-    <a class="px-5 py-2 rounded-full font-medium border border-gray-300 text-gray-700 hover:bg-gray-50" href="/explore">Explore</a>
   </div>
 </div>
 {% endif %}

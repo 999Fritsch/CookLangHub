@@ -61,6 +61,18 @@ async fn signing_out_says_what_forgejo_still_holds() {
             "`{word}` is not a word this page should use"
         );
     }
+
+    // The page that is gone is not offered here either. The other buttons
+    // stay.
+    assert!(
+        !body.contains("/explore"),
+        "a page that is gone must not be named"
+    );
+    assert!(body.contains("/auth/sign-in"), "Sign in stays");
+    assert!(
+        body.contains("/user/settings/applications"),
+        "Open in Forgejo stays"
+    );
 }
 
 #[tokio::test]
@@ -106,7 +118,7 @@ async fn a_browser_does_not_keep_a_page_after_a_person_signs_out() {
 
     for path in [
         "/",
-        "/explore",
+        "/cookbooks",
         "/preferences",
         "/recipes/sam/chili-sin-carne",
     ] {
@@ -217,7 +229,7 @@ async fn the_menu_on_a_narrow_screen_needs_no_script() {
         menu.contains("<form method=\"post\" action=\"/auth/sign-out\">"),
         "sign-out stays a form"
     );
-    for place in ["/explore", "/recipes/new", "/preferences"] {
+    for place in ["/cookbooks", "/recipes/new", "/preferences"] {
         assert!(menu.contains(place), "the menu must hold `{place}`");
     }
 }

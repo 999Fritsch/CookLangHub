@@ -26,7 +26,6 @@
         r: ['/', 'Recipes'],
         c: ['/cookbooks', 'Cookbooks'],
         s: ['/suggestions', 'Suggestions'],
-        e: ['/explore', 'Explore'],
         n: ['/recipes/new', 'New Recipe'],
         p: ['/preferences', 'Preferences']
     };

@@ -55,8 +55,8 @@ use crate::web::{AppState, Layout, MaybeUser, RecipeCard};
 /// One Cookbook on a profile.
 ///
 /// The card is the card of every other Cookbook list, so a Cookbook looks
-/// the same here as it does on Explore and carries the same **Owned by**
-/// line. A second card would drift away from that one.
+/// the same here as it does on the Cookbooks page and carries the same
+/// **Owned by** line. A second card would drift away from that one.
 use crate::web_cookbooks::CookbookCard;
 
 /// The topics that mark a Cookbook repository.

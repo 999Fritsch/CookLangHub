@@ -279,7 +279,7 @@ Chop the @onion{1}.",
 
     // The Recipe stays in the index. Nothing was removed because nobody was
     // asked about it.
-    let (status, body) = page(&app, "/", &session).await;
+    let (status, body) = page(&app, "/?area=mine", &session).await;
     assert_eq!(status, 200);
     assert!(
         body.contains("Chili Sin Carne"),

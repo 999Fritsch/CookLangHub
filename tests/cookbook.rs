@@ -387,7 +387,7 @@ async fn the_cookbooks_area_shows_mine_shared_with_me_and_favorites() {
         starred.status()
     );
 
-    let mine = page(&app, "/cookbooks", Some(&sam)).await;
+    let mine = page(&app, "/cookbooks?area=mine", Some(&sam)).await;
     assert!(mine.contains("Mine"), "the three lists must be offered");
     assert!(mine.contains("Shared with me"));
     assert!(mine.contains("Favorites"));
@@ -419,7 +419,7 @@ async fn the_cookbooks_area_shows_mine_shared_with_me_and_favorites() {
 }
 
 #[tokio::test]
-async fn explore_and_search_include_cookbooks() {
+async fn all_and_search_include_cookbooks() {
     let Ready {
         // Held so that the Forgejo container outlives the test.
         forgejo: _forgejo,
@@ -433,15 +433,15 @@ async fn explore_and_search_include_cookbooks() {
     support::create_cookbook(&app, &sam, "Weeknights", "Quick food.", false).await;
     support::create_cookbook(&app, &sam, "Quiet Ones", "Nothing to see.", true).await;
 
-    // Explore keeps Recipes and Cookbooks apart, and names both.
-    let recipes = page(&app, "/explore", None).await;
+    // The navigation of the Recipes page holds the Cookbooks area.
+    let recipes = page(&app, "/", None).await;
     assert!(
-        recipes.contains("/explore/cookbooks"),
-        "Explore must offer the Cookbooks as well"
+        recipes.contains("href=\"/cookbooks\""),
+        "the navigation must offer the Cookbooks as well"
     );
 
-    // Explore needs no account, because Public means public.
-    let anonymous = page(&app, "/explore/cookbooks", None).await;
+    // All needs no account, because Public means public.
+    let anonymous = page(&app, "/cookbooks", None).await;
     assert!(anonymous.contains("Sunday Dinners"));
     assert!(anonymous.contains("Weeknights"));
     assert!(
@@ -450,20 +450,93 @@ async fn explore_and_search_include_cookbooks() {
     );
 
     // Search is by the title that a person sees.
-    let found = page(&app, "/explore/cookbooks?q=sunday", None).await;
+    let found = page(&app, "/cookbooks?q=sunday", None).await;
     assert!(found.contains("Sunday Dinners"));
     assert!(
         !found.contains("Weeknights"),
         "a search must make the list shorter"
     );
 
-    let nothing = page(&app, "/explore/cookbooks?q=zzzz", None).await;
+    let nothing = page(&app, "/cookbooks?q=zzzz", None).await;
     assert!(nothing.contains("No Cookbook title contains these words."));
 
     // The owner searches their own area the same way.
     let mine = page(&app, "/cookbooks?area=mine&q=quiet", Some(&sam)).await;
     assert!(mine.contains("Quiet Ones"));
     assert!(!mine.contains("Sunday Dinners"));
+}
+
+#[tokio::test]
+async fn the_cookbooks_page_offers_four_tabs_to_everybody() {
+    let Ready {
+        forgejo,
+        app,
+        sam,
+        admin: _admin,
+        sam_token: _sam_token,
+    } = ready().await;
+    let alex = support::sign_in(&app, &forgejo, "alex").await;
+
+    support::create_cookbook(&app, &alex, "Alex Weeknights", "Alex made this.", false).await;
+
+    // A signed-in person lands on All, which holds every public Cookbook,
+    // and not only their own.
+    let landing = page(&app, "/cookbooks", Some(&sam)).await;
+    assert!(
+        landing.contains("Alex Weeknights"),
+        "a signed-in person must land on All, which holds every public Cookbook"
+    );
+    assert!(
+        landing.contains("nav-pill active\" href=\"/cookbooks?area=all\""),
+        "All must be the tab that is marked"
+    );
+
+    // A visitor sees the same four tabs, in the same order.
+    let visitor = page(&app, "/cookbooks", None).await;
+    let tabs = ["All", "Mine", "Shared with me", "Favorites"];
+    let mut last = 0;
+    for name in tabs {
+        let tab = format!(">{name}</a>");
+        assert_eq!(
+            visitor.matches(&tab).count(),
+            1,
+            "`{name}` must appear once in the tab row of a visitor"
+        );
+        let at = visitor.find(&tab).unwrap_or_default();
+        assert!(at >= last, "the tabs must keep the order {tabs:?}");
+        last = at;
+    }
+    assert!(!visitor.contains("href=\"/cookbooks/new\""));
+
+    // A personal tab says what to do without an account.
+    let personal = page(&app, "/cookbooks?area=favorites", None).await;
+    assert!(
+        personal.contains("Sign in to see your Cookbooks."),
+        "a personal tab must say what to do without an account"
+    );
+
+    // The tab row keeps the search words and the order, on every tab. The
+    // address escapes `&` the way HTML needs it, so read it back the way a
+    // browser does.
+    let searched = page(&app, "/cookbooks?q=sunday&sort=title", Some(&sam))
+        .await
+        .replace("&#38;", "&");
+    for area in ["all", "mine", "shared", "favorites"] {
+        assert!(
+            searched.contains(&format!(
+                "href=\"/cookbooks?area={area}&q=sunday&sort=title\""
+            )),
+            "the `{area}` tab must keep the search and the order"
+        );
+    }
+
+    // The address of the page that is gone answers 404.
+    let response = get(&app, "/explore/cookbooks", None).await;
+    assert_eq!(
+        response.status(),
+        404,
+        "/explore/cookbooks must be gone, not redirected"
+    );
 }
 
 #[tokio::test]
@@ -480,7 +553,7 @@ async fn a_cookbook_never_meets_a_recipe_in_a_list() {
     support::create_cookbook(&app, &sam, "Sunday Dinners", "Slow food.", false).await;
 
     // The Recipe lists hold the Recipe only.
-    for path in ["/", "/?area=mine", "/explore"] {
+    for path in ["/", "/?area=mine"] {
         let body = page(&app, path, Some(&sam)).await;
         assert!(
             body.contains("Chili Sin Carne"),
@@ -493,7 +566,7 @@ async fn a_cookbook_never_meets_a_recipe_in_a_list() {
     }
 
     // The Cookbook lists hold the Cookbook only.
-    for path in ["/cookbooks", "/cookbooks?area=mine", "/explore/cookbooks"] {
+    for path in ["/cookbooks", "/cookbooks?area=mine"] {
         let body = page(&app, path, Some(&sam)).await;
         assert!(
             body.contains("Sunday Dinners"),
@@ -577,10 +650,10 @@ async fn forgejo_decides_who_sees_a_private_cookbook() {
     }
 
     // And it never reaches a public list.
-    let anonymous = page(&app, "/explore/cookbooks", None).await;
+    let anonymous = page(&app, "/cookbooks", None).await;
     assert!(!anonymous.contains("Quiet Ones"));
 
-    let other = page(&app, "/explore/cookbooks", Some(&robin)).await;
+    let other = page(&app, "/cookbooks", Some(&robin)).await;
     assert!(
         !other.contains("Quiet Ones"),
         "signing in must not open a private Cookbook of somebody else"

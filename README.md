@@ -239,9 +239,11 @@ away.
 
 ## Finding a Recipe
 
-**Recipes** holds two lists: **Mine** and **Shared with me**. **Explore**
-holds every public Recipe, and it needs no account. Each list can be
-searched by title and ordered by the most recent change or by the title.
+**Recipes** holds four tabs: **All**, **Mine**, **Shared with me**, and
+**Favorites**. **All** shows every public Recipe, and it needs no account.
+**Cookbooks** carries the same four tabs, with the public Cookbooks on
+**All**. Each tab can be searched by title and ordered by the most recent
+change or by the title.
 
 Forgejo names the Recipes that a person may see, on every request. The
 index only supplies the words on the card, so a row in the index is never

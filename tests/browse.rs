@@ -180,7 +180,7 @@ async fn the_recipes_area_separates_mine_from_shared_with_me() {
     .await;
     assert!(status.is_success(), "cannot share the Recipe: {status}");
 
-    let mine = page(&app, "/", Some(&sam)).await;
+    let mine = page(&app, "/?area=mine", Some(&sam)).await;
     assert!(
         mine.contains("Sam Soup"),
         "Mine must hold the Recipes of Sam"
@@ -206,7 +206,7 @@ async fn the_recipes_area_separates_mine_from_shared_with_me() {
 }
 
 #[tokio::test]
-async fn explore_shows_the_public_recipes_to_a_visitor_with_no_account() {
+async fn all_shows_the_public_recipes_to_a_visitor_with_no_account() {
     let Ready {
         forgejo,
         app,
@@ -219,10 +219,10 @@ async fn explore_shows_the_public_recipes_to_a_visitor_with_no_account() {
     support::create_recipe(&app, &sam, "Secret Sauce", "Mix the @cream{1%cup}.", true).await;
 
     // Nobody is signed in, and no account exists for this visitor.
-    let anonymous = page(&app, "/explore", None).await;
+    let anonymous = page(&app, "/", None).await;
     assert!(
         anonymous.contains("Public Pie"),
-        "Explore must work without an account"
+        "All must work without an account"
     );
     assert!(
         !anonymous.contains("Secret Sauce"),
@@ -231,7 +231,7 @@ async fn explore_shows_the_public_recipes_to_a_visitor_with_no_account() {
 
     // Another person who is signed in gets the same public catalog.
     let alex = support::sign_in(&app, &forgejo, "alex").await;
-    let other = page(&app, "/explore", Some(&alex)).await;
+    let other = page(&app, "/", Some(&alex)).await;
     assert!(other.contains("Public Pie"));
     assert!(
         !other.contains("Secret Sauce"),
@@ -240,17 +240,101 @@ async fn explore_shows_the_public_recipes_to_a_visitor_with_no_account() {
 
     // The owner sees their own private Recipe in their own area, and still
     // not in the public catalog.
-    let mine = page(&app, "/", Some(&sam)).await;
+    let mine = page(&app, "/?area=mine", Some(&sam)).await;
     assert!(mine.contains("Secret Sauce"));
-    assert!(
-        !page(&app, "/explore", Some(&sam))
-            .await
-            .contains("Secret Sauce")
-    );
+    assert!(!page(&app, "/", Some(&sam)).await.contains("Secret Sauce"));
 }
 
 #[tokio::test]
-async fn explore_can_be_ordered_by_recent_or_by_title() {
+async fn the_recipes_page_offers_four_tabs_to_everybody() {
+    let Ready {
+        forgejo,
+        app,
+        sam,
+        admin: _admin,
+        sam_token: _sam_token,
+    } = ready().await;
+    let alex = support::sign_in(&app, &forgejo, "alex").await;
+
+    support::create_recipe(&app, &sam, "Public Pie", "Bake the @apples{4}.", false).await;
+    support::create_recipe(&app, &alex, "Alex Braise", "Braise the @beef{1%kg}.", false).await;
+
+    // A signed-in person lands on All, which holds every public Recipe and
+    // not only their own.
+    let landing = page(&app, "/", Some(&sam)).await;
+    assert!(
+        landing.contains("Alex Braise"),
+        "a signed-in person must land on All, which holds every public Recipe"
+    );
+    assert!(
+        landing.contains("nav-pill active\" href=\"/?area=all\""),
+        "All must be the tab that is marked"
+    );
+
+    // A visitor sees the same four tabs, in the same order.
+    let visitor = page(&app, "/", None).await;
+    let tabs = ["All", "Mine", "Shared with me", "Favorites"];
+    let mut last = 0;
+    for name in tabs {
+        let tab = format!(">{name}</a>");
+        assert_eq!(
+            visitor.matches(&tab).count(),
+            1,
+            "`{name}` must appear once in the tab row of a visitor"
+        );
+        let at = position(&visitor, &tab);
+        assert!(at >= last, "the tabs must keep the order {tabs:?}");
+        last = at;
+    }
+
+    // No personal control reaches a visitor, and a personal tab says what
+    // to do instead of showing an empty page.
+    assert!(!visitor.contains("href=\"/recipes/new\""));
+    let personal = page(&app, "/?area=mine", None).await;
+    assert!(
+        personal.contains("Sign in to see your Recipes."),
+        "a personal tab must say what to do without an account"
+    );
+
+    // The tab row keeps the search words and the order, on every tab. The
+    // address escapes `&` the way HTML needs it, so read it back the way a
+    // browser does.
+    let searched = page(&app, "/?q=pie&sort=title", Some(&sam))
+        .await
+        .replace("&#38;", "&");
+    for area in ["all", "mine", "shared", "favorites"] {
+        assert!(
+            searched.contains(&format!("href=\"/?area={area}&q=pie&sort=title\"")),
+            "the `{area}` tab must keep the search and the order"
+        );
+    }
+
+    // The address of the page that is gone answers 404.
+    let response = support::client()
+        .get(app.url("/explore"))
+        .send()
+        .await
+        .expect("cannot reach the page");
+    assert_eq!(
+        response.status(),
+        404,
+        "/explore must be gone, not redirected"
+    );
+
+    // The search field of the navigation leads to the Recipes page, and the
+    // navigation of a visitor holds the two areas and the way in.
+    assert!(visitor.contains("action=\"/\""));
+    assert!(visitor.contains(">Recipes</a>"), "the nav holds Recipes");
+    assert!(
+        visitor.contains("href=\"/cookbooks\""),
+        "the nav holds Cookbooks"
+    );
+    assert!(visitor.contains("/auth/sign-in"), "the nav holds Sign in");
+    assert!(!visitor.contains("/explore"));
+}
+
+#[tokio::test]
+async fn the_all_tab_can_be_ordered_by_recent_or_by_title() {
     let Ready {
         forgejo: _forgejo,
         app,
@@ -265,14 +349,14 @@ async fn explore_can_be_ordered_by_recent_or_by_title() {
     next_second().await;
     support::create_recipe(&app, &sam, "Mango Rice", "Cook the @rice{1%cup}.", false).await;
 
-    let recent = page(&app, "/explore?sort=recent", None).await;
+    let recent = page(&app, "/?sort=recent", None).await;
     assert!(
         position(&recent, "Mango Rice") < position(&recent, "Apple Cake"),
         "the newest Recipe must come first"
     );
     assert!(position(&recent, "Apple Cake") < position(&recent, "Zucchini Bake"));
 
-    let alphabetical = page(&app, "/explore?sort=title", None).await;
+    let alphabetical = page(&app, "/?sort=title", None).await;
     assert!(
         position(&alphabetical, "Apple Cake") < position(&alphabetical, "Mango Rice"),
         "A comes before M"
@@ -304,7 +388,7 @@ async fn search_finds_a_recipe_by_the_title_that_a_person_sees() {
     .await;
     support::create_recipe(&app, &sam, "Apple Cake", "Bake the @apples{4}.", false).await;
 
-    let found = page(&app, "/explore?q=sin%20Carne", None).await;
+    let found = page(&app, "/?q=sin%20Carne", None).await;
     assert!(found.contains("Chili sin Carne"), "the title must be found");
     assert!(
         !found.contains("Apple Cake"),
@@ -313,19 +397,19 @@ async fn search_finds_a_recipe_by_the_title_that_a_person_sees() {
 
     // The search is not sensitive to case.
     assert!(
-        page(&app, "/explore?q=CHILI", None)
+        page(&app, "/?q=CHILI", None)
             .await
             .contains("Chili sin Carne")
     );
 
     // A search that matches nothing says so instead of showing everything.
-    let nothing = page(&app, "/explore?q=zzzz", None).await;
+    let nothing = page(&app, "/?q=zzzz", None).await;
     assert!(!nothing.contains("Chili sin Carne"));
     assert!(!nothing.contains("Apple Cake"));
     assert!(nothing.contains("No Recipe title contains these words"));
 
     // The same search works in the Recipes area of a signed-in person.
-    let mine = page(&app, "/?q=sin%20Carne", Some(&sam)).await;
+    let mine = page(&app, "/?area=mine&q=sin%20Carne", Some(&sam)).await;
     assert!(mine.contains("Chili sin Carne"));
     assert!(!mine.contains("Apple Cake"));
 }
@@ -349,7 +433,7 @@ async fn a_recipe_card_carries_culinary_information_and_no_git_words() {
     )
     .await;
 
-    let body = page(&app, "/explore", None).await;
+    let body = page(&app, "/", None).await;
 
     assert!(body.contains("Green Goddess Salad"));
     assert!(body.contains("4 servings"), "a card says who it feeds");
@@ -687,7 +771,7 @@ async fn the_topics_decide_what_the_application_shows() {
     .await;
     assert!(status.is_success(), "cannot write the file: {status}");
 
-    let body = page(&app, "/explore", None).await;
+    let body = page(&app, "/", None).await;
     assert!(body.contains("Chili sin Carne"));
     assert!(
         !body.contains("Hidden Cake"),
@@ -696,7 +780,7 @@ async fn the_topics_decide_what_the_application_shows() {
 
     // One topic is not enough. Both are the marker.
     set_topics(&forgejo, token, "sam/chili-sin-carne", &["cooklang"]).await;
-    let body = page(&app, "/explore", None).await;
+    let body = page(&app, "/", None).await;
     assert!(
         !body.contains("Chili sin Carne"),
         "one topic must not be enough"

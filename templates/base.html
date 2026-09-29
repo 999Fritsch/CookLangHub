@@ -34,12 +34,12 @@
             {#
               The search of CookCLI, in their place and their shape. Theirs
               reads as a person types and shows the answers under the field.
-              This one is a form that goes to Explore, because the answer
-              there is the one Forgejo gives for this person: a search that
-              ran in the browser would either miss a private Recipe or leak
-              one.
+              This one is a form that goes to the Recipes page, because the
+              answer there is the one Forgejo gives for this person: a search
+              that ran in the browser would either miss a private Recipe or
+              leak one.
             #}
-            <form method="get" action="/explore"
+            <form method="get" action="/"
                   class="order-2 flex-1 min-w-40 lg:ml-2 lg:mr-4 relative" role="search">
               <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <svg class="h-5 w-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -67,14 +67,13 @@
               needs a script. That is a small price for a control that works
               with scripts off.
             #}
-            <div class="order-3 lg:w-auto flex items-center gap-1 lg:gap-2">
+            <div class="order-3 lg:w-auto flex flex-wrap items-center gap-1 lg:gap-2">
               {% if layout.signed_in %}
               {# Wide enough for words. #}
               <div class="hidden lg:flex items-center gap-1 lg:gap-2">
                 <a href="/" class="nav-pill {% if layout.area_is("recipes") %}active{% endif %}">Recipes</a>
                 <a href="/cookbooks" class="nav-pill {% if layout.area_is("cookbooks") %}active{% endif %}">Cookbooks</a>
                 <a href="/suggestions" class="nav-pill {% if layout.area_is("suggestions") %}active{% endif %}">Suggestions</a>
-                <a href="/explore" class="nav-pill {% if layout.area_is("explore") %}active{% endif %}">Explore</a>
                 <a href="/recipes/new" class="nav-pill {% if layout.area_is("new") %}active{% endif %}">New Recipe</a>
 
                 <span class="inline-flex items-center gap-2 ml-2 text-sm text-gray-600">
@@ -106,10 +105,6 @@
                      {% if layout.area_is("suggestions") %}aria-current="page"{% endif %}>
                     <span aria-hidden="true">✉️</span> <span>Suggestions</span>
                   </a>
-                  <a href="/explore" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
-                     {% if layout.area_is("explore") %}aria-current="page"{% endif %}>
-                    <span aria-hidden="true">🌍</span> <span>Explore</span>
-                  </a>
                   <a href="/recipes/new" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
                      {% if layout.area_is("new") %}aria-current="page"{% endif %}>
                     <span aria-hidden="true">➕</span> <span>New Recipe</span>
@@ -136,8 +131,10 @@
                 </div>
               </details>
               {% else %}
-              {# Two controls fit on one row at any width. #}
-              <a href="/explore" class="nav-pill {% if layout.area_is("explore") %}active{% endif %}">Explore</a>
+              {# Three controls: the two areas, and the way in. They wrap, so
+                 that a narrow screen keeps them all. #}
+              <a href="/" class="nav-pill {% if layout.area_is("recipes") %}active{% endif %}">Recipes</a>
+              <a href="/cookbooks" class="nav-pill {% if layout.area_is("cookbooks") %}active{% endif %}">Cookbooks</a>
               <a href="/auth/sign-in" class="btn-primary px-5 py-2 rounded-full font-medium text-white whitespace-nowrap">Sign in</a>
               {% endif %}
 
