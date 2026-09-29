@@ -250,6 +250,126 @@ async fn explore_shows_the_public_recipes_to_a_visitor_with_no_account() {
 }
 
 #[tokio::test]
+async fn the_start_page_shows_the_public_recipes_to_a_visitor() {
+    let Ready {
+        forgejo: _forgejo,
+        app,
+        sam,
+        admin: _admin,
+        sam_token: _sam_token,
+    } = ready().await;
+
+    support::create_recipe(&app, &sam, "Public Pie", "Bake the @apples{4}.", false).await;
+    support::create_recipe(&app, &sam, "Secret Sauce", "Mix the @cream{1%cup}.", true).await;
+    support::create_recipe(&app, &sam, "Apple Cake", "Bake the @apples{4}.", false).await;
+
+    // Nobody is signed in. The start page is the Recipes page for a
+    // visitor, and it shows the public catalog that `/explore` shows.
+    let start = page(&app, "/", None).await;
+    assert!(
+        start.contains("Public Pie"),
+        "the start page must show the public Recipes to a visitor"
+    );
+    assert!(start.contains("Apple Cake"));
+    assert!(
+        !start.contains("Secret Sauce"),
+        "a private Recipe must never reach a visitor"
+    );
+
+    // The welcome card is gone from the start page.
+    assert!(
+        !start.contains("A place to write Recipes"),
+        "the welcome card must be gone"
+    );
+    assert!(
+        !page(&app, "/", Some(&sam))
+            .await
+            .contains("A place to write Recipes"),
+        "the welcome card must be gone for a signed-in person too"
+    );
+
+    // Sign in stays in the navigation. No control that needs an account
+    // appears, and the list tabs belong to a signed-in person.
+    assert!(
+        start.contains("/auth/sign-in"),
+        "a visitor must still be offered Sign in"
+    );
+    assert!(
+        !start.contains("/recipes/new"),
+        "a visitor must not be offered New Recipe"
+    );
+    for tab in ["Mine", "Shared with me", "Favorites"] {
+        assert!(
+            !start.contains(&format!(">{tab}<")),
+            "the `{tab}` tab must not appear for a visitor"
+        );
+    }
+
+    // The `area` parameter belongs to a signed-in person. A visitor who
+    // asks for another list still gets the public catalog.
+    for area in ["mine", "shared", "favorites"] {
+        let asked = page(&app, &format!("/?area={area}"), None).await;
+        assert!(
+            asked.contains("Public Pie"),
+            "`area={area}` must show the public catalog"
+        );
+        assert!(
+            !asked.contains("Secret Sauce"),
+            "`area={area}` must not open a private Recipe"
+        );
+    }
+
+    // Search and order work on the start page for a visitor.
+    let searched = page(&app, "/?q=Public%20Pie", None).await;
+    assert!(searched.contains("Public Pie"));
+    assert!(
+        !searched.contains("Apple Cake"),
+        "a search must leave out what it did not match"
+    );
+
+    let ordered = page(&app, "/?sort=title", None).await;
+    assert!(
+        position(&ordered, "Apple Cake") < position(&ordered, "Public Pie"),
+        "A must come before P when the titles decide"
+    );
+
+    // A public Recipe is readable without an account.
+    let recipe = page(&app, "/recipes/sam/public-pie", None).await;
+    assert!(
+        recipe.contains("Public Pie"),
+        "a public Recipe must be readable without an account"
+    );
+
+    // A person who signs in lands on `/` and keeps the Recipes area.
+    let signed_in = page(&app, "/", Some(&sam)).await;
+    assert!(
+        signed_in.contains(">Mine<"),
+        "the signed-in person keeps the list tabs"
+    );
+    assert!(
+        signed_in.contains("Secret Sauce"),
+        "the signed-in person keeps their own private Recipe"
+    );
+}
+
+#[tokio::test]
+async fn the_start_page_says_so_when_forgejo_cannot_answer() {
+    // An address where nothing listens. No Forgejo and no container are
+    // needed to build this page.
+    let app = support::start_app(&support::unreachable_url().await).await;
+
+    // The start page shows what the other Recipe lists show: the list is
+    // empty because nothing is known, and the page says so.
+    for path in ["/", "/explore"] {
+        let body = page(&app, path, None).await;
+        assert!(
+            body.contains("cannot reach Forgejo"),
+            "`{path}` must say that Forgejo is away"
+        );
+    }
+}
+
+#[tokio::test]
 async fn explore_can_be_ordered_by_recent_or_by_title() {
     let Ready {
         forgejo: _forgejo,
